@@ -1,0 +1,2 @@
+c55ae2faa5d850e0e4650bd573f7f241b10e2e0b
+# npm package used for catalog JSON: @earendil-works/pi-ai@0.81.1

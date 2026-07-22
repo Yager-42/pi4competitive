@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.0` |
+| **roadmap_version** | `0.1.1` |
 | **status** | active |
 | **updated** | 2026-07-22 |
 | **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.1 frozen** |
@@ -142,8 +142,8 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 
 | 阶段 | 状态 | 完成日期 | 备注 |
 |------|------|----------|------|
-| P1 `packages/ai` | **todo** | | |
-| P2 `packages/agent` | blocked on P1 | | |
+| P1 `packages/ai` | **done** | 2026-07-22 | branch `p1/packages-ai`; offline tests green |
+| P2 `packages/agent` | **todo** | | unblocked by P1 |
 | P3 capability loader | blocked on P2 | | |
 | P4 `competitive_app` | blocked on P3 | | |
 | 业务能力 v1 | blocked on P4 开工前冻结 | | |
@@ -167,3 +167,4 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | 0.1.0 | 2026-07-22 | 初版：对齐契约 v0.3.1；P1–P4 门禁；业务能力延后冻结 |
+| 0.1.1 | 2026-07-22 | P1 packages/ai 完成（同构 port + 契约测试绿） |

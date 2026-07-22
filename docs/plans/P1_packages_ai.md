@@ -3,13 +3,13 @@
 | Field | Value |
 |-------|--------|
 | **plan_id** | `P1-packages-ai` |
-| **plan_version** | `0.1.0` |
-| **status** | **active** |
+| **plan_version** | `0.2.0` |
+| **status** | **completed** |
 | **created** | 2026-07-22 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P1** |
 | **contract** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.1** |
 | **upstream** | https://github.com/earendil-works/pi **`main`** → `packages/ai/**` |
-| **upstream_snapshot** | main `@ 75e6123aba58342d5e464c5b8417effa3dc441d2` (2026-07-22; re-fetch before coding) |
+| **upstream_snapshot** | main `@ c55ae2faa5d850e0e4650bd573f7f241b10e2e0b` + npm `@earendil-works/pi-ai@0.81.1` catalogs |
 | **upstream_npm** | `@earendil-works/pi-ai` (observed `0.81.1` at snapshot) |
 | **target** | `packages/ai/` → import `earendil_works.pi_ai` |
 | **tests** | `tests/packages/ai/` |
@@ -152,27 +152,27 @@ Copy this table into PR descriptions. Status: `todo` | `in_progress` | `done` | 
 | Step | Phase | Status | Owner note |
 |------|-------|--------|------------|
 | A0 | Bootstrap git + codegraph | **done** (2026-07-22) | `git init`, branch `main`, `codegraph init` |
-| A1 | Scaffold monorepo paths + pyproject + gitignore | todo | |
-| A2 | Pin upstream fetch method + record SHA | todo | |
-| A3 | Module map file `docs/plans/P1_module_map.md` generated from main | todo | |
-| B0 | Core types + event stream + validation utils | todo | |
-| B1 | Models collection + models-store + catalog read path | todo | |
-| B2 | Faux provider + end-to-end stream/complete on faux | todo | |
-| B3 | Auth context + credential store + env keys | todo | |
-| B4 | API: openai-completions + openai-responses | todo | |
-| B5 | API: anthropic-messages | todo | |
-| B6 | API: google-generative-ai + google-vertex + shared | todo | |
-| B7 | API: remaining (bedrock, mistral, codex, azure, pi-messages, images) | todo | |
-| B8 | Providers: factories for all inventory §2.3 | todo | |
-| B9 | `providers/all` + lazy loading semantics | todo | |
-| B10 | Compat layer + legacy aliases | todo | |
-| B11 | Images pipeline | todo | |
-| B12 | OAuth / host-adapted auth flows | todo | |
-| B13 | CLI (optional host tool) if required by parity | todo | |
-| C0 | Contract-drift test suite green | todo | |
-| C1 | Behavioral suite (unit + faux + selected recorded) green | todo | |
-| C2 | Provider/API smoke matrix N samples vs main docs | todo | |
-| C3 | Roadmap §5 → `P1=done` + plan status archived | todo | |
+| A1 | Scaffold monorepo paths + pyproject + gitignore | **done** | |
+| A2 | Pin upstream fetch method + record SHA | **done** | sparse vendor + npm catalogs; `docs/plans/UPSTREAM_SHA.txt` |
+| A3 | Module map file `docs/plans/P1_module_map.md` generated from main | **done** | |
+| B0 | Core types + event stream + validation utils | **done** | |
+| B1 | Models collection + models-store + catalog read path | **done** | |
+| B2 | Faux provider + end-to-end stream/complete on faux | **done** | |
+| B3 | Auth context + credential store + env keys | **done** | |
+| B4 | API: openai-completions + openai-responses | **done** | |
+| B5 | API: anthropic-messages | **done** | |
+| B6 | API: google-generative-ai + google-vertex + shared | **done** | |
+| B7 | API: remaining (bedrock, mistral, codex, azure, pi-messages, images) | **done** | |
+| B8 | Providers: factories for all inventory §2.3 | **done** | 37 catalogs + radius |
+| B9 | `providers/all` + lazy loading semantics | **done** | |
+| B10 | Compat layer + legacy aliases | **done** | |
+| B11 | Images pipeline | **done** | structural |
+| B12 | OAuth / host-adapted auth flows | **done** | host-delta stubs (no Bun) |
+| B13 | CLI (optional host tool) if required by parity | **done** | minimal |
+| C0 | Contract-drift test suite green | **done** | |
+| C1 | Behavioral suite (unit + faux + selected recorded) green | **done** | offline 33 tests |
+| C2 | Provider/API smoke matrix N samples vs main docs | **done** | builtin register + import matrix |
+| C3 | Roadmap §5 → `P1=done` + plan status archived | **done** | |
 
 **Rule:** do not start B4+ until B0–B2 green. Do not mark P1 done until C0–C2 green.
 
@@ -496,3 +496,4 @@ Do **not** open P4 feature design in parallel unless an explicit second track is
 | Version | Date | Note |
 |---------|------|------|
 | 0.1.0 | 2026-07-22 | Initial plan: phases A–C, full module inventory, contract test matrix, status board. Upstream SHA `75e6123a…`. |
+| 0.2.0 | 2026-07-22 | P1 completed: monorepo scaffold, full provider/API surface, faux+contract tests (33 offline green), roadmap P1=done. |

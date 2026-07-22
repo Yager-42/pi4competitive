@@ -1,0 +1,8 @@
+# Example settings — no live secrets.
+# Copy to .env / local config as needed.
+
+providers: {}
+# Example:
+# providers:
+#   openai:
+#     api_key: ${OPENAI_API_KEY}
