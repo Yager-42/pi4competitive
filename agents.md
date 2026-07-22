@@ -8,7 +8,8 @@ This file is for humans and coding agents working in this repo.
 |-----|------|
 | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.1 frozen baseline** — process, paths, imports, stack, load rules |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Serial phases P1→P4 and exit gates |
-| [`docs/plans/P1_packages_ai.md`](docs/plans/P1_packages_ai.md) | **Active implementation plan** for P1 (`packages/ai`) |
+| [`docs/plans/P1_packages_ai.md`](docs/plans/P1_packages_ai.md) | P1 plan (**completed**) — `packages/ai` / `earendil_works.pi_ai` |
+| [`docs/plans/P2_packages_agent.md`](docs/plans/P2_packages_agent.md) | **Active implementation plan** for P2 (`packages/agent`) |
 | `docs/contracts/adr/*` | Architecture Decision Records |
 
 **Rules:**
@@ -122,9 +123,9 @@ Record the main SHA used for a port PR in the PR body (forensics only; no mandat
 
 ### Progress tracking
 
-- Active phase checklist: `docs/plans/P1_packages_ai.md` status board.
+- Active phase checklist: `docs/plans/P2_packages_agent.md` status board (P1 completed).
 - Roadmap phase flags: `docs/ROADMAP.md` §5.
-- Do not mark `P1=done` until every P1 exit criterion and the plan’s **gate G1** tests pass.
+- Do not mark `P2=done` until JSONL resume exit smoke and the plan’s contract tests pass.
 
 ### PR checklist (every PR)
 
