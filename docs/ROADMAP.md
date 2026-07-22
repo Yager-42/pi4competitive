@@ -70,6 +70,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 |----|------|
 | **目标** | main `packages/agent` core+harness 目标面同构（契约 D3） |
 | **依赖** | **P1 done** |
+| **实现计划** | [`docs/plans/P2_packages_agent.md`](plans/P2_packages_agent.md) |
 | **必含能力族** | loop/agent/tools/events/abort；session 树；**JSONL @ `data/sessions/`**；compaction/branch；skills/prompt 资源语义；steering/follow-up 等 main 已有控制面 |
 | **完成标准** | ① 依赖 `earendil_works.pi_ai` 真包而非永久假实现；② JSONL session 可恢复；③ tool 校验时机对齐 TypeBox→Pydantic 语义；④ `tests/packages/agent/` 覆盖 loop+tool+session 主路径；⑤ 无竞品 domain 类型泄漏 |
 | **显式不做** | 六阶段研究 DAG；远程 package-manager |
