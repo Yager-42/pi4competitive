@@ -3,7 +3,7 @@
 | upstream path | python path | status | notes |
 |---------------|-------------|--------|-------|
 | `src/types.ts` | `packages/agent/src/earendil_works/pi_agent/types.py` | done | StreamFn, AgentTool, AgentEvent, … |
-| `src/agent-loop.ts` | `packages/agent/src/earendil_works/pi_agent/agent_loop.py` | todo | agent_loop / agent_loop_continue |
+| `src/agent-loop.ts` | `packages/agent/src/earendil_works/pi_agent/agent_loop.py` | done | agent_loop / continue + tools |
 | `src/agent.ts` | `packages/agent/src/earendil_works/pi_agent/agent.py` | todo | Agent class |
 | `src/stream-fn.ts` | `packages/agent/src/earendil_works/pi_agent/stream_fn.py` | done | |
 | `src/proxy.ts` | `packages/agent/src/earendil_works/pi_agent/proxy.py` | todo | |

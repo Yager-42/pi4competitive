@@ -200,8 +200,8 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | A2 | Pin upstream agent tree + SHA note | done | vendor sparse ai+agent @ c55ae2fa… |
 | A3 | Write `docs/plans/P2_module_map.md` | done | |
 | B0 | Types + StreamFn contract + AgentEvent | done | types.py + stream_fn + unit tests |
-| B1 | `agent_loop` / continue (text only, no tools) | todo | faux model |
-| B2 | Tool execution sequential + parallel + hooks | todo | |
+| B1 | `agent_loop` / continue (text only, no tools) | done | faux text event-order test |
+| B2 | Tool execution sequential + parallel + hooks | done | echo/block/parallel source order |
 | B3 | `Agent` class: prompt/continue/subscribe/state/abort | todo | |
 | B4 | Steering + follow-up queues | todo | |
 | B5 | Memory session storage/repo | todo | |

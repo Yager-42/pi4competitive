@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from earendil_works.pi_ai import uuidv7
 
+from .agent_loop import agent_loop, agent_loop_continue, run_agent_loop, run_agent_loop_continue
 from .stream_fn import get_default_stream_fn, set_default_stream_fn
 from .types import (
     AfterToolCallContext,
@@ -51,7 +52,11 @@ __all__ = [
     "StreamFn",
     "ThinkingLevel",
     "ToolExecutionMode",
+    "agent_loop",
+    "agent_loop_continue",
     "get_default_stream_fn",
+    "run_agent_loop",
+    "run_agent_loop_continue",
     "set_default_stream_fn",
     "uuidv7",
 ]
