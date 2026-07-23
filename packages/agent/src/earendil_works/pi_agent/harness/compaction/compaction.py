@@ -103,14 +103,21 @@ def serialize_conversation(messages: list[AgentMessage]) -> str:
         elif isinstance(content, list):
             texts = []
             for b in content:
-                if isinstance(b, dict) and b.get("type") == "text":
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "text":
                     texts.append(str(b.get("text") or ""))
-            text = "\n".join(texts)
+                elif b.get("type") == "toolCall":
+                    texts.append(f"toolCall:{b.get('name')}({b.get('arguments')})")
+                elif b.get("type") == "thinking":
+                    texts.append(str(b.get("thinking") or b.get("text") or ""))
+            text = "\n".join(t for t in texts if t)
         else:
-            text = str(content)
+            text = str(content) if content is not None else ""
+        if not text and role:
+            text = f"({role} message)"
         parts.append(f"{role}: {text}")
-    return "\n".join(parts)
-
+    return "\n".join(parts) if parts else "(empty conversation)"
 
 async def generate_summary(
     messages: list[AgentMessage],

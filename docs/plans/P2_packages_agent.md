@@ -456,9 +456,10 @@ Default: `pytest tests/packages/agent -m "not live"`.
 | `e2e.test.ts` | integration (faux); live optional |
 
 ### 6.5 Live (optional, not exit-blocking)
-
-`@pytest.mark.live` with `.env` gateway (see `scripts/smoke_live_model.py` pattern): Agent + real model + echo tool.  
-P2 **exit does not require** live keys if faux+JSONL smoke is solid.
+`@pytest.mark.live` with `.env` gateway (`tests/live_env.py` + `tests/packages/agent/integration/live/`):
+covers **agent loop/events/abort**, **tools seq/parallel**, **JSONL multi-turn + branch**, **steering/follow-up**, **skills + AgentHarness**, **compaction** over real transcripts.
+P1 stays minimal single `completeSimple` live smoke only (no full-provider matrix).
+Default CI remains offline: `pytest -m "not live"`.
 
 ---
 
