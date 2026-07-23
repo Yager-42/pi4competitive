@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from earendil_works.pi_ai import uuidv7
 
+from .agent import AbortController, AbortSignal, Agent, AgentOptions
 from .agent_loop import agent_loop, agent_loop_continue, run_agent_loop, run_agent_loop_continue
 from .stream_fn import get_default_stream_fn, set_default_stream_fn
 from .types import (
@@ -32,14 +33,18 @@ from .types import (
 )
 
 __all__ = [
+    "AbortController",
+    "AbortSignal",
     "AfterToolCallContext",
     "AfterToolCallResult",
+    "Agent",
     "AgentContext",
     "AgentEvent",
     "AgentEventSink",
     "AgentLoopConfig",
     "AgentLoopTurnUpdate",
     "AgentMessage",
+    "AgentOptions",
     "AgentTool",
     "AgentToolCall",
     "AgentToolResult",

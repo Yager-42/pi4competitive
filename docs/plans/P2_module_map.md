@@ -4,7 +4,7 @@
 |---------------|-------------|--------|-------|
 | `src/types.ts` | `packages/agent/src/earendil_works/pi_agent/types.py` | done | StreamFn, AgentTool, AgentEvent, … |
 | `src/agent-loop.ts` | `packages/agent/src/earendil_works/pi_agent/agent_loop.py` | done | agent_loop / continue + tools |
-| `src/agent.ts` | `packages/agent/src/earendil_works/pi_agent/agent.py` | todo | Agent class |
+| `src/agent.ts` | `packages/agent/src/earendil_works/pi_agent/agent.py` | done | continue_ host-delta name |
 | `src/stream-fn.ts` | `packages/agent/src/earendil_works/pi_agent/stream_fn.py` | done | |
 | `src/proxy.ts` | `packages/agent/src/earendil_works/pi_agent/proxy.py` | todo | |
 | `src/index.ts` | `packages/agent/src/earendil_works/pi_agent/__init__.py` | todo | partial re-exports (types + stream_fn) |
