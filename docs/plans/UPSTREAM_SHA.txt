@@ -1,2 +1,4 @@
 c55ae2faa5d850e0e4650bd573f7f241b10e2e0b
-# npm package used for catalog JSON: @earendil-works/pi-ai@0.81.1
+# sparse paths: packages/ai packages/agent
+# npm: @earendil-works/pi-ai@0.81.1 / @earendil-works/pi-agent-core@0.81.1
+# vendor: vendor/earendil-works-pi (gitignored)

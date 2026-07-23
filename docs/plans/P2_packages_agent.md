@@ -195,11 +195,11 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 
 | Step | Phase | Status | Owner note |
 |------|-------|--------|------------|
-| G0 | Verify P1 import + offline suite still green | todo | |
-| A1 | Scaffold `packages/agent` pyproject + package tree | todo | |
-| A2 | Pin upstream agent tree + SHA note | todo | vendor sparse + npm if useful |
-| A3 | Write `docs/plans/P2_module_map.md` | todo | |
-| B0 | Types + StreamFn contract + AgentEvent | todo | |
+| G0 | Verify P1 import + offline suite still green | done | 33 ai + agent scaffold offline green |
+| A1 | Scaffold `packages/agent` pyproject + package tree | done | earendil_works.pi_agent importable |
+| A2 | Pin upstream agent tree + SHA note | done | vendor sparse ai+agent @ c55ae2fa… |
+| A3 | Write `docs/plans/P2_module_map.md` | done | |
+| B0 | Types + StreamFn contract + AgentEvent | done | types.py + stream_fn + unit tests |
 | B1 | `agent_loop` / continue (text only, no tools) | todo | faux model |
 | B2 | Tool execution sequential + parallel + hooks | todo | |
 | B3 | `Agent` class: prompt/continue/subscribe/state/abort | todo | |

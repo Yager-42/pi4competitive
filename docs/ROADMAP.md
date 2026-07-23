@@ -144,7 +144,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 阶段 | 状态 | 完成日期 | 备注 |
 |------|------|----------|------|
 | P1 `packages/ai` | **done** | 2026-07-22 | branch `p1/packages-ai`; offline tests green |
-| P2 `packages/agent` | **todo** | | unblocked by P1 |
+| P2 `packages/agent` | **in_progress** | | branch `p2/packages-agent`; Phase A scaffold done |
 | P3 capability loader | blocked on P2 | | |
 | P4 `competitive_app` | blocked on P3 | | |
 | 业务能力 v1 | blocked on P4 开工前冻结 | | |
