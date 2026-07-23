@@ -152,7 +152,7 @@ Upstream loads `.ts` extensions via jiti. **Host delta:**
 | B6 | `echo_example` package | done | |
 | C0 | Contract: omit install/npm/git; no domain; map closed | done | |
 | C1 | faux Agent calls capability tool | done | **exit** |
-| C2 | optional live `.env` | todo | optional |
+| C2 | optional live `.env` | done | tests/capability_loader/integration/live/ |
 | C3 | Roadmap P3=done; plan completed | done | |
 
 ---
