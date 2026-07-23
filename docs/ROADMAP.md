@@ -82,11 +82,12 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 |----|------|
 | **目标** | 从 **`capability_packages/`** 加载本地 Python 包并注册 tools（契约 D5/D22） |
 | **依赖** | **P2 done** |
+| **实现计划** | [`docs/plans/P3_capability_loader.md`](plans/P3_capability_loader.md) |
 | **必含** | 列举子目录；导入约定入口；注册 `AgentTool`；加载失败可观测 |
-| **可选** | skills/prompts 资源文件；启用白名单 |
+| **可选** | skills/prompts 资源文件；启用白名单；gateway live |
 | **显式不做** | npm/git 下载、`~/.pi` 扫描、`pi install` CLI、全文 coding package-manager |
 | **完成标准** | ① 至少一个示例包（可 no-op/echo tool）可被 agent 调用；② 非法包失败不拖垮进程（策略明确）；③ 测试覆盖加载与注册 |
-| **退出条件** | 文档化子包目录约定 + 测试绿 → `P3=done` |
+| **退出条件** | 文档化子包目录约定 + C1 faux 冒烟绿 → `P3=done` |
 
 ### P4 — `competitive_app`
 
@@ -145,7 +146,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 |------|------|----------|------|
 | P1 `packages/ai` | **done** | 2026-07-22 | branch `p1/packages-ai`; offline tests green |
 | P2 `packages/agent` | **done** | 2026-07-23 | branch `p2/packages-agent`; offline suite green; JSONL resume smoke |
-| P3 capability loader | **todo** | | unblocked by P2 |
+| P3 capability loader | **todo** | | unblocked by P2; plan [`P3_capability_loader.md`](plans/P3_capability_loader.md) |
 | P4 `competitive_app` | blocked on P3 | | |
 | 业务能力 v1 | blocked on P4 开工前冻结 | | |
 

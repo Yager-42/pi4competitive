@@ -9,7 +9,8 @@ This file is for humans and coding agents working in this repo.
 | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.1 frozen baseline** — process, paths, imports, stack, load rules |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Serial phases P1→P4 and exit gates |
 | [`docs/plans/P1_packages_ai.md`](docs/plans/P1_packages_ai.md) | P1 plan (**completed**) — `packages/ai` / `earendil_works.pi_ai` |
-| [`docs/plans/P2_packages_agent.md`](docs/plans/P2_packages_agent.md) | **Active implementation plan** for P2 (`packages/agent`) |
+| [`docs/plans/P2_packages_agent.md`](docs/plans/P2_packages_agent.md) | P2 plan (**completed**) — `packages/agent` / `earendil_works.pi_agent` |
+| [`docs/plans/P3_capability_loader.md`](docs/plans/P3_capability_loader.md) | **Active implementation plan** for P3 (local `capability_packages/` loader) |
 | `docs/contracts/adr/*` | Architecture Decision Records |
 
 **Rules:**
