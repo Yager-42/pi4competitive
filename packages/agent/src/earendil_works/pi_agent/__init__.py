@@ -32,6 +32,13 @@ from .harness.session import (
     JsonlSessionStorage,
     build_session_context,
 )
+from .package_manager import (
+    LocalPackageManager,
+    LoadReport,
+    apply_capability_report,
+    load_capability_packages,
+    load_capability_packages_sync,
+)
 from .stream_fn import get_default_stream_fn, set_default_stream_fn
 from .types import (
     AfterToolCallContext,
@@ -81,6 +88,8 @@ __all__ = [
     "InMemorySessionStorage",
     "JsonlSessionRepo",
     "JsonlSessionStorage",
+    "LoadReport",
+    "LocalPackageManager",
     "PrepareNextTurnContext",
     "QueueMode",
     "Session",
@@ -96,6 +105,9 @@ __all__ = [
     "compact",
     "create_coding_tools",
     "create_read_tool",
+    "apply_capability_report",
+    "load_capability_packages",
+    "load_capability_packages_sync",
     "create_write_tool",
     "estimate_context_tokens",
     "find_cut_point",

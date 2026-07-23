@@ -4,7 +4,7 @@
 |-------|--------|
 | **plan_id** | `P3-capability-loader` |
 | **plan_version** | `0.2.0` |
-| **status** | **active** |
+| **status** | **completed** |
 | **created** | 2026-07-23 |
 | **updated** | 2026-07-23 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P3** |
@@ -139,21 +139,21 @@ Upstream loads `.ts` extensions via jiti. **Host delta:**
 
 | Step | Phase | Status | Note |
 |------|-------|--------|------|
-| G0 | P1+P2 offline green | todo | |
-| A0 | Sparse vendor coding-agent + SHA note | todo | |
-| A1 | Scaffold `package_manager/` + `capability_packages/` | todo | |
-| A2 | `P3_module_map.md` from §2 | todo | |
-| A3 | `capability_packages/README.md` (local structure only) | todo | |
-| B1 | Types + collect/discover (manifest + conventions) | todo | port from package-manager helpers |
-| B2 | `LocalPackageManager.resolve` local-only | todo | no install methods |
-| B3 | `LocalResourceLoader` skills/prompts/extensions load | todo | |
-| B4 | extensions_loader → `AgentTool[]` | todo | |
-| B5 | `apply` to Agent; name collision policy | todo | |
-| B6 | `echo_example` package | todo | |
-| C0 | Contract: omit install/npm/git; no domain; map closed | todo | |
-| C1 | faux Agent calls capability tool | todo | **exit** |
-| C2 | optional live `.env` | todo | |
-| C3 | Roadmap P3=done; plan completed | todo | |
+| G0 | P1+P2 offline green | done | suite still green with P3 tests |
+| A0 | Sparse vendor coding-agent + SHA note | done | UPSTREAM_SHA + vendor present |
+| A1 | Scaffold `package_manager/` + `capability_packages/` | done | under `pi_agent.package_manager` |
+| A2 | `P3_module_map.md` from §2 | done | |
+| A3 | `capability_packages/README.md` (local structure only) | done | |
+| B1 | Types + collect/discover (manifest + conventions) | done | |
+| B2 | `LocalPackageManager.resolve` local-only | done | install methods raise UnsupportedInstallError |
+| B3 | `LocalResourceLoader` skills/prompts/extensions load | done | |
+| B4 | extensions_loader → `AgentTool[]` | done | host-delta Python register |
+| B5 | `apply` to Agent; name collision policy | done | first_wins default |
+| B6 | `echo_example` package | done | |
+| C0 | Contract: omit install/npm/git; no domain; map closed | done | |
+| C1 | faux Agent calls capability tool | done | **exit** |
+| C2 | optional live `.env` | todo | optional |
+| C3 | Roadmap P3=done; plan completed | done | |
 
 ---
 
@@ -227,11 +227,11 @@ class LocalPackageManager:
 
 ## 8. Definition of done
 
-- [ ] Module map: every Port row done or host-delta  
-- [ ] No install/npm/git in shipped loader  
-- [ ] `capability_packages/echo_example` works with Agent(faux)  
-- [ ] C0+C1 green; P1+P2 still green  
-- [ ] Roadmap P3=done  
+- [x] Module map: every Port row done or host-delta  
+- [x] No install/npm/git in shipped loader  
+- [x] `capability_packages/echo_example` works with Agent(faux)  
+- [x] C0+C1 green; P1+P2 still green  
+- [x] Roadmap P3=done  
 
 ---
 
@@ -241,3 +241,4 @@ class LocalPackageManager:
 |---------|------|------|
 | 0.1.0 | 2026-07-23 | Thin local loader (approach B) |
 | 0.2.0 | 2026-07-23 | **Approach A:** coding-agent package-manager **local isomorphic subset**; ADR 0006; omit install/npm/git/home |
+| 0.2.1 | 2026-07-23 | Implemented: package_manager local subset + echo_example + C0/C1 |

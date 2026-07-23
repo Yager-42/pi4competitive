@@ -146,8 +146,8 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 |------|------|----------|------|
 | P1 `packages/ai` | **done** | 2026-07-22 | branch `p1/packages-ai`; offline tests green |
 | P2 `packages/agent` | **done** | 2026-07-23 | branch `p2/packages-agent`; offline suite green; JSONL resume smoke |
-| P3 capability loader | **todo** | | unblocked by P2; plan [`P3_capability_loader.md`](plans/P3_capability_loader.md) |
-| P4 `competitive_app` | blocked on P3 | | |
+| P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
+| P4 `competitive_app` | **todo** | | unblocked by P3 |
 | 业务能力 v1 | blocked on P4 开工前冻结 | | |
 
 状态枚举：`todo` | `in_progress` | `done` | `blocked`。
@@ -172,3 +172,4 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.1 | 2026-07-22 | P1 packages/ai 完成 |
 | 0.1.2 | 2026-07-23 | P2 packages/agent 完成（C 档 loop+JSONL+harness；exit smoke） |
 | 0.1.3 | 2026-07-23 | 契约 **0.3.2** + ADR 0006：P3 = coding-agent package **本地同构子集**；计划 v0.2 |
+| 0.1.4 | 2026-07-23 | P3 capability package-manager local subset done (C0/C1) |
