@@ -1,4 +1,5 @@
 c55ae2faa5d850e0e4650bd573f7f241b10e2e0b
-# sparse paths: packages/ai packages/agent
+# sparse paths: packages/ai packages/agent packages/coding-agent
 # npm: @earendil-works/pi-ai@0.81.1 / @earendil-works/pi-agent-core@0.81.1
+# coding-agent: package-manager local subset only (ADR 0006 / P3) — not full TUI
 # vendor: vendor/earendil-works-pi (gitignored)

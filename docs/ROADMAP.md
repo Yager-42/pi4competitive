@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.2` |
+| **roadmap_version** | `0.1.3` |
 | **status** | active |
 | **updated** | 2026-07-23 |
-| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.1 frozen** |
+| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.2** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
 ---
@@ -80,9 +80,9 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 
 | 项 | 内容 |
 |----|------|
-| **目标** | 从 **`capability_packages/`** 加载本地 Python 包并注册 tools（契约 D5/D22） |
+| **目标** | **同构移植** coding-agent package-manager **本地子集**：发现/解析/加载 `capability_packages/` → 注册 tools（D5/D22 + ADR 0006） |
 | **依赖** | **P2 done** |
-| **实现计划** | [`docs/plans/P3_capability_loader.md`](plans/P3_capability_loader.md) |
+| **实现计划** | [`docs/plans/P3_capability_loader.md`](plans/P3_capability_loader.md) **v0.2**（approach A） |
 | **必含** | 列举子目录；导入约定入口；注册 `AgentTool`；加载失败可观测 |
 | **可选** | skills/prompts 资源文件；启用白名单；gateway live |
 | **显式不做** | npm/git 下载、`~/.pi` 扫描、`pi install` CLI、全文 coding package-manager |
@@ -169,5 +169,6 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | 0.1.0 | 2026-07-22 | 初版：对齐契约 v0.3.1；P1–P4 门禁；业务能力延后冻结 |
-| 0.1.1 | 2026-07-22 | P1 packages/ai 完成（同构 port + 契约测试绿） |
+| 0.1.1 | 2026-07-22 | P1 packages/ai 完成 |
 | 0.1.2 | 2026-07-23 | P2 packages/agent 完成（C 档 loop+JSONL+harness；exit smoke） |
+| 0.1.3 | 2026-07-23 | 契约 **0.3.2** + ADR 0006：P3 = coding-agent package **本地同构子集**；计划 v0.2 |

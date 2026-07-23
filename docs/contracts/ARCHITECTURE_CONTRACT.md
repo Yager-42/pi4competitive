@@ -2,9 +2,9 @@
 
 | 字段 | 值 |
 |------|-----|
-| **contract_version** | `0.3.1` |
-| **status** | **frozen baseline**（实现以本文为准；变更须 ADR + 升版本） |
-| **updated** | 2026-07-22 |
+| **contract_version** | `0.3.2` |
+| **status** | **active**（0.3.1 baseline + ADR 0006 能力包同构子集；变更仍须 ADR + 升版本） |
+| **updated** | 2026-07-23 |
 | **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载 |
 | **roadmap** | 实现顺序与阶段门禁见 [`docs/ROADMAP.md`](../ROADMAP.md) |
 | **out of scope for this doc** | 业务特性 backlog 细则、各业务 JSON Schema 字段表（另文） |
@@ -28,7 +28,7 @@
 | D2 | Agent 基座 | **Python 移植官方 Pi**（main）作基座 | npm 当运行时；灵感式 loop |
 | D3 | agent 深度 | **C 档**：main `packages/agent` core+harness 目标面 | demo loop + App 再造 session |
 | D4 | 复刻方式 | **TS→Python 同构**（行为+模块边界+包组织） | 自创简化架构冒充 port |
-| D5 | 能力包 | **仅本地目录加载**（见 D22）；加载其中实现的 package（tools/skills/prompts） | coding 的 **自动发现全盘扫描用户家目录**、**npm/git 下载 install**、扩展商店 UX |
+| D5 | 能力包 | **仅本地**；**P3 = coding-agent package-manager 本地同构子集**（发现/解析/加载）；见 D22 + ADR 0006 | 远程 install；home 默认发现；扩展商店；**全文** package-manager |
 | D6 | 执行面 | package 内 tools/extensions 为 **Python** | 嵌 Node 跑 TS 包 |
 | D7 | 语言绑定 | jiti/TUI 不字面移植；agent 内核职责与次序对齐 main | 乱删 agent 状态机步骤 |
 | D8 | 产品 | `competitive_app` DDD + 六边形 | 六阶段写进 `packages/agent` |
@@ -39,7 +39,7 @@
 | D13 | 技术栈 | Python 3.12 + **FastAPI** + Pydantic | 未 ADR 换主框架/内核 |
 | D14 | 上游 | **只对齐 main 当前实现** | 钉死过期 tag 当永久真理 |
 | D15 | `packages/ai` | **全量**对齐 main | 单兼容层；LangChain 替代 |
-| D16 | 实现顺序 | **串行**：① 整份 `packages/ai` → ② 整份 `packages/agent` → ③ **本地 package 加载器**（非全文 package-manager）→ ④ `competitive_app` | 跳阶段；App 先于基座 mock 长第二 API |
+| D16 | 实现顺序 | **串行**：① `packages/ai` → ② `packages/agent` → ③ **coding-agent package 本地子集同构**（非 install/远程）→ ④ `competitive_app` | 跳阶段；App 先于基座 |
 | D17 | 路径同构 | 上游包 → `packages/ai`、`packages/agent` | 自创顶层 `pi_core` 等替代路径 |
 | D18 | import 名 | `earendil_works.pi_ai` / `pi_agent` /（加载器可在 agent 或薄模块） | 打平无边界命名空间 |
 | D19 | HTTP | **FastAPI** | Flask 默认（已废） |
@@ -49,7 +49,7 @@
 | D23 | 模型/密钥配置 | **配置文件 + env 覆盖（C）**；密钥不入 git | 密钥提交仓库 |
 | D24 | Agent Session 默认存储 | **JSONL** 作对话/tool SoT | 仅内存当默认 SoT |
 | D25 | JSONL 落盘路径 | 默认 **`data/sessions/`**（`data/` 不入库） | 默认写系统临时目录导致无法稳定 resume |
-| D26 | 架构冻结 | **v0.3.1 冻结**；开发按本文执行 | 仅在聊天改架构不改本文 |
+| D26 | 架构冻结 | v0.3.1 曾冻结 baseline；**0.3.2** 起允许按 ADR 演进（当前含 0006） | 仅聊天改架构不改本文 |
 
 ### 1.1 已废弃
 
@@ -140,43 +140,46 @@ Runner 在 Application；Domain 无 IO。
 
 ---
 
-## 5. 本地 package 约定（最小，非全文 package-manager）
+## 5. 本地 package（coding-agent 本地同构子集）
 
 ### 5.1 目录
 
 ```text
 capability_packages/
-  search_example/
-    __init__.py          # 或 main.py：register(registry)
-    tools.py
-    # 可选 prompts/ skills/
-  fetch_example/
-    ...
+  echo_example/
+    package.json          # 可选 pi manifest（对齐 packages.md 本地结构）
+    extensions/           # Python 扩展 → AgentTool
+    skills/               # 可选 SKILL.md
+    prompts/              # 可选
+    register.py           # 可选：Python 注册入口（host-delta）
 ```
 
-### 5.2 加载器职责（阶段 ③）
+根目录名固定 **`capability_packages/`**（D22）。
 
-1. 列举 `capability_packages/*` 子目录；  
-2. 导入约定入口；  
-3. 收集 `AgentTool`（及可选资源）注册到 agent；  
-4. 失败须可观测（哪个包加载失败）。
+### 5.2 规范源与职责（阶段 ③ / P3）
 
-**不实现（除非未来 ADR）：** npm/git 源、lock 和解、用户 home 缓存、`pi install` CLI。
+| 项 | 约定 |
+|----|------|
+| 规范源 | main `packages/coding-agent` 的 **package-manager / resource-loader / extensions-loader** 中与 **本地发现、资源 resolve、加载** 相关的部分（ADR 0006） |
+| 实现方式 | TS→Python **同构子集**（行为 + 模块边界可 map） |
+| 加载结果 | 资源路径 → Python `AgentTool` / skills / prompts；注册进 `packages/agent` |
+| 失败 | 可观测；默认不因单包失败拖垮进程 |
+
+**禁止实现（默认路径）：** npm/git 源安装、`pi install` CLI、lock 远程解、`~/.pi` 默认发现、update/remove 远程包、扩展商店。
 
 ### 5.3 与上游的关系
 
-- tool **运行语义**（校验时机、事件、错误）对齐 `packages/agent` main。  
-- **发现/安装** 不对齐 coding-agent 全文。  
-- 若某能力需要「像官方一样的 package.json pi 字段」，可**可选**支持同构 manifest，但 **不得**借此引入下载器。
+- tool **运行语义**：对齐 main `packages/agent`（P2 已同构）。  
+- package **发现/解析（本地）**：对齐 coding-agent package-manager **子集**（ADR 0006）。  
+- package **安装/分发**：对齐 **禁止**（D5/D22/G10）。  
+- 扩展语言：upstream TS/jiti → **Python host-delta**。
 
-### 5.4 曾计划从 coding-agent 引进、现降级
+### 5.4 相对 v0.3.1 的策略升级
 
-| 原计划 | 现状 |
-|--------|------|
-| package-manager 全链路 | **不做**（D5/D22） |
-| resource-loader 全盘发现 | **缩为** 扫 `capability_packages/` |
-| settings 全局/项目 packages 列表 | **可选** 白名单；默认全加载本地子目录 |
-| model registry / auth 等 | 仍可按 agent/ai 与 App 配置做；**不**绑 TUI 登录 |
+| v0.3.1 表述 | v0.3.2 |
+|-------------|--------|
+| 阶段③ = 非全文 package-manager 的薄本地加载 | 阶段③ = **coding-agent 本地同构子集**（仍非全文、仍无 install） |
+| 发现流程可不对照 upstream 文件 | **必须**可 map 到 coding-agent 源文件（见 P3 module map） |
 
 ---
 
@@ -229,7 +232,7 @@ pi4competitive/
     competitive_app/
 ```
 
-**不再**要求移植完整 `packages/coding-agent` 树作为阶段③必达（除非 ADR 恢复）。加载器代码可放在 `packages/agent` 的扩展点或薄模块 `packages/agent/.../local_packages.py`，**以不破坏 agent 与 main 同构为先**；若必须独立目录，用 `packages/local_package_loader/` 并写清非上游包。
+加载器/同构子集代码放在 `packages/agent` 扩展面（如 `earendil_works.pi_agent.package_manager`），**不**另起第二 agent 内核；**不**要求移植完整 coding-agent 树（TUI/CLI/install）。规范源与删除清单见 **ADR 0006** 与 `docs/plans/P3_capability_loader.md`。
 
 ### 6.5 import 映射
 
@@ -261,11 +264,11 @@ pi4competitive/
 | G1 | domain 无 IO/FastAPI/SDK |
 | G2 | FastAPI 无阶段编排 |
 | G3 | 唯一 agent 内核 = `packages/agent` |
-| G4 | ai/agent 移植对照 main |
+| G4 | ai/agent **及 P3 package 本地子集** 移植对照 main（coding-agent 限定文件） |
 | G5 | 能力包仅 Python，且仅来自 `capability_packages/` |
 | G6 | 契约同步 |
 | G7 | Resume 不单靠内存 |
-| G8 | D16 串行：①→②→③ loader→④ app |
+| G8 | D16 串行：① ai → ② agent → ③ package 本地子集 → ④ app |
 | G9 | `packages/ai|agent` 目录同构；禁止并行自创内核树 |
 | G10 | **禁止**实现远程 package 下载作为默认路径 |
 
@@ -286,8 +289,9 @@ pi4competitive/
 |------|------|
 | 上游 main | earendil-works/pi `main` |
 | `capability_packages/` | **本地**可加载能力包根（搜抓等） |
-| 同构 | 对 **ai/agent** 包：边界与行为对齐 main |
+| 同构 | **ai/agent** 全量；**P3** 对 coding-agent package **本地子集** 同构（ADR 0006） |
 | Process Manager | App 阶段编排 |
+| package 本地子集 | resolve/collect/load；**不含** install/npm/git/home |
 
 ---
 
@@ -310,3 +314,4 @@ pi4competitive/
 | **0.2.9** | 2026-07-22 | **D23**：配置文件 + env 覆盖密钥 |
 | **0.3.0** | 2026-07-22 | D24：JSONL Session SoT |
 | **0.3.1** | 2026-07-22 | D25：`data/sessions/`；**D26 架构冻结为 baseline** |
+| **0.3.2** | 2026-07-23 | **ADR 0006**：P3 = coding-agent package-manager **本地同构子集**；D5/D16/§5 更新；仍禁止远程/home/install |

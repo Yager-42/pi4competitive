@@ -1,9 +1,10 @@
 # ADR 0004: 能力包仅本地目录加载
 
-- status: accepted
+- status: accepted（**本地-only 边界仍有效**；实现策略见 **ADR 0006**）
 - date: 2026-07-22
 - contract_version_before: 0.2.6
 - contract_version_after: 0.2.7
+- related: ADR 0006（本地子集 **同构** 移植策略，2026-07-23）
 
 ## Context
 
