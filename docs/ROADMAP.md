@@ -2,9 +2,9 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.1` |
+| **roadmap_version** | `0.1.2` |
 | **status** | active |
-| **updated** | 2026-07-22 |
+| **updated** | 2026-07-23 |
 | **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.1 frozen** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
@@ -144,8 +144,8 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 阶段 | 状态 | 完成日期 | 备注 |
 |------|------|----------|------|
 | P1 `packages/ai` | **done** | 2026-07-22 | branch `p1/packages-ai`; offline tests green |
-| P2 `packages/agent` | **in_progress** | | branch `p2/packages-agent`; Phase A scaffold done |
-| P3 capability loader | blocked on P2 | | |
+| P2 `packages/agent` | **done** | 2026-07-23 | branch `p2/packages-agent`; offline suite green; JSONL resume smoke |
+| P3 capability loader | **todo** | | unblocked by P2 |
 | P4 `competitive_app` | blocked on P3 | | |
 | 业务能力 v1 | blocked on P4 开工前冻结 | | |
 
@@ -169,3 +169,4 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 |------|------|------|
 | 0.1.0 | 2026-07-22 | 初版：对齐契约 v0.3.1；P1–P4 门禁；业务能力延后冻结 |
 | 0.1.1 | 2026-07-22 | P1 packages/ai 完成（同构 port + 契约测试绿） |
+| 0.1.2 | 2026-07-23 | P2 packages/agent 完成（C 档 loop+JSONL+harness；exit smoke） |

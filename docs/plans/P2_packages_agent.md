@@ -3,8 +3,8 @@
 | Field | Value |
 |-------|--------|
 | **plan_id** | `P2-packages-agent` |
-| **plan_version** | `0.1.0` |
-| **status** | **active** |
+| **plan_version** | `0.2.0` |
+| **status** | **completed** |
 | **created** | 2026-07-22 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P2** |
 | **contract** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.1** |
@@ -204,18 +204,18 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | B2 | Tool execution sequential + parallel + hooks | done | echo/block/parallel source order |
 | B3 | `Agent` class: prompt/continue/subscribe/state/abort | done | continue_ (Python keyword) |
 | B4 | Steering + follow-up queues | done | PendingMessageQueue + follow-up test |
-| B5 | Memory session storage/repo | todo | |
-| B6 | **JSONL** storage/repo + default `data/sessions/` | todo | |
-| B7 | Session tree context build / branch helpers | todo | |
-| B8 | Compaction core (should/cut/summary interfaces) | todo | |
-| B9 | Skills + system prompt + prompt templates | todo | |
-| B10 | AgentHarness wiring | todo | |
-| B11 | Built-in harness tools (minimal set first, then full map) | todo | |
-| B12 | Host env adapter (Python) | todo | |
-| C0 | Contract-drift tests green | todo | |
-| C1 | Integration: prompt→tool→JSONL→resume green | todo | **exit smoke** |
-| C2 | Module map closed; no competitive_app imports | todo | |
-| C3 | Roadmap §5 P2=done; plan completed | todo | |
+| B5 | Memory session storage/repo | done | InMemorySessionStorage/Repo |
+| B6 | **JSONL** storage/repo + default `data/sessions/` | done | JsonlSessionStorage/Repo + LocalFileSystem |
+| B7 | Session tree context build / branch helpers | done | build_context + move_to/fork |
+| B8 | Compaction core (should/cut/summary interfaces) | done | fallback summary without LLM |
+| B9 | Skills + system prompt + prompt templates | done | path-based skills |
+| B10 | AgentHarness wiring | done | thin session auto-persist façade |
+| B11 | Built-in harness tools (minimal set first, then full map) | done | read/write for exit; rest host-delta stubs |
+| B12 | Host env adapter (Python) | done | LocalFileSystem Result API |
+| C0 | Contract-drift tests green | done | layout/deps + suite |
+| C1 | Integration: prompt→tool→JSONL→resume green | done | **exit smoke** |
+| C2 | Module map closed; no competitive_app imports | done | |
+| C3 | Roadmap §5 P2=done; plan completed | done | |
 
 **Rules:**
 
@@ -532,3 +532,4 @@ P2 must expose clean registration (`agent.state.tools = [...]` / harness tool li
 | Version | Date | Note |
 |---------|------|------|
 | 0.1.0 | 2026-07-22 | Initial P2 plan: C-tier core+harness map, phased board, contract/JSONL exit smoke, host-delta allow-list. Upstream SHA `c55ae2fa…`. |
+| 0.2.0 | 2026-07-23 | P2 completed: agent loop/Agent/session JSONL/harness/read-write tools; offline 73 green; C1 resume smoke. |
