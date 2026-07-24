@@ -3,13 +3,13 @@
 | Field | Value |
 |-------|--------|
 | **plan_id** | `P4-search-capability-packages` |
-| **plan_version** | `0.1.2` |
+| **plan_version** | `0.1.3` |
 | **status** | **completed** |
 | **created** | 2026-07-23 |
-| **updated** | 2026-07-23 |
+| **updated** | 2026-07-24 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) — 业务能力 v1 / search capability |
-| **contract** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.3** |
-| **feature** | [`docs/features/search_capability_packages_v1.md`](../features/search_capability_packages_v1.md) **v0.1.11 frozen** — `search-capability-packages-v1` (F-S1…F-S18 + §10) |
+| **contract** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.4** |
+| **feature** | [`docs/features/search_capability_packages_v1.md`](../features/search_capability_packages_v1.md) **v0.1.12 frozen** — `search-capability-packages-v1` (F-S1…F-S18 + §10) |
 | **ADR** | [0006 local package subset](../contracts/adr/0006-package-manager-local-isomorphic-subset.md) · [0007 legacy repo](../contracts/adr/0007-legacy-repo-capability-reference.md) |
 | **depends_on** | **P3 done** — [`P3_capability_loader.md`](P3_capability_loader.md); feature contract frozen |
 | **reference** | 旧仓 `competitive-agent` (Tavily/AnySearch) · [GuDaStudio/GrokSearch](https://github.com/GuDaStudio/GrokSearch) `grok-with-tavily` (Grok search only) |
@@ -21,8 +21,8 @@
 
 ## 0. Purpose
 
-1. Implement the **frozen** search capability boundary in `docs/features/search_capability_packages_v1.md` v0.1.11 as three local Pi packages.
-2. Register **five** provider-prefixed `AgentTool`s through the existing P3 package-manager path (no MCP host, no second runtime).
+1. Implement the **frozen** search capability boundary in `docs/features/search_capability_packages_v1.md` v0.1.12 as three local Pi packages.
+2. Register **five** provider-prefixed `AgentTool`s through the P3.1 `registerTool` extension runtime (no MCP host, no second runtime).
 3. Prove offline O1–O6 and live L1–L4 (agent can call tools; results visible in `toolResult`).
 4. Leave P4 Application workflow, evidence IDs, and report DAG to a **later** plan.
 
@@ -302,3 +302,4 @@ Live env (gitignored `.env`): `TAVILY_*`, `ANYSEARCH_*`, `GROK_*` as feature con
 | 0.1.0 | 2026-07-23 | Initial plan from FEATURES v0.1.11 frozen; implement-only after env prepared |
 | 0.1.1 | 2026-07-23 | Feature SoT → `docs/features/search_capability_packages_v1.md`; forbid extra package-root dirs; conflict audit |
 | 0.1.2 | 2026-07-23 | Implemented three packages / five tools; offline O1–O6 + live L1–L4 green |
+| 0.1.3 | 2026-07-24 | P3.1 M2 sync: `registerTool` runtime；search business logic unchanged |

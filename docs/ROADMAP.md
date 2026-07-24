@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.10` |
+| **roadmap_version** | `0.1.15` |
 | **status** | active |
-| **updated** | 2026-07-23 |
-| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.3** |
+| **updated** | 2026-07-24 |
+| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.4** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
 ---
@@ -21,10 +21,11 @@
 
 | 话题 | 状态 | 建议 |
 |------|------|------|
-| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 v0.3.1） | **不必再聊**；要改走 ADR |
+| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 **v0.3.4**） | **不必再聊**；要改走 ADR |
 | **实现顺序与完成标准** | 见本文阶段 | 按 roadmap 执行；细节可在阶段开工时补 checklist |
-| **业务能力（研究流程、报告等）** | 搜索 capability v1 **frozen** | 边界：[`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.11**；其余 workflow/报告另开 |
-| **capability 里具体有哪些搜抓包** | **frozen** + 实现计划 | 同上 feature 契约；计划 [`docs/plans/P4_search_capability_packages.md`](plans/P4_search_capability_packages.md) |
+| **业务能力（研究流程、报告等）** | 搜索 capability v1 **frozen** | 边界：[`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.12**；其余 workflow/报告另开 |
+| **agent engine extensions** | **done** | feature **v0.2.2**；计划 **v0.2.3 completed**（Offline + Live L3a/L3b） |
+| **capability 里具体有哪些搜抓包** | **frozen** + 实现计划 | 搜索 feature 契约；计划 [`docs/plans/P4_search_capability_packages.md`](plans/P4_search_capability_packages.md) |
 
 ---
 
@@ -37,6 +38,8 @@ P2  packages/agent       C 档同构 main
         ↓
 P3  capability 本地加载器 + capability_packages/ 约定
         ↓
+P3.1 agent engine extension 运行时（S-engine 同构）
+        ↓
 P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引入）
 ```
 
@@ -45,6 +48,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | **P1** | `packages/ai/` | `earendil_works.pi_ai` | 宣称 agent 完成；写 competitive 主路径 |
 | **P2** | `packages/agent/` | `earendil_works.pi_agent` | 宣称 loader/app 可依赖未完成 agent |
 | **P3** | loader + `capability_packages/` | （loader 挂在 agent 扩展点或薄模块） | 远程 install；家目录发现 |
+| **P3.1** | `pi_agent/extensions/` + loop emit | `earendil_works.pi_agent.extensions` | 宣称 extension 钩子完成；TUI/install |
 | **P4** | `competitive_app/` | `competitive_app` | 绕过 agent 直连厂商 SDK 当内核 |
 
 **上游对照：** 一律 `https://github.com/earendil-works/pi` 的 **`main`**。
@@ -89,12 +93,25 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | **完成标准** | ① 至少一个示例包（可 no-op/echo tool）可被 agent 调用；② 非法包失败不拖垮进程（策略明确）；③ 测试覆盖加载与注册 |
 | **退出条件** | 文档化子包目录约定 + C1 faux 冒烟绿 → `P3=done` |
 
+### P3.1 — Agent engine extension 运行时
+
+| 项 | 内容 |
+|----|------|
+| **目标** | 同构移植 coding-agent **`core/extensions`** 的 **S-engine 子集**（runner + registerTool + engine 事件）；接到 Agent loop（ADR 0008） |
+| **依赖** | **P3 done**；feature `agent-engine-extensions-v1` **frozen** |
+| **实现计划** | [`docs/plans/P3_1_agent_engine_extensions.md`](plans/P3_1_agent_engine_extensions.md) **v0.2.3 completed** · map [`P3_1_module_map.md`](plans/P3_1_module_map.md) |
+| **边界契约** | [`docs/features/agent_engine_extensions_v1.md`](features/agent_engine_extensions_v1.md) **v0.2.2** |
+| **必含** | types/loader/runner/wrapper；§3.1 IN emit；AP3 挂载；M2 registerTool；SK2；H1 |
+| **显式不做** | TUI/ui；session 树事件；npm/git install；Reasonix 业务包 |
+| **完成标准** | Offline O1–O11 + Live L1+L2+L3a+L3b+L4；search offline 仍绿 |
+| **退出条件** | §10 Offline+Live + ADR 0006 omit 仍成立 → `P3.1=done` |
+
 ### P4 — `competitive_app`
 
 | 项 | 内容 |
 |----|------|
 | **目标** | FastAPI + DDD + workflow Process Manager；引入**业务能力**（研究闭环） |
-| **依赖** | **P1+P2+P3 done** |
+| **依赖** | **P1+P2+P3 done**（**P3.1 强烈建议 done** 后再依赖 extension 钩子的业务包） |
 | **结构** | `domain` / `application/workflow` / `adapter/in/fastapi` / `adapter/out` / `wiring` |
 | **配置** | `config/settings.example.yaml` + env 覆盖密钥（D23） |
 | **投影** | App SQLite（与 JSONL 史实分离） |
@@ -124,7 +141,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 
 | 步骤 | 动作 |
 |------|------|
-| 1 | 搜索能力边界：**frozen** — [`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.11**（`search-capability-packages-v1`） |
+| 1 | 搜索能力边界：**frozen** — [`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.12**（`search-capability-packages-v1`） |
 | 2 | 本期已冻结能力：**三搜索 package + 五 AgentTool + Offline/Live 验收**（feature 契约 §4 / §10） |
 | 3 | 能力只进 `competitive_app` + `capability_packages/*`，**不**进 `packages/ai|agent` |
 | 4 | 旧仓 = **能力参考**（非 1:1 复刻）：[`xj120/competitive-agent`](https://github.com/xj120/competitive-agent)；本地与本仓并排 `competitive-agent/`；契约 D12 / ADR 0007 / §1.3 |
@@ -146,8 +163,9 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P1 `packages/ai` | **done** | 2026-07-22 | branch `p1/packages-ai`; offline tests green |
 | P2 `packages/agent` | **done** | 2026-07-23 | branch `p2/packages-agent`; offline suite green; JSONL resume smoke |
 | P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
-| P4 `competitive_app` | **todo** | | unblocked by P3 |
-| 业务能力 v1 | **partial**（搜索 capability **done**） | 2026-07-23 | search packages completed (`P4_search` v0.1.2); full competitive_app workflow still todo |
+| P3.1 agent engine extensions | **done** | 2026-07-24 | feature v0.2.2；plan v0.2.3；Offline 124 passed；Live 24 passed |
+| P4 `competitive_app` | **todo** | | unblocked by P3；extension 钩子依赖 P3.1 |
+| 业务能力 v1 | **partial**（搜索 capability **done**） | 2026-07-23 | search packages completed (`P4_search` v0.1.3); full competitive_app workflow still todo |
 
 状态枚举：`todo` | `in_progress` | `done` | `blocked`。
 
@@ -178,3 +196,8 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.8 | 2026-07-23 | 新增搜索 capability 实现计划 `docs/plans/P4_search_capability_packages.md` v0.1.0 |
 | 0.1.9 | 2026-07-23 | Feature 边界迁入 `docs/features/`；废止 `docs/FEATURES.md`；搜索契约 `search_capability_packages_v1.md` |
 | 0.1.10 | 2026-07-23 | 搜索 capability packages 实现完成（三包五工具；offline O1–O6 + live） |
+| 0.1.11 | 2026-07-24 | **P3.1** 入路线图；feature `agent-engine-extensions-v1` frozen v0.2.0；ADR 0008 + 契约 0.3.4；计划初版 |
+| 0.1.12 | 2026-07-24 | P3.1 计划格式对齐 P3/P4（v0.2.0）；增补 `P3_1_module_map.md` |
+| 0.1.13 | 2026-07-24 | P3.1 验收加完整 Live + Offline 高覆盖；feature/plan **v0.2.1** |
+| 0.1.14 | 2026-07-24 | P3.1 Live 收紧 L3a/L3b 双钩子必过；feature/plan **v0.2.2** |
+| 0.1.15 | 2026-07-24 | P3.1 extension runtime done：AP3/M2/H1/SK2；Offline+Live exit green；search contract v0.1.12 |

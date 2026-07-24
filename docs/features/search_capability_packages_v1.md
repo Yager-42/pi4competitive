@@ -2,12 +2,12 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.1.11` |
+| **feature_contract_version** | `0.1.12` |
 | **status** | **frozen** |
-| **updated** | 2026-07-23 |
+| **updated** | 2026-07-24 |
 | **feature_id** | `search-capability-packages-v1` |
 | **roadmap_stage** | P4 业务能力 v1 — 搜索 capability 可按本文实现 |
-| **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.3** |
+| **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.4** |
 | **roadmap** | [`ROADMAP.md`](../ROADMAP.md) §4 |
 | **plan** | [`P4_search_capability_packages.md`](../plans/P4_search_capability_packages.md) |
 | **path** | `docs/features/search_capability_packages_v1.md` |
@@ -87,9 +87,9 @@ capability_packages/
 LocalPackageManager
   → resolve package.json / extensions
   → Python extension register(api)
-  → api.add_tool(AgentTool(...))
-  → LoadReport.tools
-  → apply_capability_report(agent, report)
+  → api.registerTool(AgentTool(...))
+  → ExtensionRunner + wrap_registered_tools
+  → attach_extension_runtime / apply_capability_report
   → agent.state.tools
 ```
 
@@ -218,9 +218,9 @@ load_capability_packages(enabled=settings.capability_packages.enabled)
 
 本 feature 不新增第二套 availability / failure-isolation 机制：
 
-1. 白名单中的 extension 在调用 `api.add_tool(...)` 前读取并校验该 provider 所需环境变量；
+1. 白名单中的 extension 在调用 `api.registerTool(...)` 前读取并校验该 provider 所需环境变量；
 2. 配置缺失或无效时抛出不含 secret 值的注册异常；
-3. 现有 Pi `extensions_loader` 将注册异常转换为 package/path 级 `ResourceDiagnostic(level="error")`；
+3. Pi `extensions.loader` 将注册异常转换为 package/path 级 `ResourceDiagnostic(level="error")`；
 4. 失败 extension 不向 `LoadReport.tools` 贡献任何 Tool；
 5. `strict=False`（默认）继续加载其他 package；`strict=True` 使用 Pi 现有 `PackageLoadError` 语义；
 6. App / wiring 只消费和呈现 `LoadReport.diagnostics`，不得复制一套 package 失败策略。
@@ -526,9 +526,15 @@ v1 **不清洗** URL：
 
 | 项 | 值 |
 |----|-----|
-| 冻结版本 | `0.1.11` |
+| 冻结版本 | `0.1.12` |
 | 冻结日期 | 2026-07-23 |
 | 决策 | F-S1…F-S18 全部 locked |
 | 验收 | §10 Offline O1–O6 + Live L1–L4 |
 | 架构影响 | 无；不升 `ARCHITECTURE_CONTRACT` |
 | Roadmap | 见 `docs/ROADMAP.md`（实现计划 `P4_search_capability_packages`）；本文路径 `docs/features/` |
+
+### 12.1 修订
+
+| 版本 | 日期 | 说明 |
+|------|------|------|
+| 0.1.12 | 2026-07-24 | P3.1 M2：注册面由临时 `add_tool` 一次切换为上游 `registerTool`；业务 HTTP/normalize 不变 |
