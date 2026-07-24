@@ -95,6 +95,8 @@ class LoadReport:
     skills: list[Skill] = field(default_factory=list)
     prompts: list[PromptTemplate] = field(default_factory=list)
     diagnostics: list[ResourceDiagnostic] = field(default_factory=list)
+    extension_result: Any | None = None
+    extension_runner: Any | None = None
 
     def tool_names(self) -> list[str]:
         return [t.name for t in self.tools]

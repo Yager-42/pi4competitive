@@ -300,6 +300,9 @@ class AgentLoopConfig:
         ]
         | None
     ) = None
+    beforeProviderHeaders: (
+        Callable[[dict[str, str | None]], Awaitable[dict[str, str | None]]] | None
+    ) = None
     # SimpleStreamOptions fields (optional)
     temperature: float | None = None
     maxTokens: int | None = None

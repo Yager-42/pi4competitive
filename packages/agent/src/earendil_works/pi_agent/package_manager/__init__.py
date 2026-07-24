@@ -14,9 +14,8 @@ from .errors import (
     PackageNotFoundError,
     UnsupportedInstallError,
 )
-from .extensions_loader import CapabilityRegisterApi, load_extension_module, load_extensions
 from .package_manager import LocalPackageManager, default_capability_root, resource_precedence_rank
-from .resource_loader import materialize_resolved
+from .resource_loader import materialize_resolved, materialize_resolved_async
 from .types import (
     PACKAGE_ROOT_DEFAULT,
     LoadReport,
@@ -45,7 +44,7 @@ async def load_capability_packages(
     if strict and not pm.root.is_dir():
         raise PackageNotFoundError(f"capability packages root missing: {pm.root}")
     resolved = await pm.resolve()
-    return materialize_resolved(resolved, root=pm.root, strict=strict)
+    return await materialize_resolved_async(resolved, root=pm.root, strict=strict)
 
 
 def load_capability_packages_sync(
@@ -66,7 +65,6 @@ def load_capability_packages_sync(
 
 __all__ = [
     "PACKAGE_ROOT_DEFAULT",
-    "CapabilityRegisterApi",
     "LoadReport",
     "LoadedPackage",
     "LocalPackageManager",
@@ -83,8 +81,6 @@ __all__ = [
     "default_capability_root",
     "load_capability_packages",
     "load_capability_packages_sync",
-    "load_extension_module",
-    "load_extensions",
     "merge_tools",
     "resource_precedence_rank",
 ]

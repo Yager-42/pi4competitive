@@ -8,6 +8,16 @@ from earendil_works.pi_ai import uuidv7
 
 from .agent import AbortController, AbortSignal, Agent, AgentOptions
 from .agent_loop import agent_loop, agent_loop_continue, run_agent_loop, run_agent_loop_continue
+from .extensions import (
+    ExtensionAPI,
+    ExtensionRunner,
+    attach_extension_runtime,
+    create_extension_runtime,
+    load_extension_from_factory,
+    load_extensions,
+    wrap_registered_tool,
+    wrap_registered_tools,
+)
 from .harness import (
     AgentHarness,
     DEFAULT_SESSIONS_DIR_NAME,
@@ -84,6 +94,8 @@ __all__ = [
     "BeforeToolCallContext",
     "BeforeToolCallResult",
     "DEFAULT_SESSIONS_DIR_NAME",
+    "ExtensionAPI",
+    "ExtensionRunner",
     "InMemorySessionRepo",
     "InMemorySessionStorage",
     "JsonlSessionRepo",
@@ -100,14 +112,18 @@ __all__ = [
     "ToolExecutionMode",
     "agent_loop",
     "agent_loop_continue",
+    "attach_extension_runtime",
     "build_session_context",
     "build_system_prompt",
     "compact",
     "create_coding_tools",
+    "create_extension_runtime",
     "create_read_tool",
     "apply_capability_report",
     "load_capability_packages",
     "load_capability_packages_sync",
+    "load_extension_from_factory",
+    "load_extensions",
     "create_write_tool",
     "estimate_context_tokens",
     "find_cut_point",
@@ -118,6 +134,8 @@ __all__ = [
     "set_default_stream_fn",
     "should_compact",
     "uuidv7",
+    "wrap_registered_tool",
+    "wrap_registered_tools",
 ]
 
 __version__ = "0.81.1"

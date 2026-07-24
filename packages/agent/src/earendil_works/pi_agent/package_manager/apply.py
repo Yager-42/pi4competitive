@@ -7,6 +7,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 from earendil_works.pi_agent.types import AgentTool
+from earendil_works.pi_agent.extensions import attach_extension_runtime
+from earendil_works.pi_agent.harness.system_prompt import build_system_prompt
 
 from .types import LoadReport, ResourceDiagnostic
 
@@ -63,9 +65,16 @@ def apply_capability_report(
     *,
     policy: CollisionPolicy = "first_wins",
 ) -> list[ResourceDiagnostic]:
-    """Merge report.tools into agent.state.tools. Returns collision diagnostics."""
-    merged, diags = merge_tools(list(agent.state.tools), list(report.tools), policy=policy)
-    agent.state.tools = merged
+    """Attach the report runtime, tools, skills, and prompts to one Agent."""
+    if report.extension_result is None:
+        return []
+    _merged, diags = merge_tools(list(agent.state.tools), list(report.tools), policy=policy)
+    report.extension_runner = attach_extension_runtime(
+        agent, report.extension_result, str(report.root), replace=policy == "replace"
+    )
+    agent.skills = list(report.skills)
+    agent.prompts = list(report.prompts)
+    agent.state.systemPrompt = build_system_prompt(base=agent.state.systemPrompt, skills=agent.skills)
     report.diagnostics.extend(diags)
     return diags
 
