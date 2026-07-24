@@ -280,22 +280,26 @@ async def test_live_agent_tavily_fetch_via_real_model(live_gateway) -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_agent_anysearch_or_grok_search_via_real_model(live_gateway) -> None:
-    """If Tavily is absent, still prove Agent→search for AnySearch or Grok when configured."""
+@pytest.mark.parametrize(
+    ("package", "tool_name", "query", "required_env"),
+    [
+        ("search_anysearch", "anysearch_search", "capital of France",
+         ["ANYSEARCH_API_KEY", "ANYSEARCH_API_URL"]),
+        ("search_grok", "grok_search", "What is the capital of France?",
+         ["GROK_API_KEY", "GROK_API_URL", "GROK_MODEL"]),
+    ],
+    ids=["anysearch", "grok"],
+)
+async def test_live_agent_search_provider_via_real_model(
+    live_gateway, package: str, tool_name: str, query: str, required_env: list[str]
+) -> None:
+    """Each configured provider must complete the real model → tool → result path."""
     load_dotenv()
-    if _provider_env_ready(["TAVILY_API_KEY"]):
-        pytest.skip("covered by tavily real-model test; use that path when Tavily is configured")
+    if not _provider_env_ready(required_env):
+        pytest.skip(f"{package} credentials not fully configured")
 
-    if _provider_env_ready(["ANYSEARCH_API_KEY", "ANYSEARCH_API_URL"]):
-        pkg, tool_name, query = "search_anysearch", "anysearch_search", "capital of France"
-    elif _provider_env_ready(["GROK_API_KEY", "GROK_API_URL", "GROK_MODEL"]):
-        pkg, tool_name, query = "search_grok", "grok_search", "What is the capital of France?"
-    else:
-        pytest.skip("no search provider keys for real-model agent path")
-
-    report = await load_capability_packages(root=CAP_ROOT, enabled=[pkg])
+    report = await load_capability_packages(root=CAP_ROOT, enabled=[package])
     assert tool_name in report.tool_names(), report.diagnostics
-
     agent = make_agent(
         live_gateway,
         system_prompt=(
@@ -309,10 +313,9 @@ async def test_live_agent_anysearch_or_grok_search_via_real_model(live_gateway) 
 
     await agent.prompt(f"Use {tool_name} to research: {query}")
     await agent.wait_for_idle()
-
     assert agent.state.errorMessage is None, agent.state.errorMessage
-    trs = tool_results(agent.state.messages)
-    assert trs, f"expected real model to call {tool_name}"
-    named = [m for m in trs if m.get("toolName") == tool_name]
-    assert named, f"expected {tool_name}, got {[m.get('toolName') for m in trs]}"
+    results = tool_results(agent.state.messages)
+    assert results, f"expected real model to call {tool_name}"
+    named = [result for result in results if result.get("toolName") == tool_name]
+    assert named, f"expected {tool_name}, got {[result.get('toolName') for result in results]}"
     _assert_search_tool_result(named[0], tool_name=tool_name)

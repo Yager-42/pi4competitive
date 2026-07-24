@@ -514,26 +514,22 @@ async def _anysearch_fetch_execute(
 def register(api: Any) -> None:
     _env_required("ANYSEARCH_API_KEY")
     _env_required("ANYSEARCH_API_URL")
-    api.add_tool(
-        AgentTool(
-            name="anysearch_search",
-            description="Search the web via AnySearch. Returns search_result.v1 JSON.",
-            parameters=_SEARCH_PARAMS,
-            label="AnySearch Search",
-            execute=_anysearch_search_execute,
-            executionMode="parallel",
-        )
-    )
-    api.add_tool(
-        AgentTool(
-            name="anysearch_fetch",
-            description="Extract full page content via AnySearch. Returns fetch_result.v1 JSON.",
-            parameters=_FETCH_PARAMS,
-            label="AnySearch Fetch",
-            execute=_anysearch_fetch_execute,
-            executionMode="parallel",
-        )
-    )
+    api.registerTool(AgentTool(
+        name="anysearch_search",
+        description="Search the web via AnySearch. Returns search_result.v1 JSON.",
+        parameters=_SEARCH_PARAMS,
+        label="AnySearch Search",
+        execute=_anysearch_search_execute,
+        executionMode="parallel",
+    ))
+    api.registerTool(AgentTool(
+        name="anysearch_fetch",
+        description="Extract full page content via AnySearch. Returns fetch_result.v1 JSON.",
+        parameters=_FETCH_PARAMS,
+        label="AnySearch Fetch",
+        execute=_anysearch_fetch_execute,
+        executionMode="parallel",
+    ))
 
 
 # silence unused import if tooling rewrites; uuid kept for future request ids

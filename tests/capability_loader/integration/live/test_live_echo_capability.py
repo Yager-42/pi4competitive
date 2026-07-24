@@ -60,19 +60,11 @@ async def test_live_capability_echo_via_agent(live_gateway) -> None:
 
     assert agent.state.errorMessage is None, agent.state.errorMessage
     tr = tool_results(agent.state.messages)
-    asst = assistants(agent.state.messages)
-    assert asst, "expected assistant message"
-    assert asst[-1].get("stopReason") != "error" or tr
-
-    if tr:
-        body = " ".join(text_of(m) for m in tr)
-        assert "cap-live-ok" in body
-        assert any(not m.get("isError") for m in tr)
-        # Prefer tool name echo from capability package
-        assert any(m.get("toolName") == "echo" for m in tr)
-    else:
-        # Gateway may strip tools; at least completed a turn
-        assert asst[-1].get("stopReason") in ("stop", "length", "toolUse")
+    assert tr, "real model did not issue the required capability tool call"
+    body = " ".join(text_of(m) for m in tr)
+    assert "cap-live-ok" in body
+    assert any(not m.get("isError") for m in tr)
+    assert any(m.get("toolName") == "echo" for m in tr)
 
 
 @pytest.mark.asyncio
@@ -98,11 +90,7 @@ async def test_live_capability_echo_load_then_apply(live_gateway) -> None:
 
     assert agent.state.errorMessage is None, agent.state.errorMessage
     tr = tool_results(agent.state.messages)
-    if tr:
-        body = " ".join(text_of(m) for m in tr)
-        assert "apply-live" in body
-        assert any(not m.get("isError") for m in tr)
-    else:
-        asst = assistants(agent.state.messages)
-        assert asst
-        assert asst[-1].get("stopReason") in ("stop", "length", "toolUse")
+    assert tr, "real model did not issue the required capability tool call"
+    body = " ".join(text_of(m) for m in tr)
+    assert "apply-live" in body
+    assert any(not m.get("isError") for m in tr)

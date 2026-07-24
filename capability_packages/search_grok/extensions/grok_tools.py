@@ -595,15 +595,13 @@ def register(api: Any) -> None:
     _env_required("GROK_API_KEY")
     _env_required("GROK_API_URL")
     _env_required("GROK_MODEL")
-    api.add_tool(
-        AgentTool(
-            name="grok_search",
-            description=(
-                "AI web search via Grok. Returns search_result.v1 with answer and source hits in one call."
-            ),
-            parameters=_SEARCH_PARAMS,
-            label="Grok Search",
-            execute=_grok_search_execute,
-            executionMode="parallel",
-        )
-    )
+    api.registerTool(AgentTool(
+        name="grok_search",
+        description=(
+            "AI web search via Grok. Returns search_result.v1 with answer and source hits in one call."
+        ),
+        parameters=_SEARCH_PARAMS,
+        label="Grok Search",
+        execute=_grok_search_execute,
+        executionMode="parallel",
+    ))
