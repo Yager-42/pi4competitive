@@ -248,7 +248,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | B3 | H1 remove public `on_payload` / `transform_context` | **done** | |
 | B4 | SK2 skills/prompts apply to harness | **done** | |
 | C1 | M2: echo + search 三包 → `registerTool` | **done** | business logic unchanged |
-| C2 | Feature §10 Offline O1–O11（unit + faux + contract 高覆盖） | **done** | 124 passed, 24 deselected |
+| C2 | Feature §10 Offline O1–O11（unit + faux + contract 高覆盖） | **done** | 124 passed, 25 deselected |
 | C2L | Feature §10 Live L1+L2+L3a+L3b+L4（真模型；双钩子必过） | **done** | 24 passed；AnySearch + Grok real-model paths included |
 | C3 | Sync search feature doc `add_tool` → `registerTool` | **done** | search feature v0.1.12 |
 | C4 | Plan status completed；roadmap P3.1=done；module map closed | **done** | |
