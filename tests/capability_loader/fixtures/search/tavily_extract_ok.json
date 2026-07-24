@@ -1,0 +1,10 @@
+{
+  "results": [
+    {
+      "url": "https://example.com/page",
+      "raw_content": "# Complete Markdown content\n\nBody text.",
+      "title": "Page title"
+    }
+  ],
+  "failed_results": []
+}

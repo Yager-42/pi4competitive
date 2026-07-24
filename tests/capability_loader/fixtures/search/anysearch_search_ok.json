@@ -1,0 +1,19 @@
+{
+  "results": [
+    {
+      "title": "Any Hit",
+      "url": "https://news.example.com/a",
+      "snippet": "AnySearch excerpt",
+      "score": 0.8
+    },
+    {
+      "title": 123,
+      "url": "https://bad.example.com"
+    },
+    {
+      "title": "Ok Two",
+      "url": "https://example.com/b",
+      "description": "desc"
+    }
+  ]
+}

@@ -6,12 +6,16 @@ This file is for humans and coding agents working in this repo.
 
 | Doc | Role |
 |-----|------|
-| [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.2** — process, paths, imports, stack; P3 = coding-agent package **local isomorphic subset** (ADR 0006) |
+| [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.3** — process, paths, imports, stack; P3 local subset (ADR 0006); P4 旧仓 pin (ADR 0007) |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Serial phases P1→P4 and exit gates |
+| [`docs/features/`](docs/features/) | Per-feature boundary contracts; see README index |
+| [`docs/features/search_capability_packages_v1.md`](docs/features/search_capability_packages_v1.md) | search capability v1 **frozen v0.1.11**（F-S1…F-S18 + §10） |
 | [`docs/plans/P1_packages_ai.md`](docs/plans/P1_packages_ai.md) | P1 plan (**completed**) — `packages/ai` |
 | [`docs/plans/P2_packages_agent.md`](docs/plans/P2_packages_agent.md) | P2 plan (**completed**) — `packages/agent` |
-| [`docs/plans/P3_capability_loader.md`](docs/plans/P3_capability_loader.md) | **Active** P3 plan v0.2 — package-manager **local subset** isomorphic |
+| [`docs/plans/P3_capability_loader.md`](docs/plans/P3_capability_loader.md) | P3 plan (**completed**) — package-manager local subset |
+| [`docs/plans/P4_search_capability_packages.md`](docs/plans/P4_search_capability_packages.md) | **Active** — search capability packages v1 (feature contract frozen) |
 | [`docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md`](docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md) | ADR: port subset, omit install/npm/git/home |
+| [`docs/contracts/adr/0007-legacy-repo-capability-reference.md`](docs/contracts/adr/0007-legacy-repo-capability-reference.md) | ADR: 旧仓 = `competitive-agent`（能力参考 only） |
 | `docs/contracts/adr/*` | Architecture Decision Records |
 
 **Rules:**

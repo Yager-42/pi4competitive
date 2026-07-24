@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.3` |
+| **roadmap_version** | `0.1.10` |
 | **status** | active |
 | **updated** | 2026-07-23 |
-| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.2** |
+| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.3** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
 ---
@@ -23,8 +23,8 @@
 |------|------|------|
 | **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 v0.3.1） | **不必再聊**；要改走 ADR |
 | **实现顺序与完成标准** | 见本文阶段 | 按 roadmap 执行；细节可在阶段开工时补 checklist |
-| **业务能力（研究流程、报告等）** | **未在架构契约展开** | **P4 开工前**再开短文 `docs/FEATURES.md` 或开 grill；**现在不阻塞 P1** |
-| **capability 里具体有哪些搜抓包** | 未定 | P3 前定最小集合即可 |
+| **业务能力（研究流程、报告等）** | 搜索 capability v1 **frozen** | 边界：[`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.11**；其余 workflow/报告另开 |
+| **capability 里具体有哪些搜抓包** | **frozen** + 实现计划 | 同上 feature 契约；计划 [`docs/plans/P4_search_capability_packages.md`](plans/P4_search_capability_packages.md) |
 
 ---
 
@@ -124,19 +124,18 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 
 | 步骤 | 动作 |
 |------|------|
-| 1 | P3 完成前可起草稿 `docs/FEATURES.md`（可选） |
-| 2 | **P4 开工前**冻结「本期能力」短列表（宁少） |
+| 1 | 搜索能力边界：**frozen** — [`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.11**（`search-capability-packages-v1`） |
+| 2 | 本期已冻结能力：**三搜索 package + 五 AgentTool + Offline/Live 验收**（feature 契约 §4 / §10） |
 | 3 | 能力只进 `competitive_app` + `capability_packages/*`，**不**进 `packages/ai|agent` |
-| 4 | 旧仓 = 能力参考，非 1:1 复刻清单 |
+| 4 | 旧仓 = **能力参考**（非 1:1 复刻）：[`xj120/competitive-agent`](https://github.com/xj120/competitive-agent)；本地与本仓并排 `competitive-agent/`；契约 D12 / ADR 0007 / §1.3 |
 
-**建议 P4 第一期能力（草案，未冻结，可改）：**
+**本期已冻结（search capability v1）：**
 
-1. 本地搜/抓 capability（各至少一）  
-2. 可运行的研究阶段骨架（可先少于六段）  
-3. 任务 API + 进度/会话关联  
-4. 结构化结果校验门槛（报告可后补完整 fact_report）  
+1. `capability_packages/search_tavily|search_anysearch|search_grok`  
+2. Tools：`tavily_search` / `tavily_fetch` / `anysearch_search` / `anysearch_fetch` / `grok_search`  
+3. 统一 `search_result.v1` / `fetch_result.v1` + Agent 可见 toolResult（feature 契约 §10）  
 
-正式冻结时改本节状态为 **frozen** 并升 roadmap 版本。
+**仍未冻结（后续 grill）：** 研究阶段 workflow 骨架、任务 API 全貌、完整报告 schema。  
 
 ---
 
@@ -148,7 +147,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P2 `packages/agent` | **done** | 2026-07-23 | branch `p2/packages-agent`; offline suite green; JSONL resume smoke |
 | P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
 | P4 `competitive_app` | **todo** | | unblocked by P3 |
-| 业务能力 v1 | blocked on P4 开工前冻结 | | |
+| 业务能力 v1 | **partial**（搜索 capability **done**） | 2026-07-23 | search packages completed (`P4_search` v0.1.2); full competitive_app workflow still todo |
 
 状态枚举：`todo` | `in_progress` | `done` | `blocked`。
 
@@ -173,3 +172,9 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.2 | 2026-07-23 | P2 packages/agent 完成（C 档 loop+JSONL+harness；exit smoke） |
 | 0.1.3 | 2026-07-23 | 契约 **0.3.2** + ADR 0006：P3 = coding-agent package **本地同构子集**；计划 v0.2 |
 | 0.1.4 | 2026-07-23 | P3 capability package-manager local subset done (C0/C1) |
+| 0.1.5 | 2026-07-23 | 契约 **0.3.3** + ADR 0007：钉死 P4 旧仓 `competitive-agent` 身份 |
+| 0.1.6 | 2026-07-23 | 新增 `docs/FEATURES.md` 搜索 capability v1 边界草案；未解除业务实现门禁 |
+| 0.1.7 | 2026-07-23 | 冻结 `docs/FEATURES.md` v0.1.11 搜索 capability v1；允许按 FEATURES 实现三包五工具 |
+| 0.1.8 | 2026-07-23 | 新增搜索 capability 实现计划 `docs/plans/P4_search_capability_packages.md` v0.1.0 |
+| 0.1.9 | 2026-07-23 | Feature 边界迁入 `docs/features/`；废止 `docs/FEATURES.md`；搜索契约 `search_capability_packages_v1.md` |
+| 0.1.10 | 2026-07-23 | 搜索 capability packages 实现完成（三包五工具；offline O1–O6 + live） |

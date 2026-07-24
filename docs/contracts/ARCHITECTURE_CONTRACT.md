@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **contract_version** | `0.3.2` |
-| **status** | **active**（0.3.1 baseline + ADR 0006 能力包同构子集；变更仍须 ADR + 升版本） |
+| **contract_version** | `0.3.3` |
+| **status** | **active**（0.3.2 + ADR 0007 旧仓身份；变更仍须 ADR + 升版本） |
 | **updated** | 2026-07-23 |
-| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载 |
+| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、P4 旧仓参考身份 |
 | **roadmap** | 实现顺序与阶段门禁见 [`docs/ROADMAP.md`](../ROADMAP.md) |
 | **out of scope for this doc** | 业务特性 backlog 细则、各业务 JSON Schema 字段表（另文） |
 
@@ -35,7 +35,7 @@
 | D9 | 过程执行 | Application Process Manager | Domain 内跑 IO 流程 |
 | D10 | Domain | 契约/不变量/纯校验 | fastapi/网络/装包 IO |
 | D11 | 真相源 | agent Session/Transcript；App 可投影 | 仅内存当唯一史实 |
-| D12 | 旧仓 | 能力参考 | 抄旧仓当 Pi 父本 |
+| D12 | 旧仓 | **能力参考** = `competitive-agent`（https://github.com/xj120/competitive-agent）；本地与本仓并排检出；见 §1.3 | 抄旧仓当 Pi 父本；1:1 复刻清单当 backlog |
 | D13 | 技术栈 | Python 3.12 + **FastAPI** + Pydantic | 未 ADR 换主框架/内核 |
 | D14 | 上游 | **只对齐 main 当前实现** | 钉死过期 tag 当永久真理 |
 | D15 | `packages/ai` | **全量**对齐 main | 单兼容层；LangChain 替代 |
@@ -49,7 +49,7 @@
 | D23 | 模型/密钥配置 | **配置文件 + env 覆盖（C）**；密钥不入 git | 密钥提交仓库 |
 | D24 | Agent Session 默认存储 | **JSONL** 作对话/tool SoT | 仅内存当默认 SoT |
 | D25 | JSONL 落盘路径 | 默认 **`data/sessions/`**（`data/` 不入库） | 默认写系统临时目录导致无法稳定 resume |
-| D26 | 架构冻结 | v0.3.1 曾冻结 baseline；**0.3.2** 起允许按 ADR 演进（当前含 0006） | 仅聊天改架构不改本文 |
+| D26 | 架构冻结 | v0.3.1 曾冻结 baseline；**0.3.2+** 按 ADR 演进（当前含 0006、**0007**） | 仅聊天改架构不改本文 |
 
 ### 1.1 已废弃
 
@@ -68,6 +68,18 @@
 | 分支 | **main only** |
 | `packages/ai`、`packages/agent` | 行为与目录 **同构移植** |
 | 能力包加载 | **不**再要求 coding-agent package-manager 全文同构；仅借鉴「包内如何声明 tool/skill」若 main 有清晰约定，否则用最小约定（§5） |
+
+### 1.3 旧仓（D12）— P4 能力参考源
+
+| 项 | 约定 |
+|----|------|
+| 角色 | **仅** P4 业务 / workflow / 领域与能力形状的参考；**不是** agent 内核规范源 |
+| 仓库名 | `competitive-agent`（产品名 CompetitorLens 旧实现） |
+| 远程（权威） | https://github.com/xj120/competitive-agent |
+| 本地约定 | 与 `pi4competitive` **并排** 检出 `competitive-agent/`（例：`…/revive/competitive-agent`） |
+| 优先参考 | `backend/workflows/competitive/`、业务 API、搜抓/packages 面 |
+| **禁止** | 以旧仓 `backend/agent/**` 替代 `packages/ai|agent`；把旧仓范围当必须 1:1 复刻清单 |
+| 对照 | **Pi 父本** 仍只为 §1.2 `earendil-works/pi` **main**（ADR 0007） |
 
 ---
 
@@ -287,7 +299,8 @@ pi4competitive/
 
 | 术语 | 含义 |
 |------|------|
-| 上游 main | earendil-works/pi `main` |
+| 上游 main | earendil-works/pi `main`（**Pi 父本**；P1–P3 同构源） |
+| 旧仓 | `competitive-agent` @ https://github.com/xj120/competitive-agent（**P4 能力参考**；D12 / ADR 0007） |
 | `capability_packages/` | **本地**可加载能力包根（搜抓等） |
 | 同构 | **ai/agent** 全量；**P3** 对 coding-agent package **本地子集** 同构（ADR 0006） |
 | Process Manager | App 阶段编排 |
@@ -315,3 +328,4 @@ pi4competitive/
 | **0.3.0** | 2026-07-22 | D24：JSONL Session SoT |
 | **0.3.1** | 2026-07-22 | D25：`data/sessions/`；**D26 架构冻结为 baseline** |
 | **0.3.2** | 2026-07-23 | **ADR 0006**：P3 = coding-agent package-manager **本地同构子集**；D5/D16/§5 更新；仍禁止远程/home/install |
+| **0.3.3** | 2026-07-23 | **ADR 0007**：钉死 D12 旧仓身份（`competitive-agent` / xj120）；§1.3 + 术语表；角色仍仅为能力参考 |

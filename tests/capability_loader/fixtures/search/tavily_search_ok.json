@@ -1,0 +1,22 @@
+{
+  "results": [
+    {
+      "title": "Example Article",
+      "url": "https://example.com/page?utm_source=x",
+      "content": "Search-result excerpt",
+      "score": 0.91,
+      "published_date": "2026-07-20T08:00:00Z"
+    },
+    {
+      "title": "",
+      "url": "not-a-url",
+      "content": "bad"
+    },
+    {
+      "title": "Second",
+      "url": "https://example.com/two",
+      "content": "Two",
+      "score": 0.5
+    }
+  ]
+}

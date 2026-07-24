@@ -6,3 +6,12 @@ providers: {}
 # providers:
 #   openai:
 #     api_key: ${OPENAI_API_KEY}
+
+# Local capability package enable whitelist (P4 wiring → load_capability_packages).
+# Provider keys/URLs/models stay in env only — never put secrets here.
+capability_packages:
+  enabled:
+    - echo_example
+    - search_tavily
+    - search_anysearch
+    - search_grok

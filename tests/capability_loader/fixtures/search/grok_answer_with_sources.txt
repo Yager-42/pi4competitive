@@ -1,0 +1,5 @@
+Grok synthesized answer about AI agents.
+
+## Sources
+- [Pi Agent Docs](https://example.com/pi-agent)
+- [Tavily Overview](https://example.com/tavily)
