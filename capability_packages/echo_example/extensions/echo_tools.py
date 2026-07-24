@@ -23,19 +23,17 @@ async def _echo_execute(
 
 
 def register(api: Any) -> None:
-    api.add_tool(
-        AgentTool(
-            name="echo",
-            description="Echo text back (capability_packages/echo_example)",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string", "description": "Text to echo"},
-                },
-                "required": ["text"],
+    api.registerTool(AgentTool(
+        name="echo",
+        description="Echo text back (capability_packages/echo_example)",
+        parameters={
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Text to echo"},
             },
-            label="Echo",
-            execute=_echo_execute,
-            executionMode="parallel",
-        )
-    )
+            "required": ["text"],
+        },
+        label="Echo",
+        execute=_echo_execute,
+        executionMode="parallel",
+    ))

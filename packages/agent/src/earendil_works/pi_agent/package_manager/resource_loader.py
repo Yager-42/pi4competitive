@@ -5,192 +5,126 @@ themes / TUI omitted.
 """
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+from earendil_works.pi_agent.extensions import ExtensionRunner, load_extensions, wrap_registered_tools
 from earendil_works.pi_agent.harness.prompt_templates import PromptTemplate
 from earendil_works.pi_agent.harness.skills import Skill, load_skill_from_file
-from earendil_works.pi_agent.types import AgentTool
 
-from .extensions_loader import ExtensionLoadResult, load_extension_module
-from .types import (
-    LoadReport,
-    LoadedPackage,
-    ResolvedPaths,
-    ResolvedResource,
-    ResourceDiagnostic,
-)
+from .types import LoadReport, LoadedPackage, ResolvedPaths, ResolvedResource, ResourceDiagnostic
 
 
 def load_skill_resources(resources: list[ResolvedResource]) -> tuple[list[Skill], list[ResourceDiagnostic]]:
     skills: list[Skill] = []
-    diags: list[ResourceDiagnostic] = []
-    for res in resources:
-        if not res.enabled:
+    diagnostics: list[ResourceDiagnostic] = []
+    for resource in resources:
+        if not resource.enabled:
             continue
-        path = Path(res.path)
         try:
-            if path.is_file():
-                skills.append(load_skill_from_file(path))
-            else:
-                diags.append(
-                    ResourceDiagnostic(
-                        level="warn",
-                        package=res.metadata.source,
-                        path=res.path,
-                        message=f"skill path missing: {res.path}",
-                    )
-                )
-        except Exception as exc:  # noqa: BLE001
-            diags.append(
-                ResourceDiagnostic(
-                    level="error",
-                    package=res.metadata.source,
-                    path=res.path,
-                    message=f"failed to load skill: {exc}",
-                )
-            )
-    return skills, diags
-
-
-def load_prompt_resources(resources: list[ResolvedResource]) -> tuple[list[PromptTemplate], list[ResourceDiagnostic]]:
-    prompts: list[PromptTemplate] = []
-    diags: list[ResourceDiagnostic] = []
-    for res in resources:
-        if not res.enabled:
-            continue
-        path = Path(res.path)
-        try:
+            path = Path(resource.path)
             if not path.is_file():
-                diags.append(
-                    ResourceDiagnostic(
-                        level="warn",
-                        package=res.metadata.source,
-                        path=res.path,
-                        message=f"prompt path missing: {res.path}",
-                    )
-                )
-                continue
+                raise FileNotFoundError(path)
+            skills.append(load_skill_from_file(path))
+        except Exception as exc:  # noqa: BLE001
+            diagnostics.append(ResourceDiagnostic("error", resource.metadata.source, resource.path,
+                                                  f"failed to load skill: {exc}"))
+    return skills, diagnostics
+
+
+def load_prompt_resources(
+    resources: list[ResolvedResource],
+) -> tuple[list[PromptTemplate], list[ResourceDiagnostic]]:
+    prompts: list[PromptTemplate] = []
+    diagnostics: list[ResourceDiagnostic] = []
+    for resource in resources:
+        if not resource.enabled:
+            continue
+        try:
+            path = Path(resource.path)
             text = path.read_text(encoding="utf-8")
-            name = path.stem
-            description: str | None = None
+            name, description = path.stem, None
             if text.startswith("---"):
                 parts = text.split("---", 2)
                 if len(parts) >= 3:
-                    front = parts[1]
                     text = parts[2].lstrip("\n")
-                    for line in front.splitlines():
-                        if ":" in line:
-                            k, v = line.split(":", 1)
-                            k = k.strip().lower()
-                            v = v.strip().strip("\"'")
-                            if k == "name":
-                                name = v
-                            elif k == "description":
-                                description = v
-            prompts.append(PromptTemplate(name=name, content=text, description=description))
+                    for line in parts[1].splitlines():
+                        if ":" not in line:
+                            continue
+                        key, value = line.split(":", 1)
+                        value = value.strip().strip("\"'")
+                        if key.strip().lower() == "name":
+                            name = value
+                        elif key.strip().lower() == "description":
+                            description = value
+            prompts.append(PromptTemplate(name, text, description))
         except Exception as exc:  # noqa: BLE001
-            diags.append(
-                ResourceDiagnostic(
-                    level="error",
-                    package=res.metadata.source,
-                    path=res.path,
-                    message=f"failed to load prompt: {exc}",
-                )
-            )
-    return prompts, diags
+            diagnostics.append(ResourceDiagnostic("error", resource.metadata.source, resource.path,
+                                                  f"failed to load prompt: {exc}"))
+    return prompts, diagnostics
 
 
-def load_extension_resources(
-    resources: list[ResolvedResource],
-    *,
-    strict: bool = False,
-) -> tuple[list[AgentTool], list[Skill], list[PromptTemplate], list[ResourceDiagnostic], dict[str, LoadedPackage]]:
-    tools: list[AgentTool] = []
-    skills: list[Skill] = []
-    prompts: list[PromptTemplate] = []
-    diags: list[ResourceDiagnostic] = []
-    seen_tools: set[str] = set()
-    by_pkg: dict[str, LoadedPackage] = {}
-
-    for res in resources:
-        if not res.enabled:
-            continue
-        pkg = by_pkg.setdefault(
-            res.metadata.source,
-            LoadedPackage(name=res.metadata.source, root=res.metadata.baseDir or res.metadata.source),
-        )
-        part: ExtensionLoadResult = load_extension_module(res.path, package_name=res.metadata.source)
-        diags.extend(part.diagnostics)
-        if strict and any(d.level == "error" for d in part.diagnostics):
-            from .errors import PackageLoadError
-
-            raise PackageLoadError(part.diagnostics[-1].message)
-        for tool in part.tools:
-            if tool.name in seen_tools:
-                diags.append(
-                    ResourceDiagnostic(
-                        level="warn",
-                        package=res.metadata.source,
-                        path=res.path,
-                        message=f"duplicate tool name skipped: {tool.name}",
-                    )
-                )
-                continue
-            seen_tools.add(tool.name)
-            tools.append(tool)
-            pkg.tools.append(tool)
-        for skill in part.skills:
-            skills.append(skill)
-            pkg.skills.append(skill)
-        for prompt in part.prompts:
-            prompts.append(prompt)
-            pkg.prompts.append(prompt)
-    return tools, skills, prompts, diags, by_pkg
-
-
-def materialize_resolved(
-    resolved: ResolvedPaths,
-    *,
-    root: Path,
-    strict: bool = False,
+async def materialize_resolved_async(
+    resolved: ResolvedPaths, *, root: Path, strict: bool = False
 ) -> LoadReport:
-    """Turn ResolvedPaths into LoadReport (tools/skills/prompts). Themes omitted."""
     report = LoadReport(root=root, resolved=resolved)
+    enabled_extensions = [resource for resource in resolved.extensions if resource.enabled]
+    result = await load_extensions([resource.path for resource in enabled_extensions], root)
+    runner = ExtensionRunner.from_load_result(result, root)
+    report.extension_result = result
+    report.extension_runner = runner
+    report.tools = wrap_registered_tools(runner.get_all_registered_tools(), runner)
 
-    tools, ext_skills, ext_prompts, ext_diags, by_pkg = load_extension_resources(
-        resolved.extensions, strict=strict
-    )
-    skills, skill_diags = load_skill_resources(resolved.skills)
-    prompts, prompt_diags = load_prompt_resources(resolved.prompts)
-
-    for skill in skills:
-        matched = False
-        for pkg in by_pkg.values():
-            if skill.filePath.startswith(pkg.root):
-                pkg.skills.append(skill)
-                matched = True
-                break
-        if not matched:
-            # create package shell from skill path if needed
-            pass
-
-    for res in resolved.skills + resolved.prompts:
-        by_pkg.setdefault(
-            res.metadata.source,
-            LoadedPackage(name=res.metadata.source, root=res.metadata.baseDir or res.metadata.source),
+    metadata = {str(Path(resource.path).resolve()): resource.metadata for resource in enabled_extensions}
+    packages: dict[str, LoadedPackage] = {}
+    for extension in result.extensions:
+        info = metadata.get(str(Path(extension.resolvedPath).resolve()))
+        if info is None:
+            continue
+        package = packages.setdefault(info.source, LoadedPackage(info.source, info.baseDir or info.source))
+        package.tools.extend(
+            wrap_registered_tools(list(extension.tools.values()), runner)
         )
+    for error in result.errors:
+        path = str(Path(error["path"]).resolve())
+        info = metadata.get(path)
+        report.diagnostics.append(ResourceDiagnostic("error", info.source if info else None,
+                                                     error["path"], error["error"]))
+    if strict and result.errors:
+        from .errors import PackageLoadError
+        raise PackageLoadError(result.errors[-1]["error"])
 
-    report.tools = tools
-    report.skills = [*skills, *ext_skills]
-    report.prompts = [*prompts, *ext_prompts]
-    report.diagnostics = [*ext_diags, *skill_diags, *prompt_diags]
-    report.packages = list(by_pkg.values())
+    skills, skill_diagnostics = load_skill_resources(resolved.skills)
+    prompts, prompt_diagnostics = load_prompt_resources(resolved.prompts)
+    report.skills = skills
+    report.prompts = prompts
+    report.diagnostics.extend([*skill_diagnostics, *prompt_diagnostics])
+
+    for resource in resolved.skills + resolved.prompts:
+        if resource.enabled:
+            packages.setdefault(
+                resource.metadata.source,
+                LoadedPackage(resource.metadata.source,
+                              resource.metadata.baseDir or resource.metadata.source),
+            )
+    for skill in skills:
+        for package in packages.values():
+            if skill.filePath.startswith(package.root):
+                package.skills.append(skill)
+                break
+    for prompt, resource in zip(prompts, [item for item in resolved.prompts if item.enabled]):
+        packages[resource.metadata.source].prompts.append(prompt)
+    report.packages = list(packages.values())
     return report
 
 
+def materialize_resolved(
+    resolved: ResolvedPaths, *, root: Path, strict: bool = False
+) -> LoadReport:
+    return asyncio.run(materialize_resolved_async(resolved, root=root, strict=strict))
+
+
 __all__ = [
-    "load_extension_resources",
-    "load_prompt_resources",
-    "load_skill_resources",
-    "materialize_resolved",
+    "load_prompt_resources", "load_skill_resources", "materialize_resolved",
+    "materialize_resolved_async",
 ]

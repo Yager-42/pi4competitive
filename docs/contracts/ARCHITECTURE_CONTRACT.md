@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **contract_version** | `0.3.3` |
-| **status** | **active**（0.3.2 + ADR 0007 旧仓身份；变更仍须 ADR + 升版本） |
-| **updated** | 2026-07-23 |
-| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、P4 旧仓参考身份 |
+| **contract_version** | `0.3.4` |
+| **status** | **active**（0.3.4 + ADR 0008 agent engine extensions；变更仍须 ADR + 升版本） |
+| **updated** | 2026-07-24 |
+| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、**engine extension 运行时**、P4 旧仓参考身份 |
 | **roadmap** | 实现顺序与阶段门禁见 [`docs/ROADMAP.md`](../ROADMAP.md) |
 | **out of scope for this doc** | 业务特性 backlog 细则、各业务 JSON Schema 字段表（另文） |
 
@@ -28,7 +28,7 @@
 | D2 | Agent 基座 | **Python 移植官方 Pi**（main）作基座 | npm 当运行时；灵感式 loop |
 | D3 | agent 深度 | **C 档**：main `packages/agent` core+harness 目标面 | demo loop + App 再造 session |
 | D4 | 复刻方式 | **TS→Python 同构**（行为+模块边界+包组织） | 自创简化架构冒充 port |
-| D5 | 能力包 | **仅本地**；**P3 = coding-agent package-manager 本地同构子集**（发现/解析/加载）；见 D22 + ADR 0006 | 远程 install；home 默认发现；扩展商店；**全文** package-manager |
+| D5 | 能力包 | **仅本地**；P3 = package-manager 本地同构子集（ADR 0006）；**P3.1 = coding-agent extension 运行时引擎子集**（ADR 0008 + feature `agent-engine-extensions-v1`） | 远程 install；home 默认发现；扩展商店；**全文** package-manager/TUI；自创平行 Hook 品牌 |
 | D6 | 执行面 | package 内 tools/extensions 为 **Python** | 嵌 Node 跑 TS 包 |
 | D7 | 语言绑定 | jiti/TUI 不字面移植；agent 内核职责与次序对齐 main | 乱删 agent 状态机步骤 |
 | D8 | 产品 | `competitive_app` DDD + 六边形 | 六阶段写进 `packages/agent` |
@@ -39,7 +39,7 @@
 | D13 | 技术栈 | Python 3.12 + **FastAPI** + Pydantic | 未 ADR 换主框架/内核 |
 | D14 | 上游 | **只对齐 main 当前实现** | 钉死过期 tag 当永久真理 |
 | D15 | `packages/ai` | **全量**对齐 main | 单兼容层；LangChain 替代 |
-| D16 | 实现顺序 | **串行**：① `packages/ai` → ② `packages/agent` → ③ **coding-agent package 本地子集同构**（非 install/远程）→ ④ `competitive_app` | 跳阶段；App 先于基座 |
+| D16 | 实现顺序 | **串行**：① ai → ② agent → ③ package 本地子集 → **③.1 extension 运行时（P3.1）** → ④ `competitive_app` | 跳阶段；App 先于基座；未完成 P3.1 宣称 extension 钩子完成 |
 | D17 | 路径同构 | 上游包 → `packages/ai`、`packages/agent` | 自创顶层 `pi_core` 等替代路径 |
 | D18 | import 名 | `earendil_works.pi_ai` / `pi_agent` /（加载器可在 agent 或薄模块） | 打平无边界命名空间 |
 | D19 | HTTP | **FastAPI** | Flask 默认（已废） |
@@ -49,7 +49,7 @@
 | D23 | 模型/密钥配置 | **配置文件 + env 覆盖（C）**；密钥不入 git | 密钥提交仓库 |
 | D24 | Agent Session 默认存储 | **JSONL** 作对话/tool SoT | 仅内存当默认 SoT |
 | D25 | JSONL 落盘路径 | 默认 **`data/sessions/`**（`data/` 不入库） | 默认写系统临时目录导致无法稳定 resume |
-| D26 | 架构冻结 | v0.3.1 曾冻结 baseline；**0.3.2+** 按 ADR 演进（当前含 0006、**0007**） | 仅聊天改架构不改本文 |
+| D26 | 架构冻结 | v0.3.1 baseline；**0.3.2+** 按 ADR 演进（含 0006、0007、**0008**） | 仅聊天改架构不改本文 |
 
 ### 1.1 已废弃
 
@@ -168,30 +168,37 @@ capability_packages/
 
 根目录名固定 **`capability_packages/`**（D22）。
 
-### 5.2 规范源与职责（阶段 ③ / P3）
+### 5.2 规范源与职责（阶段 ③ / P3 + P3.1）
 
 | 项 | 约定 |
 |----|------|
-| 规范源 | main `packages/coding-agent` 的 **package-manager / resource-loader / extensions-loader** 中与 **本地发现、资源 resolve、加载** 相关的部分（ADR 0006） |
+| 规范源（P3） | main `packages/coding-agent` 的 **package-manager / resource-loader** 中与 **本地发现、资源 resolve、加载** 相关的部分（ADR 0006） |
+| 规范源（P3.1） | main `packages/coding-agent/src/core/extensions/**`（types/loader/runner/wrapper）及 host **引擎路径** emit（ADR 0008） |
 | 实现方式 | TS→Python **同构子集**（行为 + 模块边界可 map） |
-| 加载结果 | 资源路径 → Python `AgentTool` / skills / prompts；注册进 `packages/agent` |
+| 加载结果（P3） | 资源路径 → tools / skills / prompts |
+| 运行时（P3.1） | `ExtensionRunner` + `registerTool` + §3.1 IN 事件；Context = **C-engine**（无 `ui`） |
+| 落点 | `earendil_works.pi_agent.package_manager` + **`earendil_works.pi_agent.extensions`** |
 | 失败 | 可观测；默认不因单包失败拖垮进程 |
 
-**禁止实现（默认路径）：** npm/git 源安装、`pi install` CLI、lock 远程解、`~/.pi` 默认发现、update/remove 远程包、扩展商店。
+**禁止实现（默认路径）：** npm/git 源安装、`pi install` CLI、lock 远程解、`~/.pi` 默认发现、update/remove 远程包、扩展商店、**coding TUI / `ui.*` / session 树 UX 事件**（详见 feature `agent-engine-extensions-v1` §3.1 OUT）。
 
 ### 5.3 与上游的关系
 
 - tool **运行语义**：对齐 main `packages/agent`（P2 已同构）。  
 - package **发现/解析（本地）**：对齐 coding-agent package-manager **子集**（ADR 0006）。  
 - package **安装/分发**：对齐 **禁止**（D5/D22/G10）。  
-- 扩展语言：upstream TS/jiti → **Python host-delta**。
+- extension **引擎运行时**：对齐 coding-agent `core/extensions` **S-engine 裁切**（ADR 0008）。  
+- 扩展语言：upstream TS/jiti → **Python host-delta**。  
+- 挂载公开 API：对齐上游 runtime/runner 符号语义（feature **AP3**）；禁止与临时 `apply_capability_report` **长期双 SoT**。  
+- 改 context/payload：**仅** extension 事件（feature **H1**），禁止平行公共 host 钩子长期并存。
 
-### 5.4 相对 v0.3.1 的策略升级
+### 5.4 相对 v0.3.1–0.3.3 的策略升级
 
-| v0.3.1 表述 | v0.3.2 |
-|-------------|--------|
-| 阶段③ = 非全文 package-manager 的薄本地加载 | 阶段③ = **coding-agent 本地同构子集**（仍非全文、仍无 install） |
-| 发现流程可不对照 upstream 文件 | **必须**可 map 到 coding-agent 源文件（见 P3 module map） |
+| 版本 | 表述 |
+|------|------|
+| v0.3.1 | 阶段③ = 非全文 package-manager 的薄本地加载 |
+| v0.3.2 | 阶段③ = **coding-agent 本地同构子集**（仍无 install） |
+| **v0.3.4** | **P3.1** = 同子集上加厚 **extension 运行时（引擎）**；仍无 install/TUI |
 
 ---
 
@@ -244,7 +251,7 @@ pi4competitive/
     competitive_app/
 ```
 
-加载器/同构子集代码放在 `packages/agent` 扩展面（如 `earendil_works.pi_agent.package_manager`），**不**另起第二 agent 内核；**不**要求移植完整 coding-agent 树（TUI/CLI/install）。规范源与删除清单见 **ADR 0006** 与 `docs/plans/P3_capability_loader.md`。
+加载器/同构子集代码放在 `packages/agent` 扩展面（`earendil_works.pi_agent.package_manager` + **`pi_agent.extensions`**），**不**另起第二 agent 内核；**不**要求移植完整 coding-agent 树（TUI/CLI/install）。规范源与删除清单见 **ADR 0006**、**ADR 0008** 与 `docs/plans/P3_capability_loader.md` / `P3_1_agent_engine_extensions.md`。
 
 ### 6.5 import 映射
 
@@ -302,9 +309,10 @@ pi4competitive/
 | 上游 main | earendil-works/pi `main`（**Pi 父本**；P1–P3 同构源） |
 | 旧仓 | `competitive-agent` @ https://github.com/xj120/competitive-agent（**P4 能力参考**；D12 / ADR 0007） |
 | `capability_packages/` | **本地**可加载能力包根（搜抓等） |
-| 同构 | **ai/agent** 全量；**P3** 对 coding-agent package **本地子集** 同构（ADR 0006） |
+| 同构 | **ai/agent** 全量；**P3** package 本地子集（ADR 0006）；**P3.1** extension 运行时引擎子集（ADR 0008） |
 | Process Manager | App 阶段编排 |
 | package 本地子集 | resolve/collect/load；**不含** install/npm/git/home |
+| extension 运行时（S-engine） | `pi_agent.extensions`：runner + registerTool + engine 事件；**不含** TUI/ui/session 树/install |
 
 ---
 
@@ -329,3 +337,4 @@ pi4competitive/
 | **0.3.1** | 2026-07-22 | D25：`data/sessions/`；**D26 架构冻结为 baseline** |
 | **0.3.2** | 2026-07-23 | **ADR 0006**：P3 = coding-agent package-manager **本地同构子集**；D5/D16/§5 更新；仍禁止远程/home/install |
 | **0.3.3** | 2026-07-23 | **ADR 0007**：钉死 D12 旧仓身份（`competitive-agent` / xj120）；§1.3 + 术语表；角色仍仅为能力参考 |
+| **0.3.4** | 2026-07-24 | **ADR 0008**：P3.1 agent engine extension 运行时；D5/D16/§5；feature `agent-engine-extensions-v1` frozen v0.2.0 |

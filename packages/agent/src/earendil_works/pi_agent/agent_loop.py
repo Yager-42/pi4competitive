@@ -340,6 +340,9 @@ async def _stream_assistant_response(
         stream_opts["apiKey"] = resolved_api_key
     if signal is not None:
         stream_opts["signal"] = signal
+    if config.beforeProviderHeaders:
+        headers = dict(stream_opts.get("headers") or {})
+        stream_opts["headers"] = await _maybe_await(config.beforeProviderHeaders(headers))  # type: ignore[typeddict-item]
 
     response = stream_function(config.model, llm_context, stream_opts)
     response = await _maybe_await(response)

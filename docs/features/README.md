@@ -5,7 +5,8 @@
 
 | 文档 | feature_id | 状态 | 实现计划 |
 |------|------------|------|----------|
-| [`search_capability_packages_v1.md`](search_capability_packages_v1.md) | `search-capability-packages-v1` | **frozen** v0.1.11 | [`docs/plans/P4_search_capability_packages.md`](../plans/P4_search_capability_packages.md) |
+| [`search_capability_packages_v1.md`](search_capability_packages_v1.md) | `search-capability-packages-v1` | **frozen** v0.1.12 | [`docs/plans/P4_search_capability_packages.md`](../plans/P4_search_capability_packages.md) |
+| [`agent_engine_extensions_v1.md`](agent_engine_extensions_v1.md) | `agent-engine-extensions-v1` | **frozen** v0.2.2 | [`P3_1_agent_engine_extensions.md`](../plans/P3_1_agent_engine_extensions.md) **completed v0.2.3**；ADR 0008；契约 v0.3.4 |
 
 ## 约定
 

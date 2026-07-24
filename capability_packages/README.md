@@ -58,7 +58,7 @@ async def _echo(tool_call_id, params, signal=None, on_update=None):
     return {"content": [{"type": "text", "text": text}], "details": {"echoed": text}}
 
 def register(api):
-    api.add_tool(AgentTool(
+    api.registerTool(AgentTool(
         name="echo",
         description="Echo text",
         parameters={
@@ -71,7 +71,6 @@ def register(api):
     ))
 ```
 
-Alternatives: module-level `TOOLS = [...]` or `create_tools() -> list[AgentTool]`.
 
 ## Load API
 

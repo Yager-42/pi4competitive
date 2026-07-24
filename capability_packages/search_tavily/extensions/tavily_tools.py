@@ -349,23 +349,19 @@ async def _tavily_fetch_execute(
 def register(api: Any) -> None:
     # Fail closed before add_tool (F-S11)
     _env_required("TAVILY_API_KEY")
-    api.add_tool(
-        AgentTool(
-            name="tavily_search",
-            description="Search the web via Tavily. Returns search_result.v1 JSON.",
-            parameters=_SEARCH_PARAMS,
-            label="Tavily Search",
-            execute=_tavily_search_execute,
-            executionMode="parallel",
-        )
-    )
-    api.add_tool(
-        AgentTool(
-            name="tavily_fetch",
-            description="Extract full page content via Tavily. Returns fetch_result.v1 JSON.",
-            parameters=_FETCH_PARAMS,
-            label="Tavily Fetch",
-            execute=_tavily_fetch_execute,
-            executionMode="parallel",
-        )
-    )
+    api.registerTool(AgentTool(
+        name="tavily_search",
+        description="Search the web via Tavily. Returns search_result.v1 JSON.",
+        parameters=_SEARCH_PARAMS,
+        label="Tavily Search",
+        execute=_tavily_search_execute,
+        executionMode="parallel",
+    ))
+    api.registerTool(AgentTool(
+        name="tavily_fetch",
+        description="Extract full page content via Tavily. Returns fetch_result.v1 JSON.",
+        parameters=_FETCH_PARAMS,
+        label="Tavily Fetch",
+        execute=_tavily_fetch_execute,
+        executionMode="parallel",
+    ))
