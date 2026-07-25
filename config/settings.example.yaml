@@ -9,9 +9,16 @@ providers: {}
 
 # Local capability package enable whitelist (P4 wiring → load_capability_packages).
 # Provider keys/URLs/models stay in env only — never put secrets here.
+# Default enables only echo_example; search_* need .env keys — enable when configured.
 capability_packages:
   enabled:
     - echo_example
-    - search_tavily
-    - search_anysearch
-    - search_grok
+    # - search_tavily    # enable when TAVILY_API_KEY configured
+    # - search_anysearch # enable when ANYSEARCH_API_KEY/URL configured
+    # - search_grok      # enable when GROK_API_KEY/URL/MODEL configured
+
+# P4 competitive_app runtime config (feature competitive-app-http-v1 §4.5).
+sessions:
+  cwd: competitive_app        # pinned; all app sessions land in data/sessions/--competitive_app--/
+app_db: data/app.db           # SQLite projection + session index (data/ gitignored)
+prompt_lock_timeout: 30       # per-session prompt queue timeout (seconds) → 409 on expiry
