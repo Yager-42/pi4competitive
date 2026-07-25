@@ -7,14 +7,16 @@ requires-python = ">=3.12"
 dependencies = [
   "earendil-works-pi-ai",
   "earendil-works-pi-agent",
+  "competitive_app",
 ]
 
 [tool.uv.workspace]
-members = ["packages/ai", "packages/agent"]
+members = ["packages/ai", "packages/agent", "competitive_app"]
 
 [tool.uv.sources]
 earendil-works-pi-ai = { workspace = true }
 earendil-works-pi-agent = { workspace = true }
+competitive_app = { workspace = true }
 
 [dependency-groups]
 dev = [
