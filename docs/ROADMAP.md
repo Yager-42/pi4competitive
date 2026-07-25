@@ -2,9 +2,9 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.15` |
+| **roadmap_version** | `0.1.16` |
 | **status** | active |
-| **updated** | 2026-07-24 |
+| **updated** | 2026-07-26 |
 | **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.4** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
@@ -164,7 +164,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P2 `packages/agent` | **done** | 2026-07-23 | branch `p2/packages-agent`; offline suite green; JSONL resume smoke |
 | P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
 | P3.1 agent engine extensions | **done** | 2026-07-24 | feature v0.2.2；plan v0.2.3；Offline 124 passed；Live 24 passed |
-| P4 `competitive_app` | **todo** | | unblocked by P3；extension 钩子依赖 P3.1 |
+| P4 `competitive_app` | **in_progress** | | HTTP 骨架切片落地（feature `competitive-app-http-v1` v0.1.3 frozen；14 路由；offline 19+124 passed）；研究 workflow 仍占位，待 grill 冻结 |
 | 业务能力 v1 | **partial**（搜索 capability **done**） | 2026-07-23 | search packages completed (`P4_search` v0.1.3); full competitive_app workflow still todo |
 
 状态枚举：`todo` | `in_progress` | `done` | `blocked`。
@@ -201,3 +201,4 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.13 | 2026-07-24 | P3.1 验收加完整 Live + Offline 高覆盖；feature/plan **v0.2.1** |
 | 0.1.14 | 2026-07-24 | P3.1 Live 收紧 L3a/L3b 双钩子必过；feature/plan **v0.2.2** |
 | 0.1.15 | 2026-07-24 | P3.1 extension runtime done：AP3/M2/H1/SK2；Offline+Live exit green；search contract v0.1.12 |
+| 0.1.16 | 2026-07-26 | P4 `competitive_app` → **in_progress**：HTTP 骨架切片落地（feature `competitive-app-http-v1` frozen v0.1.3；14 路由；DDD 分层门禁；offline 19+124 passed）；研究 workflow 仍占位 |
