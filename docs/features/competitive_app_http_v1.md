@@ -2,9 +2,9 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.1.1` |
+| **feature_contract_version** | `0.2.0` |
 | **status** | **frozen** |
-| **updated** | 2026-07-25 |
+| **updated** | 2026-07-26 |
 | **feature_id** | `competitive-app-http-v1` |
 | **roadmap_stage** | **P4** `competitive_app` —— 应用骨架 + HTTP 接口边界（研究 workflow 仍占位） |
 | **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.4**（§3.2 / §6.3 / §7 / D8 / G1 / G2 / D24 / D25） |
@@ -263,8 +263,8 @@ create table sessions (
 | O3 | 14 路由全部注册（`TestClient` + `/openapi.json` 断言路径集合 = §3.2） |
 | O4 | `POST /sessions` + `POST /sessions/{id}/prompt`（faux + echo tool）→ 200；响应含最后一条 assistant message；JSONL 落 `data/sessions/--competitive_app--/`；`GET /sessions/{id}/messages` 含归一化内容 |
 | O5 | 并发 `POST /sessions/{id}/prompt`：第二个排队等；超时（短 timeout 测试）返 409 |
-| O6 | `POST /tasks`（research_brief + competitor_discovery + metadata）→ 202 + `status=pending`；`GET /tasks/{id}` 反映真实 status（占位秒翻 completed）；`GET /tasks/{id}/report` 返回 stub（`report=null` + 未冻结注）；`GET /tasks/{id}/sessions` 返回空列表 |
-| O7 | `POST /tasks/{id}/resume`（completed task）→ 返回 completed；`POST /tasks/{id}/abort`（终态 task）→ 返回 aborted 不改 status；`DELETE /tasks/{id}` → 删 SQLite + 关联 session（若有） |
+| O6 | `POST /tasks`（ResearchBrief + metadata）→ 202 + `status=pending`；`GET /tasks/{id}` 返回 projection（status + current_stage + per-stage）；`GET /tasks/{id}/report` 返回 write 产物（research-workflow-v1 F-R12）；`GET /tasks/{id}/sessions` 返回单元素（task 建一个 session） |
+| O7 | `POST /tasks/{id}/resume`（completed task）→ 返回 completed；failed/aborted → 接着跑（research-workflow-v1 F-R16）；`POST /tasks/{id}/abort` → aborted；`DELETE /tasks/{id}` → 删 SQLite + 关联 session |
 | O8 | `POST /sessions/{id}/abort` 中止在途 prompt（faux）；排队请求被取消返 409 |
 | O9 | **resume**：新实例 load JSONL session（经 SQLite 索引取 file_path+cwd+model+system_prompt）→ 重建 `AgentHarness` → 同 session_id 继续可 prompt（faux） |
 | O10 | capability：`enabled=["echo_example"]` 时 echo tool 可被 agent 调用（faux prompt 触发 tool call） |
@@ -331,15 +331,15 @@ adapter/in/fastapi  →  application/workflow  →  domain
 | F-A6 | locked | cwd 钉死常量 `competitive_app`；`LocalFileSystem(cwd="competitive_app")` |
 | F-A7 | locked | `ModelsImpl` app 级单例；`stream_fn = models.streamSimple`；provider 由 wiring 配（默认 openai，faux 测试用 faux_provider） |
 | F-A8 | locked | `POST /sessions` model 空 → 默认；非空查 catalog，查不到 422；不开放传完整 Model dict |
-| F-A9 | locked | capability lifespan 加载一次；LoadReport 缓存；per-session apply；默认白名单 `[echo_example]` |
+| F-A9 | locked（v0.2.0 修订） | capability lifespan 加载一次；LoadReport 缓存；per-session apply；默认白名单 `[echo_example, search_tavily, search_anysearch, search_grok]`（search 包按 .env 配齐启用；research-workflow-v1 F-R19 需搜索工具） |
 | F-A10 | locked | Agent 实例缓存进 `runtime_registry`；per-session `asyncio.Lock` 排队；超时 30s 返 409 |
 | F-A11 | locked | abort 中止当前 + 取消排队；被取消排队请求返 409 |
 | F-A12 | locked | `DELETE /tasks/{id}` 连带删关联 session；不提供 `DELETE /sessions/{id}` |
 | F-A13 | locked | 砍 session `/events` + task `/events`：本仓无工作流事件表 |
 | F-A14 | locked | 砍 research 前置 2 接口：占位前三步断、壳是摆设；task 入参调用方自构造 |
-| F-A15 | locked | `WorkflowTaskRequest` 粗定义（research_brief/competitor_discovery 为 dict）；只顶层结构校验，不实现旧仓跨字段强校验；标 PLACEHOLDER |
-| F-A16 | locked | 占位 runner 只翻 SQLite status，不跑 agent、不写 JSONL；秒翻 completed；`POST /tasks` 固定返回 pending |
-| F-A17 | locked | 占位 task 不建 session（`session_id=null`）；`GET /tasks/{id}/sessions` 返回空列表；占位阶段 task↔session 0:0 |
+| F-A15 | locked（v0.2.0 修订） | `WorkflowTaskRequest` 入参为 `ResearchBrief`（简化：`{target, goal, competitors, dimensions}`，见 research-workflow-v1 F-R6）；不再粗定义 dict |
+| F-A16 | locked（v0.2.0 修订） | task runner = 六阶段 `ResearchRunner`（research-workflow-v1）；`POST /tasks` 固定返回 `status=pending`，runner 异步跑六阶段；占位 runner 已替换 |
+| F-A17 | locked（v0.2.0 修订） | task 创建即建 session（1:1，六阶段在该 session 跑）；`GET /tasks/{id}/sessions` 返回单元素列表；`task.session_id` 非 null |
 | F-A18 | locked | resume/abort 走边界 case：completed task resume 返回 completed；终态 task abort 返回 aborted 不改 status |
 | F-A19 | locked | `POST /sessions/{id}/prompt` 同步等完；返回最后一条 assistant message（无则 null）；失败 200+errorMessage（不 503） |
 | F-A20 | locked | `GET /sessions/{id}/messages` 原始 message dict 透传（含 content blocks），全部历史，不分页 |
@@ -355,13 +355,13 @@ adapter/in/fastapi  →  application/workflow  →  domain
 
 | 项 | 值 |
 |----|-----|
-| 冻结版本 | `0.1.1` |
-| 冻结日期 | 2026-07-25 |
-| grill | 25 决策点收敛（§8 F-A1…F-A25） |
+| 冻结版本 | `0.2.0` |
+| 冻结日期 | 2026-07-26 |
+| grill | 25 决策点收敛（§8 F-A1…F-A25）；v0.2.0 由 research-workflow-v1 修订 F-A9/F-A15/F-A16/F-A17 |
 | 验收 | §6 Offline O1–O12 + Live L1–L2 |
 | 架构影响 | 无；不升 `ARCHITECTURE_CONTRACT` |
 | Roadmap | 见 `docs/ROADMAP.md` §5（P4 → in_progress） |
-| 待升级 | research workflow feature 冻结后，前置 2 接口 / task 真 runner / report schema 回填，升本文至 v0.2.0+ |
+| 关联 | research-workflow-v1 落地后，task 路由行为从占位变真（F-A16）；report 返回 write 产物（F-A8 stub 已替换） |
 
 ### 9.1 修订
 
@@ -371,3 +371,4 @@ adapter/in/fastapi  →  application/workflow  →  domain
 | 0.1.1 | 2026-07-25 | **grill frozen**：25 决策收敛；路由 16→13（砍 research/events）；加 sessions 索引表 + per-session 锁 + abort 排队 + delete 连带 + model 解析 + 启动分层失败 + 分层禁令；占位 task 不建 session |
 | 0.1.2 | 2026-07-25 | 物理布局确认：**src layout**（`competitive_app/src/competitive_app/...`），与本仓 `packages/ai|agent` 一致；契约 §6.4 为逻辑布局示意，import 名仍为 `competitive_app`（§6.5），不违规 |
 | 0.1.3 | 2026-07-25 | 路由数勘误：tasks 实为 8 个（POST/GET list/GET one/resume/abort/DELETE/report/sessions），总数 13→**14**（O3 / F-A2 同步） |
+| 0.2.0 | 2026-07-26 | **research-workflow-v1 落地**：task runner 从占位换成六阶段 `ResearchRunner`；修订 F-A9（白名单加 search 包）/ F-A15（ResearchBrief 简化模型替代粗定义 dict）/ F-A16（六阶段 runner 替代占位）/ F-A17（task 建 session 1:1 替代 null）；O6/O7 更新为真实行为；占位测试已替换 |

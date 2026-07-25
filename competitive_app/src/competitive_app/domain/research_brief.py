@@ -1,13 +1,10 @@
-"""Research-brief request models (placeholder, coarse-defined).
+"""Research-brief request models (research-workflow-v1 F-R6).
 
-PLACEHOLDER — research workflow is not frozen (Roadmap §0). These models only
-validate top-level structure; they do NOT implement the legacy repo's
-cross-field invariants (decisions-cover-candidates / context_fingerprint /
-target consistency). Those land with a future workflow feature.
+Simplified from legacy competitive-agent ResearchBrief: keeps only what the
+``plan`` stage needs. Drops breadth/depth/evidence_policy/chart_requirements/
+competitor_decisions (legacy bound to unfrozen report schema).
 
-``research_brief`` and ``competitor_discovery`` are intentionally ``dict`` —
-the deep sub-structure (target/goal/scope/candidates...) is not modeled here;
-it will be defined when the workflow feature is frozen.
+Pure domain: no fastapi / aiosqlite / pi_agent / pi_ai imports (contract G1).
 """
 from __future__ import annotations
 
@@ -16,18 +13,33 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class WorkflowTaskRequest(BaseModel):
-    """``POST /tasks`` request body (feature F-A15, coarse placeholder)."""
+class TargetIdentity(BaseModel):
+    """Research target identity (minimal)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    research_brief: dict[str, Any] = Field(
-        ..., description="Research brief payload (deep structure TBD with workflow feature)."
-    )
-    competitor_discovery: dict[str, Any] = Field(
-        ..., description="Competitor discovery payload (deep structure TBD with workflow feature)."
-    )
+    name: str = Field(default="", description="Target product/company name.")
+    category: str = Field(default="", description="Target category description.")
+
+
+class ResearchBrief(BaseModel):
+    """Simplified research brief (F-R6)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target: TargetIdentity
+    goal: str = Field(min_length=1, description="Research goal in natural language.")
+    competitors: list[str] = Field(min_length=1, description="Competitor names (>=1).")
+    dimensions: list[str] = Field(min_length=1, description="Research dimensions, e.g. pricing/features.")
+
+
+class WorkflowTaskRequest(BaseModel):
+    """``POST /tasks`` request body (feature F-A15 v0.2.0)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    research_brief: ResearchBrief
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-__all__ = ["WorkflowTaskRequest"]
+__all__ = ["ResearchBrief", "TargetIdentity", "WorkflowTaskRequest"]

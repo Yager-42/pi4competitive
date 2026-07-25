@@ -7,7 +7,8 @@
 |------|------------|------|----------|
 | [`search_capability_packages_v1.md`](search_capability_packages_v1.md) | `search-capability-packages-v1` | **frozen** v0.1.12 | [`docs/plans/P4_search_capability_packages.md`](../plans/P4_search_capability_packages.md) |
 | [`agent_engine_extensions_v1.md`](agent_engine_extensions_v1.md) | `agent-engine-extensions-v1` | **frozen** v0.2.2 | [`P3_1_agent_engine_extensions.md`](../plans/P3_1_agent_engine_extensions.md) **completed v0.2.3**；ADR 0008；契约 v0.3.4 |
-| [`competitive_app_http_v1.md`](competitive_app_http_v1.md) | `competitive-app-http-v1` | **frozen** v0.1.3 | [`P4_competitive_app_http.md`](../plans/P4_competitive_app_http.md) **active v0.2.0**；14 路由骨架；研究 workflow 占位 |
+| [`competitive_app_http_v1.md`](competitive_app_http_v1.md) | `competitive-app-http-v1` | **frozen** v0.2.0 | [`P4_competitive_app_http.md`](../plans/P4_competitive_app_http.md) **completed**；14 路由；task 行为由 research-workflow-v1 提供 |
+| [`research_workflow_v1.md`](research_workflow_v1.md) | `research-workflow-v1` | **frozen** v0.1.1 | [`P4_research_workflow.md`](../plans/P4_research_workflow.md) **active v0.1.0**；六阶段研究 workflow；替换占位 runner |
 
 ## 约定
 

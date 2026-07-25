@@ -25,13 +25,16 @@ class ModelResolver(Protocol):
 
 
 class HarnessFactory(Protocol):
-    """Builds an AgentHarness bound to a given session + model + system prompt."""
+    """Builds an AgentHarness bound to a given session + model + system prompt.
+
+    ``model=None`` means "use the configured default" (research-workflow-v1 F-R7).
+    """
 
     async def build(
         self,
         *,
         session: Any,
-        model: dict[str, Any],
+        model: dict[str, Any] | None,
         system_prompt: str,
     ) -> Any: ...
 

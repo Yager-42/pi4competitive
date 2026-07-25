@@ -68,7 +68,7 @@ class ApplicationState:
 class _ModelResolver(ModelResolver):
     """Resolves ``model`` string → pi_ai Model dict via the catalog.
 
-    Empty → config.default_model; unknown → KeyError (→ 422). Does not allow
+    Empty/None → config.default_model; unknown → KeyError (→ 422). Does not allow
     passing a full Model dict (feature F-A8).
     """
 
@@ -76,11 +76,10 @@ class _ModelResolver(ModelResolver):
         self._models = models
         self._default_model = default_model
 
-    def resolve(self, model: str) -> dict[str, Any]:
-        model_id = model or self._default_model
+    def resolve(self, model: str | None) -> dict[str, Any]:
+        model_id = (model or self._default_model) if model is not None else self._default_model
         if not model_id:
             raise KeyError("no model specified and no default configured")
-        # Search every registered model for this id (provider-agnostic).
         for candidate in self._models.getModels():
             if candidate.get("id") == model_id:
                 return candidate  # type: ignore[return-value]
@@ -88,23 +87,30 @@ class _ModelResolver(ModelResolver):
 
 
 class _HarnessFactory(HarnessFactory):
-    """Builds an AgentHarness bound to a session + model + cached capability report."""
+    """Builds an AgentHarness bound to a session + model + cached capability report.
+
+    ``model=None`` resolves to the configured default (F-R7).
+    """
 
     def __init__(
         self,
         models: Any,
         capability_report: Any | None,
+        model_resolver: _ModelResolver,
     ) -> None:
         self._models = models
         self._capability_report = capability_report
+        self._model_resolver = model_resolver
 
     async def build(
         self,
         *,
         session: Any,
-        model: dict[str, Any],
+        model: dict[str, Any] | None,
         system_prompt: str,
     ) -> AgentHarness:
+        if model is None:
+            model = self._model_resolver.resolve(None)
         return AgentHarness(
             session=session,
             stream_fn=self._models.streamSimple,
@@ -161,8 +167,8 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
 
     # --- services ----------------------------------------------------------
     registry = RuntimeRegistry()
-    harness_factory = _HarnessFactory(models, capability_report)
     model_resolver = _ModelResolver(models, config.default_model)
+    harness_factory = _HarnessFactory(models, capability_report, model_resolver)
     session_service = SessionService(
         repo=repo,
         store=store,
@@ -171,7 +177,15 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         model_resolver=model_resolver,
         prompt_lock_timeout=config.prompt_lock_timeout,
     )
-    task_service = TaskService(store=store, repo=repo, registry=registry)
+    capability_tools = list(getattr(capability_report, "tools", []) or []) if capability_report else []
+    task_service = TaskService(
+        store=store,
+        repo=repo,
+        registry=registry,
+        harness_factory=harness_factory,
+        capability_tools=capability_tools,
+        sessions_cwd=config.sessions_cwd,
+    )
 
     return ApplicationState(
         config=config,

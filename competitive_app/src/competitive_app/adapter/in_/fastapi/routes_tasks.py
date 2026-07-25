@@ -25,7 +25,6 @@ async def create_task(body: WorkflowTaskRequest, request: Request) -> dict:
     state = _state(request)
     return await state.task_service.create_task(
         research_brief=body.research_brief,
-        competitor_discovery=body.competitor_discovery,
         metadata=body.metadata,
     )
 

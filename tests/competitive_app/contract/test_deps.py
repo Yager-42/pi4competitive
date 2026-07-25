@@ -57,3 +57,19 @@ def test_application_does_not_import_fastapi() -> None:
     # application may import pi_agent + adapter/out store, but NOT fastapi.
     offenders = _scan(APP_SRC / "application", {"fastapi", "uvicorn"})
     assert not offenders, f"application layer violations: {offenders}"
+
+
+def test_workflow_code_in_competitive_app_not_packages() -> None:
+    """F-R3/D8: six-stage workflow lives in competitive_app, not packages/agent."""
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "diff", "--exit-code", "--name-only", "HEAD", "--", "packages/"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    # Non-zero exit means packages/ has changes; the workflow must not touch it.
+    assert result.returncode == 0, (
+        f"packages/ must not be modified by research-workflow-v1; changed: {result.stdout}"
+    )
