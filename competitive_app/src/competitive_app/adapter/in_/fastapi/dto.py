@@ -9,6 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ....domain.research_brief import ResearchBrief
+
 
 class SessionCreateRequest(BaseModel):
     """``POST /sessions`` body. No ``max_turns`` (feature F-A21)."""
@@ -29,13 +31,11 @@ class PromptRequest(BaseModel):
 
 
 class WorkflowTaskRequest(BaseModel):
-    """``POST /tasks`` body (placeholder, coarse-defined — feature F-A15)."""
+    """``POST /tasks`` body (research-workflow-v1 F-A15 v0.2.0)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    # PLACEHOLDER: deep sub-structure deferred to the workflow feature.
-    research_brief: dict[str, Any]
-    competitor_discovery: dict[str, Any]
+    research_brief: ResearchBrief
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

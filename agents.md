@@ -11,13 +11,15 @@ This file is for humans and coding agents working in this repo.
 | [`docs/features/`](docs/features/) | Per-feature boundary contracts; see README index |
 | [`docs/features/search_capability_packages_v1.md`](docs/features/search_capability_packages_v1.md) | search capability v1 **frozen v0.1.12**（F-S1…F-S18 + §10） |
 | [`docs/features/agent_engine_extensions_v1.md`](docs/features/agent_engine_extensions_v1.md) | agent engine extensions **frozen v0.2.2**（P3.1；Offline + Live L3a/L3b） |
-| [`docs/features/competitive_app_http_v1.md`](docs/features/competitive_app_http_v1.md) | P4 app HTTP 边界 **frozen v0.1.3**（`competitive-app-http-v1`；14 路由骨架；研究 workflow 占位） |
+| [`docs/features/competitive_app_http_v1.md`](docs/features/competitive_app_http_v1.md) | P4 app HTTP 边界 **frozen v0.2.0**（`competitive-app-http-v1`；14 路由；task 行为由 research-workflow-v1 提供） |
+| [`docs/features/research_workflow_v1.md`](docs/features/research_workflow_v1.md) | P4 六阶段研究 workflow **frozen v0.1.1**（`research-workflow-v1`；替换占位 runner；24 决策） |
 | [`docs/plans/P1_packages_ai.md`](docs/plans/P1_packages_ai.md) | P1 plan (**completed**) — `packages/ai` |
 | [`docs/plans/P2_packages_agent.md`](docs/plans/P2_packages_agent.md) | P2 plan (**completed**) — `packages/agent` |
 | [`docs/plans/P3_capability_loader.md`](docs/plans/P3_capability_loader.md) | P3 plan (**completed**) — package-manager local subset |
 | [`docs/plans/P3_1_agent_engine_extensions.md`](docs/plans/P3_1_agent_engine_extensions.md) | P3.1 engine extension runtime (**completed v0.2.3**); map [`P3_1_module_map.md`](docs/plans/P3_1_module_map.md) |
 | [`docs/plans/P4_search_capability_packages.md`](docs/plans/P4_search_capability_packages.md) | search capability packages v1 (**completed** implementation; feature frozen) |
-| [`docs/plans/P4_competitive_app_http.md`](docs/plans/P4_competitive_app_http.md) | **P4 active** — competitive_app HTTP 骨架（v0.2.0；14 路由；研究 workflow 占位） |
+| [`docs/plans/P4_competitive_app_http.md`](docs/plans/P4_competitive_app_http.md) | P4 competitive_app HTTP 骨架（v0.2.0；14 路由） |
+| [`docs/plans/P4_research_workflow.md`](docs/plans/P4_research_workflow.md) | **P4 active** — 六阶段研究 workflow（v0.1.0；替换占位 runner） |
 | [`docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md`](docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md) | ADR: port subset, omit install/npm/git/home |
 | [`docs/contracts/adr/0007-legacy-repo-capability-reference.md`](docs/contracts/adr/0007-legacy-repo-capability-reference.md) | ADR: 旧仓 = `competitive-agent`（能力参考 only） |
 | [`docs/contracts/adr/0008-agent-engine-extensions-runtime.md`](docs/contracts/adr/0008-agent-engine-extensions-runtime.md) | ADR: P3.1 extension runtime S-engine |

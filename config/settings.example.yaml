@@ -9,13 +9,14 @@ providers: {}
 
 # Local capability package enable whitelist (P4 wiring → load_capability_packages).
 # Provider keys/URLs/models stay in env only — never put secrets here.
-# Default enables only echo_example; search_* need .env keys — enable when configured.
+# research-workflow-v1 collect/cite stages need search tools; packages without
+# their env keys fail-closed (diagnostic, no tools) — see search feature §4.4.
 capability_packages:
   enabled:
     - echo_example
-    # - search_tavily    # enable when TAVILY_API_KEY configured
-    # - search_anysearch # enable when ANYSEARCH_API_KEY/URL configured
-    # - search_grok      # enable when GROK_API_KEY/URL/MODEL configured
+    - search_tavily
+    - search_anysearch
+    - search_grok
 
 # P4 competitive_app runtime config (feature competitive-app-http-v1 §4.5).
 sessions:

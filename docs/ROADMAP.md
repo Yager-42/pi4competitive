@@ -164,8 +164,8 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P2 `packages/agent` | **done** | 2026-07-23 | branch `p2/packages-agent`; offline suite green; JSONL resume smoke |
 | P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
 | P3.1 agent engine extensions | **done** | 2026-07-24 | feature v0.2.2；plan v0.2.3；Offline 124 passed；Live 24 passed |
-| P4 `competitive_app` | **in_progress** | | HTTP 骨架切片落地（feature `competitive-app-http-v1` v0.1.3 frozen；14 路由；offline 19+124 passed）；研究 workflow 仍占位，待 grill 冻结 |
-| 业务能力 v1 | **partial**（搜索 capability **done**） | 2026-07-23 | search packages completed (`P4_search` v0.1.3); full competitive_app workflow still todo |
+| P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.2.0）+ 六阶段研究 workflow（`research-workflow-v1` v0.1.1 frozen；替换占位 runner；offline 35+124 passed）；后续：多角色评审/缺口补搜/报告 schema |
+| 业务能力 v1 | **partial**（搜索 capability **done** + 研究闭环 **done**） | 2026-07-26 | search packages + 六阶段研究 workflow 落地；完整 fact_report schema 仍 todo |
 
 状态枚举：`todo` | `in_progress` | `done` | `blocked`。
 
@@ -202,3 +202,4 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.14 | 2026-07-24 | P3.1 Live 收紧 L3a/L3b 双钩子必过；feature/plan **v0.2.2** |
 | 0.1.15 | 2026-07-24 | P3.1 extension runtime done：AP3/M2/H1/SK2；Offline+Live exit green；search contract v0.1.12 |
 | 0.1.16 | 2026-07-26 | P4 `competitive_app` → **in_progress**：HTTP 骨架切片落地（feature `competitive-app-http-v1` frozen v0.1.3；14 路由；DDD 分层门禁；offline 19+124 passed）；研究 workflow 仍占位 |
+| 0.1.17 | 2026-07-26 | 六阶段研究 workflow 落地（feature `research-workflow-v1` frozen v0.1.1；替换占位 runner；24 决策；offline 35+124 passed）；`competitive-app-http-v1` 升 v0.2.0 |
