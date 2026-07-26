@@ -189,4 +189,20 @@ def build_anthropic_messages_payload(
     tools = tools_to_anthropic(context.get("tools"))  # type: ignore[arg-type]
     if tools:
         payload["tools"] = tools
+
+    retention = options.get("cacheRetention", "short")
+    if retention != "none":
+        cache_control = {"type": "ephemeral"}
+        if retention == "long" and (model.get("compat") or {}).get("supportsLongCacheRetention"):
+            cache_control["ttl"] = "1h"
+        if system:
+            payload["system"] = [{"type": "text", "text": system, "cache_control": cache_control}]
+        if messages and messages[-1].get("role") == "user":
+            content = messages[-1].get("content")
+            if isinstance(content, str):
+                messages[-1]["content"] = [{"type": "text", "text": content, "cache_control": cache_control}]
+            elif content:
+                content[-1]["cache_control"] = cache_control
+        if tools:
+            tools[-1]["cache_control"] = cache_control
     return payload

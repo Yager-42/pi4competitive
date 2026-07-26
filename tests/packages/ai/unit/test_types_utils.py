@@ -8,6 +8,7 @@ from earendil_works.pi_ai.api.transform_messages import (
 )
 from earendil_works.pi_ai.utils.json_parse import parse_partial_json
 from earendil_works.pi_ai.api._http_stream import _openai_usage
+from earendil_works.pi_ai.api.anthropic_messages import _apply_anthropic_usage
 from earendil_works.pi_ai.utils.validation import ValidationError, validate_tool_arguments
 from earendil_works.pi_ai.utils.uuid import uuidv7
 
@@ -123,6 +124,31 @@ def test_openai_completions_cache_request_and_usage() -> None:
     )["cacheRead"] == 7
 
 
+def test_anthropic_cache_control_and_usage() -> None:
+    model = {
+        "id": "claude", "api": "anthropic-messages", "provider": "anthropic", "maxTokens": 8,
+        "compat": {"supportsLongCacheRetention": True},
+    }
+    context = {
+        "systemPrompt": "system",
+        "messages": [{"role": "user", "content": "hello", "timestamp": 0}],
+        "tools": [{"name": "lookup", "description": "d", "parameters": {"type": "object"}}],
+    }
+    payload = build_anthropic_messages_payload(model, context, {"cacheRetention": "long"})
+    marker = {"type": "ephemeral", "ttl": "1h"}
+    assert payload["system"][-1]["cache_control"] == marker
+    assert payload["messages"][-1]["content"][-1]["cache_control"] == marker
+    assert payload["tools"][-1]["cache_control"] == marker
+    usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0}
+    _apply_anthropic_usage(
+        usage,
+        {"input_tokens": 5, "output_tokens": 2, "cache_read_input_tokens": 7,
+         "cache_creation_input_tokens": 3, "cache_creation": {"ephemeral_1h_input_tokens": 3}},
+    )
+    assert usage == {"input": 5, "output": 2, "cacheRead": 7, "cacheWrite": 3,
+                     "cacheWrite1h": 3, "totalTokens": 17}
+
+
 def test_anthropic_messages_tool_name_normalization() -> None:
     model = {
         "id": "claude",
@@ -150,4 +176,4 @@ def test_anthropic_messages_tool_name_normalization() -> None:
     payload = build_anthropic_messages_payload(model, ctx)
     assert payload["tools"][0]["name"] == "lookup"
     assert "input_schema" in payload["tools"][0]
-    assert payload["system"] == "s"
+    assert payload["system"] == [{"type": "text", "text": "s", "cache_control": {"type": "ephemeral"}}]
