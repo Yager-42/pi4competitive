@@ -227,7 +227,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | C5 | Offline extension E2E (deterministic cache server) | **done** | real HTTP SSE；stable prefix second request cacheRead=5 |
 | C6 | Offline compaction + resume gates | **done** | 12 passed：validation/retry/fallback/rewrite/JSONL resume |
 | C7 | Reasonix + search co-load gate (no tool/lifecycle collision) | **done** | Tavily tools intact；Reasonix payload handler present；zero errors |
-| C8 | Live opt-in full-stack warm-cache smoke（正式 loader/Harness 路径；第 2 请求 `cacheRead > 0` 且进入 E1） | **blocked** | 2026-07-26: no configured provider key/model/base URL in environment；offline gates green；cannot close P3.2 |
+| C8 | Live opt-in full-stack warm-cache smoke（正式 loader/Harness 路径；第 2 请求 `cacheRead > 0` 且进入 E1） | **blocked** | full-stack test added；2026-07-26 run skipped: `P3_2_LIVE_API_KEY/MODEL_ID/BASE_URL/API_FAMILY` absent；cannot close P3.2 |
 | C9 | Plan status completed；roadmap P3.2=done | **todo** | exit |
 
 **Rules:**
