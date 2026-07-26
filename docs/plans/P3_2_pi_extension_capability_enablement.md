@@ -218,7 +218,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | B3 | X1 collision: cancel / single plan / fail-closed | **done** | cancel short-circuit；multi/mixed collision aborts rewrite |
 | B4 | S1 isolated summary + retry + mechanical fallback | **done** | 90s deadline；single non-timeout retry；identity/callback stripping |
 | B5 | prepareNextTurn checkpoint + atomic rewrite + session_compact | **done** | validated plan → isolated summary → Session rebuild/state sync |
-| B6 | bind `getContextUsage` + `compact` on harness path | **todo** | T2 host half |
+| B6 | bind `getContextUsage` + `compact` on harness path | **done** | real usage/context view + register-only pending request |
 | B7 | Harness hydration / resume R4 + session id I1 | **todo** | M3/R4/I1 |
 | C1 | Scaffold `capability_packages/reasonix_prefix_cache` | **todo** | N1 |
 | C2 | A path: P1 canonicalize + E1 epoch + fingerprint diagnostics | **todo** | §2.3–2.4 |

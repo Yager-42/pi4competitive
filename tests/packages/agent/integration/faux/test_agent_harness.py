@@ -71,6 +71,11 @@ async def test_harness_applies_compaction_plan_atomically(tmp_path: Path) -> Non
 
     extension = await load_extension_from_factory(factory, tmp_path, runtime)
     harness.agent.set_extension_runner(ExtensionRunner([extension], runtime, tmp_path))
+    harness._bind_extension_context()
+    ctx = harness.agent.extension_runner.create_context()
+    assert ctx.getContextUsage()["contextWindow"] == faux["getModel"]()["contextWindow"]
+    assert ctx.compact() == "accepted"
+    assert ctx.compact() == "already_pending"
     result = await harness.compact()
     assert result and result["summary"] == "summary"
     assert [message["content"] for message in harness.agent.state.messages if message["role"] == "user"] == ["active"]

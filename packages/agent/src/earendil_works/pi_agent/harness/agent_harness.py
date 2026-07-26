@@ -36,6 +36,7 @@ class AgentHarness:
     ) -> None:
         prompt = build_system_prompt(base=system_prompt, skills=skills)
         self.session = session
+        self._compaction_pending = False
         self.agent = Agent(
             AgentOptions(
                 stream_fn=stream_fn,
@@ -51,9 +52,36 @@ class AgentHarness:
             from earendil_works.pi_agent.package_manager.apply import apply_capability_report
 
             apply_capability_report(self.agent, capability_report)
+        self._bind_extension_context()
         self.skills = self.agent.skills or list(skills or [])
         self.prompts = self.agent.prompts
         self._unsub = self.agent.subscribe(self._on_event)
+
+    def _bind_extension_context(self) -> None:
+        runner = self.agent.extension_runner
+        if not runner:
+            return
+
+        def request_compaction(_options: dict[str, Any] | None = None) -> str:
+            if self._compaction_pending:
+                return "already_pending"
+            self._compaction_pending = True
+            return "accepted"
+
+        def context_usage() -> dict[str, Any]:
+            usage = next((message.get("usage") for message in reversed(self.agent.state.messages)
+                          if message.get("role") == "assistant" and message.get("usage")), None)
+            return {
+                "tokens": estimate_context_tokens(self.agent.state.messages),
+                "contextWindow": int((self.agent.state.model or {}).get("contextWindow") or 0),
+                "usage": usage,
+            }
+
+        runner.bind_core(context_actions={
+            "getSessionManager": lambda: self.session,
+            "getContextUsage": context_usage,
+            "compact": request_compaction,
+        })
 
     async def _on_event(self, event: AgentEvent, signal: Any) -> None:
         if event.get("type") == "message_end":
