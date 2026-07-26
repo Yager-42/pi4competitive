@@ -24,6 +24,7 @@ from .compaction import (
     serialize_conversation,
     should_compact,
 )
+from .plan import snapshot_fingerprint, validate_compaction_plan
 
 __all__ = [
     "DEFAULT_COMPACTION_SETTINGS",
@@ -41,5 +42,7 @@ __all__ = [
     "prepare_branch_entries",
     "prepare_compaction",
     "serialize_conversation",
+    "snapshot_fingerprint",
     "should_compact",
+    "validate_compaction_plan",
 ]
