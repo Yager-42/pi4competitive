@@ -9,9 +9,17 @@ providers: {}
 
 # Local capability package enable whitelist (P4 wiring → load_capability_packages).
 # Provider keys/URLs/models stay in env only — never put secrets here.
+# research-workflow-v1 collect/cite stages need search tools; packages without
+# their env keys fail-closed (diagnostic, no tools) — see search feature §4.4.
 capability_packages:
   enabled:
     - echo_example
     - search_tavily
     - search_anysearch
     - search_grok
+
+# P4 competitive_app runtime config (feature competitive-app-http-v1 §4.5).
+sessions:
+  cwd: competitive_app        # pinned; all app sessions land in data/sessions/--competitive_app--/
+app_db: data/app.db           # SQLite projection + session index (data/ gitignored)
+prompt_lock_timeout: 30       # per-session prompt queue timeout (seconds) → 409 on expiry
