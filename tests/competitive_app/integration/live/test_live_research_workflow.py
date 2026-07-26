@@ -61,17 +61,91 @@ async def test_live_six_stages_real_provider(tmp_path: Path, live_env) -> None:
     state = await build_application_state(load_config_from_env())
     try:
         async with await _client(state) as client:
+            # 1) POST /tasks — kick off the six-stage runner.
             create = await client.post("/api/v2/tasks", json=_TASK_BODY)
             assert create.status_code == 202, create.text
             task_id = create.json()["task_id"]
+            session_id = create.json()["session_id"]
+            assert session_id, "POST /tasks must return a session_id"
 
-            status = await _wait_terminal(client, task_id, timeout=240.0)
+            # 2) Poll GET /tasks/{id} until terminal.
+            status = await _wait_terminal(client, task_id, timeout=360.0)
             assert status == "completed", f"live run did not complete: {status}"
 
+            # 3) GET /tasks/{id} — projection shows all six stages ok.
+            task = await client.get(f"/api/v2/tasks/{task_id}")
+            assert task.status_code == 200
+            proj = task.json()["projection"]
+            assert proj["current_stage"] is None
+            for stage in ("plan", "collect", "analyze", "write", "review", "cite"):
+                assert proj["stages"][stage] == "ok", f"{stage} not ok: {proj['stages']}"
+
+            # 4) GET /tasks — list contains the task.
+            listed = await client.get("/api/v2/tasks")
+            assert listed.status_code == 200
+            assert any(t["task_id"] == task_id for t in listed.json()["tasks"])
+
+            # 5) GET /tasks/{id}/report — write stage markdown.
             report = await client.get(f"/api/v2/tasks/{task_id}/report")
             assert report.status_code == 200
             r = report.json()
             assert r["stage"] == "write"
             assert r["report"], "live report markdown must be non-empty (L1)"
+
+            # 6) GET /tasks/{id}/sessions — 1:1 single element.
+            sessions = await client.get(f"/api/v2/tasks/{task_id}/sessions")
+            assert sessions.status_code == 200
+            sl = sessions.json()["sessions"]
+            assert len(sl) == 1
+            assert sl[0]["session_id"] == session_id
+
+            # 7) GET /sessions/{id} — session indexed.
+            sess = await client.get(f"/api/v2/sessions/{session_id}")
+            assert sess.status_code == 200
+            assert sess.json()["session_id"] == session_id
+
+            # 8) GET /sessions/{id}/messages — contains six stage outputs +
+            #    the write report text (verify via interface, not service).
+            msgs = await client.get(f"/api/v2/sessions/{session_id}/messages")
+            assert msgs.status_code == 200
+            messages = msgs.json()["messages"]
+            blob = _stringify_messages(messages)
+            # Six stage_output custom_message entries (one per stage).
+            customs = [m for m in messages if isinstance(m, dict) and m.get("role") == "custom"]
+            assert len(customs) == 6, f"expected 6 stage_output entries, got {len(customs)}"
+            # The write report text appears in the serialized messages (use a
+            # short newline-free prefix — JSON escaping turns \n into \\n).
+            prefix = r["report"].split("\n")[0][:40]
+            assert prefix and prefix in blob, f"write report prefix not in /messages: {prefix!r}"
+            # Each stage prompt produced an assistant message; expect >= 6.
+            assistant_count = sum(
+                1 for m in messages if isinstance(m, dict) and m.get("role") == "assistant"
+            )
+            assert assistant_count >= 6, f"expected >=6 assistant messages, got {assistant_count}"
     finally:
         await state.shutdown()
+
+
+def _stringify_messages(messages: list) -> str:
+    """Flatten all message content into one string for substring checks."""
+    import json
+
+    parts: list[str] = []
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        if isinstance(content, str):
+            parts.append(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    parts.append(str(block.get("text") or block.get("content") or ""))
+        elif isinstance(content, dict):
+            # custom_message stage output: {"plan": "..."} / {"report": "..."} / ...
+            parts.append(json.dumps(content, ensure_ascii=False))
+        # custom_message entries may carry stage output in details too.
+        for key in ("details", "data", "output"):
+            if key in m and isinstance(m[key], (dict, list)):
+                parts.append(json.dumps(m[key], ensure_ascii=False))
+    return "\n".join(parts)
