@@ -24,7 +24,7 @@ from .compaction import (
     serialize_conversation,
     should_compact,
 )
-from .plan import snapshot_fingerprint, validate_compaction_plan
+from .plan import isolated_summary, mechanical_summary, snapshot_fingerprint, validate_compaction_plan
 
 __all__ = [
     "DEFAULT_COMPACTION_SETTINGS",
@@ -40,6 +40,8 @@ __all__ = [
     "generate_summary_with_usage",
     "get_last_assistant_usage",
     "prepare_branch_entries",
+    "isolated_summary",
+    "mechanical_summary",
     "prepare_compaction",
     "serialize_conversation",
     "snapshot_fingerprint",

@@ -1,6 +1,7 @@
 """Provider-neutral CompactionPlan snapshot and validation."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from typing import Any
@@ -43,4 +44,41 @@ def validate_compaction_plan(
                 raise ValueError("tool call and result must remain atomic")
 
 
-__all__ = ["snapshot_fingerprint", "validate_compaction_plan"]
+def mechanical_summary(messages: list[dict[str, Any]]) -> str:
+    lines = [f"{message.get('role', '?')}: {message.get('content', '')}" for message in messages]
+    return "\n".join(lines)[:2000] or "(empty conversation)"
+
+
+async def isolated_summary(
+    messages: list[dict[str, Any]], instructions: str, stream_fn: Any, model: Any,
+    options: dict[str, Any] | None = None,
+) -> str:
+    if not stream_fn or not model:
+        return mechanical_summary(messages)
+    clean_options = {k: v for k, v in (options or {}).items()
+                     if k not in ("sessionId", "onPayload", "onResponse")}
+    context = {"systemPrompt": instructions, "messages": messages, "tools": []}
+    for attempt in range(2):
+        try:
+            async def complete() -> Any:
+                stream = stream_fn(model, context, clean_options)
+                if hasattr(stream, "__await__"):
+                    stream = await stream
+                return await stream.result()
+
+            result = await asyncio.wait_for(complete(), timeout=90)
+            content = result.get("content") or []
+            text = "\n".join(str(block.get("text") or "") for block in content
+                             if isinstance(block, dict) and block.get("type") == "text")
+            if text:
+                return text
+            raise RuntimeError("empty summary")
+        except TimeoutError:
+            break
+        except Exception:  # noqa: BLE001
+            if attempt:
+                break
+    return mechanical_summary(messages)
+
+
+__all__ = ["isolated_summary", "mechanical_summary", "snapshot_fingerprint", "validate_compaction_plan"]

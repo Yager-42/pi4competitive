@@ -216,7 +216,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | B1 | CompactionPlan types + `session_before_compact` variant (keep legacy) | **done** | public typed plan + legacy result retained |
 | B2 | Host plan validation (fingerprint / partition / tool pairing) | **done** | deterministic snapshot + active-turn/tool atomic validation |
 | B3 | X1 collision: cancel / single plan / fail-closed | **done** | cancel short-circuit；multi/mixed collision aborts rewrite |
-| B4 | S1 isolated summary + retry + mechanical fallback | **todo** | S1 |
+| B4 | S1 isolated summary + retry + mechanical fallback | **done** | 90s deadline；single non-timeout retry；identity/callback stripping |
 | B5 | prepareNextTurn checkpoint + atomic rewrite + session_compact | **todo** | C1 |
 | B6 | bind `getContextUsage` + `compact` on harness path | **todo** | T2 host half |
 | B7 | Harness hydration / resume R4 + session id I1 | **todo** | M3/R4/I1 |
