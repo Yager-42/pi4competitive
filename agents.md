@@ -6,28 +6,31 @@ This file is for humans and coding agents working in this repo.
 
 | Doc | Role |
 |-----|------|
-| [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.4** — process, paths, imports, stack; P3 local subset (ADR 0006); **P3.1 engine extensions (ADR 0008)**; P4 旧仓 pin (ADR 0007) |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Serial phases P1→P3→**P3.1**→P4 and exit gates |
+| [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.5** — process, paths, imports, stack; P3 local subset (ADR 0006); **P3.1 engine extensions (ADR 0008)**; **P3.2 enablement (ADR 0009)**; P4 旧仓 pin (ADR 0007) |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Serial phases P1→P3→**P3.1**→**P3.2**→P4 and exit gates |
 | [`docs/features/`](docs/features/) | Per-feature boundary contracts; see README index |
 | [`docs/features/search_capability_packages_v1.md`](docs/features/search_capability_packages_v1.md) | search capability v1 **frozen v0.1.12**（F-S1…F-S18 + §10） |
-| [`docs/features/agent_engine_extensions_v1.md`](docs/features/agent_engine_extensions_v1.md) | agent engine extensions **frozen v0.2.2**（P3.1；Offline + Live L3a/L3b） |
+| [`docs/features/agent_engine_extensions_v1.md`](docs/features/agent_engine_extensions_v1.md) | agent engine extensions **frozen v0.3.0**（P3.1 completed baseline + P3.2 delta） |
+| [`docs/features/reasonix_prefix_cache_v1.md`](docs/features/reasonix_prefix_cache_v1.md) | reasonix prefix cache v1 **frozen v0.1.0**（P3.2；A+B+E） |
 | [`docs/plans/P1_packages_ai.md`](docs/plans/P1_packages_ai.md) | P1 plan (**completed**) — `packages/ai` |
 | [`docs/plans/P2_packages_agent.md`](docs/plans/P2_packages_agent.md) | P2 plan (**completed**) — `packages/agent` |
 | [`docs/plans/P3_capability_loader.md`](docs/plans/P3_capability_loader.md) | P3 plan (**completed**) — package-manager local subset |
-| [`docs/plans/P3_1_agent_engine_extensions.md`](docs/plans/P3_1_agent_engine_extensions.md) | P3.1 engine extension runtime (**completed v0.2.3**); map [`P3_1_module_map.md`](docs/plans/P3_1_module_map.md) |
+| [`docs/plans/P3_1_agent_engine_extensions.md`](docs/plans/P3_1_agent_engine_extensions.md) | P3.1 engine extension runtime (**completed v0.2.4 baseline**); map [`P3_1_module_map.md`](docs/plans/P3_1_module_map.md) |
+| [`docs/plans/P3_2_pi_extension_capability_enablement.md`](docs/plans/P3_2_pi_extension_capability_enablement.md) | P3.2 Pi extension capability enablement (**completed v0.1.2**); consumer = reasonix |
 | [`docs/plans/P4_search_capability_packages.md`](docs/plans/P4_search_capability_packages.md) | search capability packages v1 (**completed** implementation; feature frozen) |
 | [`docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md`](docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md) | ADR: port subset, omit install/npm/git/home |
 | [`docs/contracts/adr/0007-legacy-repo-capability-reference.md`](docs/contracts/adr/0007-legacy-repo-capability-reference.md) | ADR: 旧仓 = `competitive-agent`（能力参考 only） |
 | [`docs/contracts/adr/0008-agent-engine-extensions-runtime.md`](docs/contracts/adr/0008-agent-engine-extensions-runtime.md) | ADR: P3.1 extension runtime S-engine |
+| [`docs/contracts/adr/0009-p3-2-pi-extension-capability-enablement.md`](docs/contracts/adr/0009-p3-2-pi-extension-capability-enablement.md) | ADR: P3.2 enablement (ai cache parity + CompactionPlan bridge + local consumer) |
 | `docs/contracts/adr/*` | Architecture Decision Records |
 
 **Rules:**
 
 1. Architecture changes require **ADR + contract version bump**. Chat-only architecture changes are invalid.
-2. Implementation order is **serial**: P1 `packages/ai` → P2 `packages/agent` → P3 local loader → **P3.1 engine extensions** → P4 `competitive_app`.
+2. Implementation order is **serial**: P1 `packages/ai` → P2 `packages/agent` → P3 local loader → **P3.1 engine extensions** → **P3.2 capability enablement** → P4 `competitive_app`.
 3. Pi base = **TS→Python isomorphic port** of upstream `earendil-works/pi` **`main`**, not an inspired rewrite.
 4. Import map: `packages/ai` → `earendil_works.pi_ai`; `packages/agent` → `earendil_works.pi_agent`.
-5. Do **not** implement P4 business features until P1–P3 exit gates pass and features are frozen separately.
+5. Do **not** implement P4 business features until P1–P3.2 exit gates pass and features are frozen separately.
 
 ---
 
