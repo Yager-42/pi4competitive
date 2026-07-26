@@ -3,13 +3,13 @@
 | Field | Value |
 |-------|--------|
 | **plan_id** | `P3.1-agent-engine-extensions` |
-| **plan_version** | `0.2.3` |
+| **plan_version** | `0.2.4` |
 | **status** | **completed** |
 | **created** | 2026-07-24 |
 | **updated** | 2026-07-24 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P3.1** (`P3-extensions`) |
 | **contract** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.4** |
-| **feature** | [`docs/features/agent_engine_extensions_v1.md`](../features/agent_engine_extensions_v1.md) **v0.2.2 frozen** — `agent-engine-extensions-v1` |
+| **feature** | [`docs/features/agent_engine_extensions_v1.md`](../features/agent_engine_extensions_v1.md) **v0.3.0 frozen** — P3.1 completed baseline + P3.2 versioned delta |
 | **ADR** | [0006 local package subset](../contracts/adr/0006-package-manager-local-isomorphic-subset.md) · **[0008 extension runtime](../contracts/adr/0008-agent-engine-extensions-runtime.md)** |
 | **depends_on** | **P3 done** — [`P3_capability_loader.md`](P3_capability_loader.md); feature frozen; ADR 0008 accepted; contract **v0.3.4** |
 | **upstream** | `earendil-works/pi` **`main`** → `packages/coding-agent/src/core/extensions/**` (+ agent-session emit wiring) |
@@ -477,6 +477,10 @@ Live env：沿用 `tests/live_env`（`OPENAI_API_KEY` / `MODEL_API_KEY` / model 
 - [x] 无公开 `on_payload` / `transform_context`；无 `CapabilityRegisterApi.add_tool` 公共面
 - [x] Roadmap **P3.1=done**；本 plan **completed**
 
+### P3.2 versioned delta
+
+P3.1 remains completed. P3.2 extends the frozen runtime contract at feature v0.3.0 with the provider-neutral `compactionPlan` result, Harness-only `compact/getContextUsage` bindings, P1 validation and X1 single-plan fail-closed semantics while preserving the legacy `compaction` result. Implementation and acceptance are owned by [`P3_2_pi_extension_capability_enablement.md`](P3_2_pi_extension_capability_enablement.md) v0.1.1.
+
 ---
 
 ## 9. Revision log
@@ -488,3 +492,4 @@ Live env：沿用 `tests/live_env`（`OPENAI_API_KEY` / `MODEL_API_KEY` / model 
 | 0.2.1 | 2026-07-24 | 验收 **AC1+**：Offline 高覆盖 O1–O11；Live L1–L5（假 extension + 真模型）；C2/C2L；对齐 feature **v0.2.1** |
 | 0.2.2 | 2026-07-24 | Live 收紧 **L3a/L3b 均必过**；明确非 live 范围；对齐 feature **v0.2.2** |
 | 0.2.3 | 2026-07-24 | 实现完成：Offline 124 passed；Live 24 passed；AP3/M2/H1/SK2 收敛；P3.1 done |
+| 0.2.4 | 2026-07-26 | P3.2 versioned delta pointer；P3.1 remains completed；align extension feature v0.3.0 |
