@@ -37,6 +37,17 @@ async def test_harness_prompt_persists_jsonl(tmp_path: Path) -> None:
     roles = [m.get("role") for m in ctx["messages"] if isinstance(m, dict)]
     assert roles[0] == "user"
     assert roles[-1] == "assistant"
+    assert harness.agent.session_id == meta["id"]
+    assert len([entry for entry in await session.get_branch() if entry["type"] == "message"]) == 2
+
+    faux["setResponses"]([faux_assistant_message("resumed")])
+    resumed = AgentHarness(session=reopened, stream_fn=models.streamSimple,
+                           model=model)  # type: ignore[arg-type]
+    await resumed.prompt("again")
+    resumed_context = await reopened.build_context()
+    assert [message["content"][0]["text"] for message in resumed_context["messages"]
+            if message.get("role") == "user"] == ["hello", "again"]
+    resumed.close()
     harness.close()
 
 

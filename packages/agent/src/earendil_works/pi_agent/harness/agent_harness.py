@@ -90,8 +90,19 @@ class AgentHarness:
                 await self.session.append_message(message)  # type: ignore[arg-type]
 
     async def prompt(self, input: str | AgentMessage | list[AgentMessage]) -> None:
+        context = await self.session.build_context()
+        self.agent.state.messages = list(context.get("messages") or [])
+        metadata = await self.session.get_metadata()
+        self.agent.session_id = metadata["id"]
         await self.agent.prompt(input)
         await self.agent.wait_for_idle()
+        if self._compaction_pending:
+            try:
+                await self.compact()
+            finally:
+                self._compaction_pending = False
+        context = await self.session.build_context()
+        self.agent.state.messages = list(context.get("messages") or [])
 
     async def build_context(self) -> dict[str, Any]:
         return await self.session.build_context()  # type: ignore[return-value]
