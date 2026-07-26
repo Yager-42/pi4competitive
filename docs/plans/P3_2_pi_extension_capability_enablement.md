@@ -3,8 +3,8 @@
 | Field | Value |
 |-------|--------|
 | **plan_id** | `P3.2-pi-extension-capability-enablement` |
-| **plan_version** | `0.1.1` |
-| **status** | **in_progress** |
+| **plan_version** | `0.1.2` |
+| **status** | **completed** |
 | **created** | 2026-07-26 |
 | **updated** | 2026-07-26 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P3.2** |
@@ -207,7 +207,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 
 | Step | Phase | Status | Note |
 |------|-------|--------|------|
-| G0 | P1–P3.1 + search offline green | **done** | 2026-07-26: `139 passed, 25 deselected` (`-m "not live"`) |
+| G0 | P1–P3.1 + search offline green | **done** | 2026-07-26: `139 passed, 26 deselected` (`-m "not live"`) |
 | D0 | Docs gate: freeze already done; extension feature P3.2 delta + P3.1 plan delta | **done** | feature v0.3.0；P3.1 plan v0.2.4 remains completed |
 | A1 | OpenAI-compatible cache request + usage fixtures | **done** | request key/retention + nested/DeepSeek usage fixtures |
 | A2 | Anthropic Messages cache_control + usage fixtures | **done** | system/history/tools markers + read/write/1h usage |
@@ -227,8 +227,8 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | C5 | Offline extension E2E (deterministic cache server) | **done** | real HTTP SSE；stable prefix second request cacheRead=5 |
 | C6 | Offline compaction + resume gates | **done** | 12 passed：validation/retry/fallback/rewrite/JSONL resume |
 | C7 | Reasonix + search co-load gate (no tool/lifecycle collision) | **done** | Tavily tools intact；Reasonix payload handler present；zero errors |
-| C8 | Live opt-in full-stack warm-cache smoke（正式 loader/Harness 路径；第 2 请求 `cacheRead > 0` 且进入 E1） | **blocked** | full-stack test added；2026-07-26 run skipped: `P3_2_LIVE_API_KEY/MODEL_ID/BASE_URL/API_FAMILY` absent；cannot close P3.2 |
-| C9 | Plan status completed；roadmap P3.2=done | **todo** | exit |
+| C8 | Live opt-in full-stack warm-cache smoke（正式 loader/Harness 路径；第 2 请求 `cacheRead > 0` 且进入 E1） | **done** | 2026-07-26: `1 passed`；OpenAI-compatible / `gpt-5.4-mini`；cacheRead `4352 → 4352`；cacheWrite `0 → 0`；prefix len `25200`；digest `1ad156d7…b322f`；epoch 0；no errors/break |
+| C9 | Plan status completed；roadmap P3.2=done | **done** | offline 139 passed + full-stack Live green；Roadmap 0.1.20 |
 
 **Rules:**
 
@@ -393,5 +393,6 @@ P3.2 is **done** only when:
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.1.2 | 2026-07-26 | Implementation completed：A+B+E；Offline `139 passed, 26 deselected`；full-stack Live warm-cache `1 passed` with sanitized C8 evidence；P3.2 done. |
 | 0.1.1 | 2026-07-26 | Tighten C8 into a full-stack close gate: official loader/Harness path, stable-prefix provenance, real Usage → E1 propagation, sanitized evidence, and no completion by skip. |
 | 0.1.0 | 2026-07-26 | Initial plan after feature **v0.1.0 freeze**; three-phase A/B/C + D0 docs gate; Q21 closed native-set (no ordered load plan); maps feature §6 T1 + ADR 0009. |

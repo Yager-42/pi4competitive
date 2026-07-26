@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.19` |
+| **roadmap_version** | `0.1.20` |
 | **status** | active |
 | **updated** | 2026-07-26 |
 | **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.5** |
@@ -25,7 +25,7 @@
 | **实现顺序与完成标准** | 见本文阶段 | 按 roadmap 执行；细节可在阶段开工时补 checklist |
 | **业务能力（研究流程、报告等）** | 搜索 capability v1 **frozen** | 边界：[`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.12**；其余 workflow/报告另开 |
 | **agent engine extensions** | **done** | feature **v0.3.0**（P3.1 completed baseline + P3.2 delta）；计划 **v0.2.4 completed** |
-| **P3.2 Pi extension capability enablement** | **in_progress** | feature **v0.1.0 frozen**；extension runtime delta **v0.3.0 frozen**；plan [`P3_2_pi_extension_capability_enablement.md`](plans/P3_2_pi_extension_capability_enablement.md) **v0.1.1**；ADR 0009 |
+| **P3.2 Pi extension capability enablement** | **done** | feature **v0.1.0 frozen**；extension runtime delta **v0.3.0 frozen**；plan [`P3_2_pi_extension_capability_enablement.md`](plans/P3_2_pi_extension_capability_enablement.md) **v0.1.2 completed**；ADR 0009 |
 | **capability 里具体有哪些搜抓包** | **frozen** + 实现计划 | 搜索 feature 契约；计划 [`docs/plans/P4_search_capability_packages.md`](plans/P4_search_capability_packages.md) |
 
 ---
@@ -182,7 +182,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P2 `packages/agent` | **done** | 2026-07-23 | branch `p2/packages-agent`; offline suite green; JSONL resume smoke |
 | P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
 | P3.1 agent engine extensions | **done** | 2026-07-24 | feature v0.3.0（P3.2 delta）；plan v0.2.4 remains completed；Offline 124 passed；Live 24 passed |
-| P3.2 Pi extension capability enablement | **in_progress** | 2026-07-26 | D0 done：extension feature v0.3.0；P3.1 plan v0.2.4 remains completed；implementation started |
+| P3.2 Pi extension capability enablement | **done** | 2026-07-26 | A+B+E；Offline 139 passed；full-stack Live warm-cache green；plan v0.1.2 |
 | P4 `competitive_app` | **todo** | | 在 P3.2 exit 后开始；search capability 已独立完成 |
 | 业务能力 v1 | **partial**（搜索 capability **done**） | 2026-07-23 | search packages completed (`P4_search` v0.1.3); full competitive_app workflow still todo |
 
@@ -224,3 +224,4 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.17 | 2026-07-26 | **P3.2**：Reasonix feature **v0.1.0 frozen**；新增 plan `P3_2_pi_extension_capability_enablement.md` v0.1.0 |
 | 0.1.18 | 2026-07-26 | P3.2 plan v0.1.1：C8 收紧为正式 loader/Harness 全栈 live close gate；普通 CI 可 skip，但关闭阶段必须有脱敏 green 证据 |
 | 0.1.19 | 2026-07-26 | P3.2 implementation started；D0 publishes extension feature v0.3.0 + P3.1 plan v0.2.4 delta without reopening P3.1 |
+| 0.1.20 | 2026-07-26 | P3.2 done：Reasonix prefix cache A+B+E；Offline 139 passed；full-stack Live warm-cache green；plan v0.1.2 completed |
