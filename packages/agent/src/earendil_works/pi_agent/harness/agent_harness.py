@@ -80,6 +80,8 @@ class AgentHarness:
             )
             if before and before.get("cancel"):
                 return None
+            if before and before.get("compactionCollision"):
+                return None
             if before and before.get("compaction") is not None:
                 result = before["compaction"]
             else:

@@ -90,6 +90,19 @@ async def test_event_boundaries_errors_and_merges(tmp_path) -> None:
     await runner.emit({"type": "agent_start"})
     assert [error.event for error in errors] == ["message_end", "agent_start"]
 
+    collision_runtime = create_extension_runtime()
+
+    def collision_factory(api) -> None:
+        api.on("session_before_compact", lambda *_: {"compactionPlan": {"version": 1}})
+        api.on("session_before_compact", lambda *_: {"compactionPlan": {"version": 1}})
+
+    collision_ext = await load_extension_from_factory(collision_factory, tmp_path, collision_runtime)
+    collision_runner = ExtensionRunner([collision_ext], collision_runtime, tmp_path)
+    collision_errors = []
+    collision_runner.on_error(collision_errors.append)
+    assert await collision_runner.emit({"type": "session_before_compact"}) == {"compactionCollision": True}
+    assert collision_errors[0].event == "session_before_compact"
+
     bad = await load_extensions([tmp_path / "missing.py", tmp_path / "bad.txt"], tmp_path)
     assert len(bad.errors) == 2
 

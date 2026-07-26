@@ -133,13 +133,21 @@ class ExtensionRunner:
 
     async def emit(self, event: dict[str, Any]) -> dict[str, Any] | None:
         result = None
+        plans = 0
+        legacy = False
         async for extension, handler, ctx in self._handlers(event):
             try:
                 value = await _await(handler(event, ctx))
                 if event["type"] == "session_before_compact" and value:
-                    result = value
                     if value.get("cancel"):
                         return value
+                    plans += int(value.get("compactionPlan") is not None)
+                    legacy = legacy or value.get("compaction") is not None
+                    if plans > 1 or (plans and legacy):
+                        message = "session_before_compact compaction plan collision"
+                        self.emit_error(ExtensionError(extension.path, str(event["type"]), message))
+                        return {"compactionCollision": True}
+                    result = value if value.get("compactionPlan") is not None else value or result
             except Exception as exc:  # noqa: BLE001
                 self.emit_error(ExtensionError(extension.path, str(event["type"]), str(exc)))
         return result
