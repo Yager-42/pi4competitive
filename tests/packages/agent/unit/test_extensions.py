@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from earendil_works.pi_agent.extensions import (
+    CompactionPlan,
     ExtensionRunner,
     ExtensionAPI,
     create_extension_runtime,
@@ -27,6 +28,14 @@ def _tool() -> AgentTool:
         parameters={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
         execute=_execute,
     )
+
+
+def test_compaction_plan_public_shape() -> None:
+    plan: CompactionPlan = {
+        "version": 1, "snapshotFingerprint": "sha256:x", "foldEntryIds": ["a"],
+        "retainEntryIds": ["b"], "summaryInstructions": "summarize", "details": {},
+    }
+    assert plan["version"] == 1
 
 
 @pytest.mark.asyncio

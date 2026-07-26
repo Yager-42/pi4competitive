@@ -5,6 +5,7 @@ upstream: packages/coding-agent/src/core/extensions/index.ts
 from .loader import create_extension_runtime, load_extension_from_factory, load_extensions
 from .runner import ExtensionRunner
 from .types import (
+    CompactionPlan,
     Extension,
     ExtensionAPI,
     ExtensionContext,
@@ -14,6 +15,7 @@ from .types import (
     LoadExtensionsResult,
     OUT_EVENTS,
     RegisteredTool,
+    SessionBeforeCompactResult,
     SourceInfo,
 )
 from .wrapper import wrap_registered_tool, wrap_registered_tools
@@ -34,9 +36,9 @@ def attach_extension_runtime(agent, result: LoadExtensionsResult, cwd: str, *, r
     return runner
 
 __all__ = [
-    "Extension", "ExtensionAPI", "ExtensionContext", "ExtensionError", "ExtensionRunner",
-    "ExtensionRuntime", "IN_EVENTS", "LoadExtensionsResult", "OUT_EVENTS", "RegisteredTool",
-    "SourceInfo", "attach_extension_runtime", "create_extension_runtime",
-    "load_extension_from_factory", "load_extensions", "wrap_registered_tool",
-    "wrap_registered_tools",
+    "CompactionPlan", "Extension", "ExtensionAPI", "ExtensionContext", "ExtensionError",
+    "ExtensionRunner", "ExtensionRuntime", "IN_EVENTS", "LoadExtensionsResult", "OUT_EVENTS",
+    "RegisteredTool", "SessionBeforeCompactResult", "SourceInfo", "attach_extension_runtime",
+    "create_extension_runtime", "load_extension_from_factory", "load_extensions",
+    "wrap_registered_tool", "wrap_registered_tools",
 ]

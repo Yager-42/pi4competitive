@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol, TypeAlias
+from typing import Any, Protocol, TypeAlias, TypedDict
 
 from earendil_works.pi_agent.types import AgentMessage, AgentTool
 
@@ -26,6 +26,20 @@ OUT_EVENTS = frozenset({
 
 Handler: TypeAlias = Callable[[dict[str, Any], "ExtensionContext"], Any | Awaitable[Any]]
 ExtensionFactory: TypeAlias = Callable[["ExtensionAPI"], Any | Awaitable[Any]]
+
+class CompactionPlan(TypedDict):
+    version: int
+    snapshotFingerprint: str
+    foldEntryIds: list[str]
+    retainEntryIds: list[str]
+    summaryInstructions: str
+    details: Any
+
+
+class SessionBeforeCompactResult(TypedDict, total=False):
+    cancel: bool
+    compaction: dict[str, Any]
+    compactionPlan: CompactionPlan
 
 
 class ExtensionContext(Protocol):
@@ -123,7 +137,7 @@ class ExtensionError:
 
 
 __all__ = [
-    "Extension", "ExtensionAPI", "ExtensionContext", "ExtensionError", "ExtensionFactory",
-    "ExtensionRuntime", "Handler", "IN_EVENTS", "LoadExtensionsResult", "OUT_EVENTS",
-    "RegisteredTool", "SourceInfo",
+    "CompactionPlan", "Extension", "ExtensionAPI", "ExtensionContext", "ExtensionError",
+    "ExtensionFactory", "ExtensionRuntime", "Handler", "IN_EVENTS", "LoadExtensionsResult",
+    "OUT_EVENTS", "RegisteredTool", "SessionBeforeCompactResult", "SourceInfo",
 ]

@@ -213,7 +213,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | A2 | Anthropic Messages cache_control + usage fixtures | **done** | system/history/tools markers + read/write/1h usage |
 | A3 | onPayload / onResponse once-per-attempt parity both families | **done** | non-2xx once-each check for both adapters |
 | A4 | cacheRetention default short + generic none/short/long passthrough | **done** | explicit option wins；ai-level PI_CACHE_RETENTION legacy compat |
-| B1 | CompactionPlan types + `session_before_compact` variant (keep legacy) | **todo** | R1 |
+| B1 | CompactionPlan types + `session_before_compact` variant (keep legacy) | **done** | public typed plan + legacy result retained |
 | B2 | Host plan validation (fingerprint / partition / tool pairing) | **todo** | P1 |
 | B3 | X1 collision: cancel / single plan / fail-closed | **todo** | X1 |
 | B4 | S1 isolated summary + retry + mechanical fallback | **todo** | S1 |
