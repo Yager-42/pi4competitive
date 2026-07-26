@@ -126,6 +126,81 @@ async def test_live_six_stages_real_provider(tmp_path: Path, live_env) -> None:
         await state.shutdown()
 
 
+async def test_live_multiturn_collect_retry_cache(tmp_path: Path, live_env) -> None:
+    """Real app session: collect tool loop, then retry under one stable prefix."""
+    import json
+    import os
+
+    os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
+    os.environ["APP_DB"] = str(tmp_path / "app.db")
+    os.environ["SESSIONS_CWD"] = "live-cache-test"
+
+    from competitive_app.wiring import build_application_state, load_config_from_env
+
+    state = await build_application_state(load_config_from_env())
+    stable_protocol = (
+        "You are an evidence collector. Keep the research protocol and tool schemas stable. "
+        "Use search tools before answering, preserve source URLs, and return concise findings. "
+        * 140
+    )
+    try:
+        async with await _client(state) as client:
+            created = await client.post(
+                "/api/v2/sessions",
+                json={"system_prompt": stable_protocol},
+            )
+            assert created.status_code == 200, created.text
+            session_id = created.json()["session_id"]
+
+            first = await client.post(
+                f"/api/v2/sessions/{session_id}/prompt",
+                json={
+                    "content": (
+                        "Collect current Notion and Obsidian pricing evidence. "
+                        "Make at least one search-tool call, then summarize with source URLs."
+                    )
+                },
+            )
+            assert first.status_code == 200, first.text
+
+            retry = await client.post(
+                f"/api/v2/sessions/{session_id}/prompt",
+                json={
+                    "content": (
+                        "Retry the collection for missing official pricing evidence. "
+                        "Make another search-tool call with a different query, then revise the summary."
+                    )
+                },
+            )
+            assert retry.status_code == 200, retry.text
+
+            response = await client.get(f"/api/v2/sessions/{session_id}/messages")
+            assert response.status_code == 200, response.text
+            messages = response.json()["messages"]
+            assistants = [m for m in messages if isinstance(m, dict) and m.get("role") == "assistant"]
+            tool_results = [m for m in messages if isinstance(m, dict) and m.get("role") == "toolResult"]
+            assert len(assistants) >= 4, "two collect turns must each enter a tool loop"
+            assert len(tool_results) >= 2, "collect + retry must execute real search tools"
+
+            usage = [m.get("usage") or {} for m in assistants]
+            cache_read = sum(int(item.get("cacheRead") or 0) for item in usage)
+            cache_write = sum(int(item.get("cacheWrite") or 0) for item in usage)
+            input_tokens = sum(int(item.get("input") or 0) for item in usage)
+            denominator = input_tokens + cache_read
+            assert cache_read > 0, "multi-turn collect + retry must produce a real warm-cache hit"
+            print(json.dumps({
+                "enabled": os.environ.get("CAPABILITY_PACKAGES_ENABLED", "<default>"),
+                "assistant_requests": len(assistants),
+                "tool_results": len(tool_results),
+                "input_tokens": input_tokens,
+                "cache_read": cache_read,
+                "cache_write": cache_write,
+                "cache_rate": cache_read / denominator if denominator else 0,
+            }, sort_keys=True))
+    finally:
+        await state.shutdown()
+
+
 def _stringify_messages(messages: list) -> str:
     """Flatten all message content into one string for substring checks."""
     import json
