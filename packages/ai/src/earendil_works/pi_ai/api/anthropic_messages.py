@@ -73,6 +73,13 @@ def stream(
             timeout = ((options or {}).get("timeoutMs") or 600_000) / 1000.0
             async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as resp:
+                    on_response = (options or {}).get("onResponse")
+                    if on_response:
+                        recorded = on_response(
+                            {"status": resp.status_code, "headers": dict(resp.headers)}, model
+                        )
+                        if hasattr(recorded, "__await__"):
+                            await recorded
                     if resp.status_code >= 400:
                         text = (await resp.aread()).decode("utf-8", errors="replace")
                         msg = error_message(model, f"HTTP {resp.status_code}: {text[:500]}")

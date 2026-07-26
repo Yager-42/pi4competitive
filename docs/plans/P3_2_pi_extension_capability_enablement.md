@@ -211,7 +211,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | D0 | Docs gate: freeze already done; extension feature P3.2 delta + P3.1 plan delta | **done** | feature v0.3.0；P3.1 plan v0.2.4 remains completed |
 | A1 | OpenAI-compatible cache request + usage fixtures | **done** | request key/retention + nested/DeepSeek usage fixtures |
 | A2 | Anthropic Messages cache_control + usage fixtures | **done** | system/history/tools markers + read/write/1h usage |
-| A3 | onPayload / onResponse once-per-attempt parity both families | **todo** | §2.14(5) |
+| A3 | onPayload / onResponse once-per-attempt parity both families | **done** | non-2xx once-each check for both adapters |
 | A4 | cacheRetention default short + generic none/short/long passthrough | **todo** | R3 |
 | B1 | CompactionPlan types + `session_before_compact` variant (keep legacy) | **todo** | R1 |
 | B2 | Host plan validation (fingerprint / partition / tool pairing) | **todo** | P1 |
