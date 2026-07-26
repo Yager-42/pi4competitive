@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from earendil_works.pi_ai.api.transform_messages import (
+    _cache_retention,
     build_anthropic_messages_payload,
     build_openai_completions_payload,
 )
@@ -94,6 +95,14 @@ def test_openai_completions_payload_tools_shape() -> None:
     assert payload["stream"] is True
     assert payload["tools"][0]["type"] == "function"
     assert payload["tools"][0]["function"]["name"] == "lookup"
+
+def test_cache_retention_resolution(monkeypatch) -> None:
+    monkeypatch.setenv("PI_CACHE_RETENTION", "long")
+    assert _cache_retention({}) == "long"
+    assert _cache_retention({"cacheRetention": "none"}) == "none"
+    assert _cache_retention({"cacheRetention": "short"}) == "short"
+    assert _cache_retention({"env": {"PI_CACHE_RETENTION": "short"}}) == "short"
+
 
 
 def test_openai_completions_cache_request_and_usage() -> None:

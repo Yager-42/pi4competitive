@@ -1,6 +1,7 @@
 """Message transform helpers — port intent of api/transform-messages.ts."""
 
 from __future__ import annotations
+import os
 
 from typing import Any
 
@@ -138,6 +139,13 @@ def _user_content(msg: Message) -> Any:
     return parts if parts else ""
 
 
+def _cache_retention(options: dict[str, Any]) -> str:
+    if options.get("cacheRetention") in ("none", "short", "long"):
+        return options["cacheRetention"]
+    env = options.get("env") or {}
+    return "long" if env.get("PI_CACHE_RETENTION", os.environ.get("PI_CACHE_RETENTION")) == "long" else "short"
+
+
 def build_openai_completions_payload(
     model: dict[str, Any],
     context: Context,
@@ -149,7 +157,7 @@ def build_openai_completions_payload(
         "messages": context_to_openai_messages(context),
         "stream": True,
     }
-    retention = options.get("cacheRetention", "short")
+    retention = _cache_retention(options)
     compat = model.get("compat") or {}
     supports_long = bool(compat.get("supportsLongCacheRetention"))
     if options.get("sessionId") and (
@@ -190,7 +198,7 @@ def build_anthropic_messages_payload(
     if tools:
         payload["tools"] = tools
 
-    retention = options.get("cacheRetention", "short")
+    retention = _cache_retention(options)
     if retention != "none":
         cache_control = {"type": "ephemeral"}
         if retention == "long" and (model.get("compat") or {}).get("supportsLongCacheRetention"):
