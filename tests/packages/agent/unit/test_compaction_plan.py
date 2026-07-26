@@ -45,3 +45,15 @@ async def test_isolated_summary_retries_without_session_callbacks() -> None:
     assert len(calls) == 2
     assert calls[0] == ({"systemPrompt": "instructions", "messages": [{"role": "user", "content": "hello"}], "tools": []},
                         {"cacheRetention": "short"})
+
+
+@pytest.mark.asyncio
+async def test_isolated_summary_mechanical_fallback_is_deterministic() -> None:
+    class Broken:
+        async def result(self):
+            raise RuntimeError("broken")
+
+    messages = [{"role": "user", "content": "keep this"}]
+    first = await isolated_summary(messages, "instructions", lambda *_: Broken(), {"id": "m"})
+    second = await isolated_summary(messages, "instructions", lambda *_: Broken(), {"id": "m"})
+    assert first == second == "user: keep this"
