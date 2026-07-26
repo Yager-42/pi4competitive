@@ -228,17 +228,20 @@ def load_config_from_env() -> AppConfig:
     """Read config from .env + env. Loads .env first (does not override real env)."""
     _load_dotenv(Path(__file__).resolve().parents[3] / ".env")
     enabled = os.environ.get("CAPABILITY_PACKAGES_ENABLED")
-    return AppConfig(
+    enabled_list = (
+        [s.strip() for s in enabled.split(",") if s.strip()] if enabled else None
+    )
+    config = AppConfig(
         sessions_cwd=os.environ.get("SESSIONS_CWD", "competitive_app"),
         sessions_root=os.environ.get("SESSIONS_ROOT", "data/sessions"),
         app_db=os.environ.get("APP_DB", "data/app.db"),
-        capability_packages_enabled=(
-            [s.strip() for s in enabled.split(",") if s.strip()] if enabled else None
-        ),
         prompt_lock_timeout=float(os.environ.get("PROMPT_LOCK_TIMEOUT", "30")),
         default_model=os.environ.get("OPENAI_MODEL", ""),
         use_faux=os.environ.get("USE_FAUX", "").lower() in ("1", "true", "yes"),
     )
+    if enabled_list is not None:
+        config.capability_packages_enabled = enabled_list
+    return config
 
 
 def _load_dotenv(path: Path) -> None:
