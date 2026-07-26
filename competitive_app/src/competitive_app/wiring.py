@@ -41,7 +41,9 @@ class AppConfig:
     sessions_cwd: str = "competitive_app"
     sessions_root: str = "data/sessions"
     app_db: str = "data/app.db"
-    capability_packages_enabled: list[str] = field(default_factory=lambda: ["echo_example"])
+    capability_packages_enabled: list[str] = field(
+        default_factory=lambda: ["echo_example", "search_tavily", "search_anysearch", "search_grok"]
+    )
     prompt_lock_timeout: float = 30.0
     default_model: str = ""
     # When True, build a faux provider/models for offline tests instead of openai.
@@ -66,15 +68,20 @@ class ApplicationState:
 
 
 class _ModelResolver(ModelResolver):
-    """Resolves ``model`` string → pi_ai Model dict via the catalog.
+    """Resolves ``model`` string → pi_ai Model dict.
 
-    Empty/None → config.default_model; unknown → KeyError (→ 422). Does not allow
-    passing a full Model dict (feature F-A8).
+    Empty/None → config.default_model. Resolution order:
+      1. static catalog (getModels) — for known models
+      2. synthesize an OpenAI-compatible Model from env — for gateway/custom IDs
+         not in the static catalog (mirrors tests/live_env.live_openai_model)
+
+    No full Model dict accepted from callers (feature F-A8).
     """
 
-    def __init__(self, models: Any, default_model: str) -> None:
+    def __init__(self, models: Any, default_model: str, allow_synthesize: bool = False) -> None:
         self._models = models
         self._default_model = default_model
+        self._allow_synthesize = allow_synthesize
 
     def resolve(self, model: str | None) -> dict[str, Any]:
         model_id = (model or self._default_model) if model is not None else self._default_model
@@ -83,7 +90,24 @@ class _ModelResolver(ModelResolver):
         for candidate in self._models.getModels():
             if candidate.get("id") == model_id:
                 return candidate  # type: ignore[return-value]
-        raise KeyError(f"model not in catalog: {model_id}")
+        if not self._allow_synthesize:
+            raise KeyError(f"model not in catalog: {model_id}")
+        # Not in catalog: synthesize an OpenAI-compatible Model from env so that
+        # gateway/custom model IDs (e.g. deepseek-v4-flash via chatanywhere) work.
+        base_url = os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        ctx = int(os.environ.get("MODEL_CONTEXT_WINDOW_TOKENS") or "128000")
+        return {
+            "id": model_id,
+            "name": model_id,
+            "api": "openai-completions",
+            "provider": "openai",
+            "baseUrl": base_url,
+            "reasoning": False,
+            "input": ["text", "image"],
+            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+            "contextWindow": ctx,
+            "maxTokens": min(8192, max(1024, ctx // 8)),
+        }
 
 
 class _HarnessFactory(HarnessFactory):
@@ -135,9 +159,9 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         models.setProvider(faux["provider"])  # type: ignore[arg-type]
         # Stash the faux handle so tests can call setResponses via models.__faux.
         models.__faux = faux  # type: ignore[attr-defined]
-        # In faux mode, default to the faux model so empty `model` resolves.
-        if not config.default_model:
-            config.default_model = faux["getModel"]()["id"]
+        # In faux mode, ALWAYS default to the faux model (ignore .env OPENAI_MODEL
+        # so live keys don't leak into offline/faux test runs).
+        config.default_model = faux["getModel"]()["id"]
     else:
         provider = openai_provider()
         models.setProvider(provider)
@@ -167,7 +191,7 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
 
     # --- services ----------------------------------------------------------
     registry = RuntimeRegistry()
-    model_resolver = _ModelResolver(models, config.default_model)
+    model_resolver = _ModelResolver(models, config.default_model, allow_synthesize=not config.use_faux)
     harness_factory = _HarnessFactory(models, capability_report, model_resolver)
     session_service = SessionService(
         repo=repo,
@@ -201,19 +225,35 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
 
 
 def load_config_from_env() -> AppConfig:
-    """Read config from env / settings. Minimal for now (feature §4.5)."""
+    """Read config from .env + env. Loads .env first (does not override real env)."""
+    _load_dotenv(Path(__file__).resolve().parents[3] / ".env")
     enabled = os.environ.get("CAPABILITY_PACKAGES_ENABLED")
     return AppConfig(
         sessions_cwd=os.environ.get("SESSIONS_CWD", "competitive_app"),
         sessions_root=os.environ.get("SESSIONS_ROOT", "data/sessions"),
         app_db=os.environ.get("APP_DB", "data/app.db"),
         capability_packages_enabled=(
-            enabled.split(",") if enabled else ["echo_example"]
+            [s.strip() for s in enabled.split(",") if s.strip()] if enabled else None
         ),
         prompt_lock_timeout=float(os.environ.get("PROMPT_LOCK_TIMEOUT", "30")),
         default_model=os.environ.get("OPENAI_MODEL", ""),
         use_faux=os.environ.get("USE_FAUX", "").lower() in ("1", "true", "yes"),
     )
+
+
+def _load_dotenv(path: Path) -> None:
+    """Minimal .env loader (setdefault — never overrides real env vars)."""
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip("'").strip('"')
+        if key:
+            os.environ.setdefault(key, val)
 
 
 __all__ = ["AppConfig", "ApplicationState", "build_application_state", "load_config_from_env"]
