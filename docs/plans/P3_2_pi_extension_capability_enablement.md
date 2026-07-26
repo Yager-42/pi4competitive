@@ -207,7 +207,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 
 | Step | Phase | Status | Note |
 |------|-------|--------|------|
-| G0 | P1–P3.1 + search offline green | **done** | 2026-07-26: `124 passed, 25 deselected` (`-m "not live"`) |
+| G0 | P1–P3.1 + search offline green | **done** | 2026-07-26: `139 passed, 25 deselected` (`-m "not live"`) |
 | D0 | Docs gate: freeze already done; extension feature P3.2 delta + P3.1 plan delta | **done** | feature v0.3.0；P3.1 plan v0.2.4 remains completed |
 | A1 | OpenAI-compatible cache request + usage fixtures | **done** | request key/retention + nested/DeepSeek usage fixtures |
 | A2 | Anthropic Messages cache_control + usage fixtures | **done** | system/history/tools markers + read/write/1h usage |
@@ -227,7 +227,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | C5 | Offline extension E2E (deterministic cache server) | **done** | real HTTP SSE；stable prefix second request cacheRead=5 |
 | C6 | Offline compaction + resume gates | **done** | 12 passed：validation/retry/fallback/rewrite/JSONL resume |
 | C7 | Reasonix + search co-load gate (no tool/lifecycle collision) | **done** | Tavily tools intact；Reasonix payload handler present；zero errors |
-| C8 | Live opt-in full-stack warm-cache smoke（正式 loader/Harness 路径；第 2 请求 `cacheRead > 0` 且进入 E1） | **todo** | §2.17(4); ordinary CI may skip, P3.2 close requires recorded green run |
+| C8 | Live opt-in full-stack warm-cache smoke（正式 loader/Harness 路径；第 2 请求 `cacheRead > 0` 且进入 E1） | **blocked** | 2026-07-26: no configured provider key/model/base URL in environment；offline gates green；cannot close P3.2 |
 | C9 | Plan status completed；roadmap P3.2=done | **todo** | exit |
 
 **Rules:**
