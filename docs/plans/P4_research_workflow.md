@@ -3,9 +3,10 @@
 | Field | Value |
 |-------|--------|
 | **plan_id** | `P4-research-workflow` |
-| **plan_version** | `0.1.0` |
-| **status** | **active** |
+| **plan_version** | `0.1.1` |
+| **status** | **completed** |
 | **created** | 2026-07-26 |
+| **updated** | 2026-07-26 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P4** `competitive_app` |
 | **contract** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.4** |
 | **feature** | [`docs/features/research_workflow_v1.md`](../features/research_workflow_v1.md) **v0.1.1 frozen** — `research-workflow-v1`（24 决策 F-R1…F-R24） |
@@ -115,29 +116,29 @@ Status: `todo` | `in_progress` | `done` | `blocked`。
 
 | Step | Phase | Status | Note |
 |------|-------|--------|------|
-| G0 | P4 http v0.1.x + P1–P3.1 离线绿（前置） | todo | |
-| A1 | domain/stage.py：STAGES + StageResult schema | todo | F-R1/F-R10 |
-| A2 | domain/research_brief.py：ResearchBrief 简化模型 | todo | F-R6 |
-| A3 | application/workflow/profiles.py：6 个 profile + system prompt | todo | F-R20 |
-| A4 | application/workflow/stage_outputs.py：产物存/取 JSONL | todo | F-R4/F-R9 |
-| B1 | application/workflow/research_runner.py：六阶段主循环 + 门禁 | todo | F-R2/F-R3 |
-| B2 | research_runner：per-stage 工具过滤 + 数据传递 | todo | F-R8/F-R9 |
-| B3 | research_runner：产物 schema 校验 + 容错解析 | todo | F-R10 |
-| B4 | research_runner：projection 更新（current_stage + per-stage） | todo | F-R13 |
-| B5 | research_runner：双层 abort（agent.abort + 循环检查） | todo | F-R21 |
-| B6 | research_runner：resume 接着跑（跳过已 ok） | todo | F-R16/F-R17 |
-| C1 | task_service：_run_placeholder → ResearchRunner.run | todo | F-R22 |
-| C2 | dto.py：WorkflowTaskRequest 用 ResearchBrief | todo | F-A15 |
-| C3 | settings.yaml：默认白名单加 search 包 | todo | F-A9 |
-| D0 | 单元测试：STAGES/StageResult schema/ResearchBrief 校验 | todo | |
-| D1 | 集成测试：六阶段 completed + 产物全在 JSONL | todo | O1/O2 |
-| D2 | 集成测试：依赖门禁 failed + report + sessions | todo | O3/O4/O5/O6 |
-| D3 | 集成测试：abort + resume 接着跑 + 并发 409 | todo | O7/O8/O9 |
-| D4 | 集成测试：capability 搜索工具 + 降级 | todo | O10 |
-| D5 | 契约测试：分层门禁仍绿 + packages/agent 无改动 | todo | O11 |
-| D6 | 改占位测试：task 真跑六阶段（faux） | todo | O12 |
-| D7 | Live 测试（L1/L2，env-gated） | todo | |
-| D8 | 升 competitive-app-http-v1 → v0.2.0；roadmap/features 索引同步 | todo | F-R24 |
+| G0 | P4 http v0.1.x + P1–P3.1 离线绿（前置） | done | |
+| A1 | domain/stage.py：STAGES + StageResult schema | done | F-R1/F-R10 |
+| A2 | domain/research_brief.py：ResearchBrief 简化模型 | done | F-R6 |
+| A3 | application/workflow/profiles.py：6 个 profile + system prompt | done | F-R20 |
+| A4 | application/workflow/stage_outputs.py：产物存/取 JSONL | done | F-R4/F-R9 |
+| B1 | application/workflow/research_runner.py：六阶段主循环 + 门禁 | done | F-R2/F-R3 |
+| B2 | research_runner：per-stage 工具过滤 + 数据传递 | done | F-R8/F-R9 |
+| B3 | research_runner：产物 schema 校验 + 容错解析 | done | F-R10 |
+| B4 | research_runner：projection 更新（current_stage + per-stage） | done | F-R13 |
+| B5 | research_runner：双层 abort（agent.abort + 循环检查） | done | F-R21 |
+| B6 | research_runner：resume 接着跑（跳过已 ok） | done | F-R16/F-R17 |
+| C1 | task_service：_run_placeholder → ResearchRunner.run | done | F-R22 |
+| C2 | dto.py：WorkflowTaskRequest 用 ResearchBrief | done | F-A15 |
+| C3 | settings.yaml：默认白名单加 search 包 | done | F-A9 |
+| D0 | 单元测试：STAGES/StageResult schema/ResearchBrief 校验 | done | |
+| D1 | 集成测试：六阶段 completed + 产物全在 JSONL | done | O1/O2 |
+| D2 | 集成测试：依赖门禁 failed + report + sessions | done | O3/O4/O5/O6 |
+| D3 | 集成测试：abort + resume 接着跑 + 并发 409 | done | O7/O8/O9 |
+| D4 | 集成测试：capability 搜索工具 + 降级 | done | O10 |
+| D5 | 契约测试：分层门禁仍绿 + packages/agent 无改动 | done | O11 |
+| D6 | 改占位测试：task 真跑六阶段（faux） | done | O12 |
+| D7 | Live 测试（L1/L2，env-gated） | done | L1 live 真搜索验证过（DeepSeek + tavily/grok）|
+| D8 | 升 competitive-app-http-v1 → v0.2.0；roadmap/features 索引同步 | done | F-R24 |
 
 **Rules:**
 - 不在 B1 前动 task_service（runner 先稳）。
@@ -265,13 +266,14 @@ Status: `todo` | `in_progress` | `done` | `blocked`。
 
 ## 8. Definition of Done
 
-- [ ] §4 状态板 G0–D8 = `done`
-- [ ] Feature §6.1 Offline O1–O12 全绿
-- [ ] `competitive-app-http-v1` 升 v0.2.0（F-A9/F-A15/F-A16/F-A17 修订）
-- [ ] P1–P3.1 + app http 离线套件无回归（除 D6 改的占位测试）
-- [ ] `packages/agent|ai` 零改动（git diff 空）
-- [ ] 14 路由不变（行为变真）
-- [ ] **不**宣称多角色评审/缺口补搜/retry 就绪
+- [x] §4 状态板 G0–D8 = `done`
+- [x] Feature §6.1 Offline O1–O12 全绿
+- [x] `competitive-app-http-v1` 升 v0.2.0（F-A9/F-A15/F-A16/F-A17 修订）
+- [x] P1–P3.1 + app http 离线套件无回归（除 D6 改的占位测试）
+- [x] `packages/agent|ai` 零改动（git diff 空）
+- [x] 14 路由不变（行为变真）
+- [x] **不**宣称多角色评审/缺口补搜/retry 就绪
+- [x] L1 live 验证过（DeepSeek + tavily/grok 真搜索；六阶段全 ok；报告非空）
 
 ---
 
@@ -294,3 +296,4 @@ Status: `todo` | `in_progress` | `done` | `blocked`。
 | Version | Date | Note |
 |---------|------|------|
 | 0.1.0 | 2026-07-26 | 草案：六阶段研究 workflow；24 决策；替换占位 runner；offline O1–O12 + live L1–L2 |
+| 0.1.1 | 2026-07-26 | **completed**：实现落地 + 测试全绿。Offline 35（competitive_app）+ 159（全仓）passed；L1 live 真搜索验证（DeepSeek + tavily/anysearch/grok，165s，六阶段全 ok，报告非空）。修 5 个 live bug（model 手搓 / try 范围 / .env 加载 / 容错解析 / 白名单 None）。状态板 G0–D8 全 done。 |
