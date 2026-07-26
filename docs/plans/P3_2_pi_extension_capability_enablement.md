@@ -220,7 +220,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | B5 | prepareNextTurn checkpoint + atomic rewrite + session_compact | **done** | validated plan → isolated summary → Session rebuild/state sync |
 | B6 | bind `getContextUsage` + `compact` on harness path | **done** | real usage/context view + register-only pending request |
 | B7 | Harness hydration / resume R4 + session id I1 | **done** | pre/post prompt projection；metadata id；resume no duplicate history |
-| C1 | Scaffold `capability_packages/reasonix_prefix_cache` | **todo** | N1 |
+| C1 | Scaffold `capability_packages/reasonix_prefix_cache` | **done** | one extension module；zero tools |
 | C2 | A path: P1 canonicalize + E1 epoch + fingerprint diagnostics | **todo** | §2.3–2.4 |
 | C3 | E path: message_end metrics buckets + after_provider_response headers | **todo** | §2.16 |
 | C4 | B path: turn_end T2/W2a/L1 + session_before_compact plan (K1/K2-R) | **todo** | §2.8* |
