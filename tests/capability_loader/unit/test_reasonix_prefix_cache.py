@@ -57,3 +57,33 @@ def test_reasonix_observes_real_usage_and_response_status() -> None:
     handlers["after_provider_response"]({"status": 200}, None)
     assert state.buckets[0] == {"cacheRead": 9, "cacheWrite": 3}
     assert state.diagnostics == ["provider_status:200"]
+
+
+def test_reasonix_requests_and_plans_compaction_with_stuck_guard() -> None:
+    handlers, state = _registered()
+
+    class Ctx:
+        def getContextUsage(self):
+            return {"tokens": 900, "contextWindow": 1000}
+
+        def compact(self):
+            return "accepted"
+
+    ctx = Ctx()
+    handlers["turn_end"]({}, ctx)
+    assert state.pending_auto
+    entries = [
+        {"id": "old", "message": {"role": "assistant", "content": [{"type": "text", "text": "old"}]}},
+        {"id": "active", "message": {"role": "user", "content": "now"}},
+    ]
+    plan = handlers["session_before_compact"](
+        {"preparation": {"snapshotFingerprint": "sha256:x", "entries": entries,
+                         "activeTurnEntryIds": ["active"]}}, ctx
+    )["compactionPlan"]
+    assert plan["foldEntryIds"] == ["old"]
+    assert plan["retainEntryIds"] == ["active"]
+    assert "Standing facts & constraints" in plan["summaryInstructions"]
+    handlers["session_compact"]({}, ctx)
+    state.pending_auto = True
+    handlers["session_compact"]({}, ctx)
+    assert state.auto_paused is True

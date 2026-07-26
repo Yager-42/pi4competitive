@@ -223,7 +223,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | C1 | Scaffold `capability_packages/reasonix_prefix_cache` | **done** | one extension module；zero tools |
 | C2 | A path: P1 canonicalize + E1 epoch + fingerprint diagnostics | **done** | known-shape stable sort；marker transfer；prefix epoch rebase |
 | C3 | E path: message_end metrics buckets + after_provider_response headers | **done** | real read/write epoch buckets；response status observation |
-| C4 | B path: turn_end T2/W2a/L1 + session_before_compact plan (K1/K2-R) | **todo** | §2.8* |
+| C4 | B path: turn_end T2/W2a/L1 + session_before_compact plan (K1/K2-R) | **done** | adaptive threshold；fixed headings；two-rewrite stuck guard |
 | C5 | Offline extension E2E (deterministic cache server) | **todo** | §2.17(2) |
 | C6 | Offline compaction + resume gates | **todo** | §2.17(3) / §2.14d |
 | C7 | Reasonix + search co-load gate (no tool/lifecycle collision) | **todo** | ADR 0009 D-P32-4(4) |
