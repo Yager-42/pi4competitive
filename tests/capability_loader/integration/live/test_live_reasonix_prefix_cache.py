@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 import os
 from pathlib import Path
 
@@ -9,6 +11,7 @@ from earendil_works.pi_ai.api.anthropic_messages import stream_simple as anthrop
 from earendil_works.pi_ai.api.openai_completions import stream_simple as openai_stream
 from earendil_works.pi_agent import AgentHarness, JsonlSessionRepo, load_capability_packages
 from earendil_works.pi_agent.harness.env.python_env import LocalFileSystem
+from tests.live_env import load_dotenv
 
 
 ROOT = Path(__file__).parents[4]
@@ -18,12 +21,13 @@ ROOT = Path(__file__).parents[4]
 @pytest.mark.asyncio
 async def test_reasonix_full_stack_live_warm_cache(tmp_path: Path) -> None:
     """C8: loader → Reasonix → Harness/Session → agent → ai adapter → provider → E1."""
-    key = os.environ.get("P3_2_LIVE_API_KEY")
-    model_id = os.environ.get("P3_2_LIVE_MODEL_ID")
-    base_url = os.environ.get("P3_2_LIVE_BASE_URL")
-    family = os.environ.get("P3_2_LIVE_API_FAMILY")
-    if not all((key, model_id, base_url, family)):
-        pytest.skip("P3_2_LIVE_API_KEY/MODEL_ID/BASE_URL/API_FAMILY are required")
+    load_dotenv()
+    key = os.environ.get("P3_2_LIVE_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("MODEL_API_KEY")
+    model_id = os.environ.get("P3_2_LIVE_MODEL_ID") or os.environ.get("OPENAI_MODEL") or os.environ.get("MODEL_NAME")
+    base_url = os.environ.get("P3_2_LIVE_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or os.environ.get("MODEL_BASE_URL")
+    family = os.environ.get("P3_2_LIVE_API_FAMILY", "openai-completions")
+    if not all((key, model_id, base_url)):
+        pytest.skip("explicit P3.2 or existing OpenAI live credentials are required")
     if family not in {"openai-completions", "anthropic-messages"}:
         pytest.skip("P3_2_LIVE_API_FAMILY must be openai-completions or anthropic-messages")
 
@@ -70,5 +74,18 @@ async def test_reasonix_full_stack_live_warm_cache(tmp_path: Path) -> None:
                      if hasattr(cell.cell_contents, "buckets"))
         assert any(bucket["cacheRead"] > 0 for bucket in state.buckets.values())
         assert state.epoch == 0
+        print(json.dumps({
+            "provider_family": family,
+            "model_id": model_id,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result": "pass",
+            "first_cache_read": int((first.get("usage") or {}).get("cacheRead") or 0),
+            "first_cache_write": int((first.get("usage") or {}).get("cacheWrite") or 0),
+            "second_cache_read": int((second.get("usage") or {}).get("cacheRead") or 0),
+            "second_cache_write": int((second.get("usage") or {}).get("cacheWrite") or 0),
+            "prefix_digest": state.baseline,
+            "prefix_length": len(stable_prefix),
+            "epoch": state.epoch,
+        }, sort_keys=True))
     finally:
         await harness.shutdown()
