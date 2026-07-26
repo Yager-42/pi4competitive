@@ -9,7 +9,10 @@ from typing import Any
 
 from earendil_works.pi_agent.agent import Agent, AgentOptions
 from earendil_works.pi_agent.types import AgentEvent, AgentMessage, AgentTool, StreamFn
-from earendil_works.pi_agent.harness.compaction import compact, prepare_compaction
+from earendil_works.pi_agent.harness.compaction import (
+    compact, estimate_context_tokens, isolated_summary, snapshot_fingerprint,
+    validate_compaction_plan,
+)
 
 from .session.session import Session
 from .system_prompt import build_system_prompt
@@ -71,18 +74,50 @@ class AgentHarness:
 
     async def compact(self, settings: dict[str, Any] | None = None) -> dict[str, Any] | None:
         runner = self.agent.extension_runner
-        preparation = prepare_compaction(self.agent.state.messages, settings)
+        branch = await self.session.get_branch()
+        entries = [{"id": entry["id"], "message": entry["message"]}
+                   for entry in branch if entry.get("type") == "message"]
+        active_start = max((i for i, entry in enumerate(entries)
+                            if entry["message"].get("role") == "user"), default=len(entries))
+        active_ids = {entry["id"] for entry in entries[active_start:]}
+        preparation = {
+            "snapshotFingerprint": snapshot_fingerprint(entries),
+            "entries": entries,
+            "activeTurnEntryIds": list(active_ids),
+        }
         if runner:
             before = await runner.emit(
                 {"type": "session_before_compact", "preparation": preparation,
-                 "branchEntries": [], "reason": "manual", "willRetry": False,
+                 "branchEntries": entries, "reason": "manual", "willRetry": False,
                  "signal": self.agent.signal}
             )
             if before and before.get("cancel"):
                 return None
             if before and before.get("compactionCollision"):
                 return None
-            if before and before.get("compaction") is not None:
+            if before and before.get("compactionPlan") is not None:
+                plan = before["compactionPlan"]
+                try:
+                    validate_compaction_plan(plan, entries, active_ids)
+                except ValueError:
+                    return None
+                by_id = {entry["id"]: entry for entry in entries}
+                folded = [by_id[entry_id]["message"] for entry_id in plan["foldEntryIds"]]
+                retained = [by_id[entry_id]["message"] for entry_id in plan["retainEntryIds"]]
+                summary = await isolated_summary(
+                    folded, plan["summaryInstructions"], self.agent.stream_function,
+                    self.agent.state.model,
+                )
+                await self.session.append_compaction(
+                    summary, plan["retainEntryIds"][0] if plan["retainEntryIds"] else None,
+                    estimate_context_tokens([entry["message"] for entry in entries]),
+                    details=plan.get("details"), from_hook=True, retained_tail=retained,
+                )
+                result = {"summary": summary, "keptMessages": retained,
+                          "tokensBefore": estimate_context_tokens([entry["message"] for entry in entries])}
+                rebuilt = await self.session.build_context()
+                self.agent.state.messages = list(rebuilt.get("messages") or [])
+            elif before and before.get("compaction") is not None:
                 result = before["compaction"]
             else:
                 result = await compact(self.agent.state.messages, settings,
@@ -92,7 +127,7 @@ class AgentHarness:
                                    self.agent.stream_function, self.agent.state.model)
         if runner:
             await runner.emit({"type": "session_compact", "compactionEntry": result,
-                               "fromExtension": bool(before and before.get("compaction")),
+                               "fromExtension": bool(before and (before.get("compaction") or before.get("compactionPlan"))),
                                "reason": "manual", "willRetry": False})
         return result
 
