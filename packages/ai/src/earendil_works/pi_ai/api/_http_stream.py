@@ -232,12 +232,7 @@ async def stream_openai_chat_completions(
                             )
                     usage = chunk.get("usage")
                     if usage:
-                        partial["usage"]["input"] = int(usage.get("prompt_tokens") or 0)
-                        partial["usage"]["output"] = int(usage.get("completion_tokens") or 0)
-                        partial["usage"]["totalTokens"] = int(
-                            usage.get("total_tokens")
-                            or (partial["usage"]["input"] + partial["usage"]["output"])
-                        )
+                        partial["usage"].update(_openai_usage(usage))
 
         # finalize text
         if text_index is not None:
@@ -290,6 +285,22 @@ async def stream_openai_chat_completions(
         stream.end(partial)
 
     return await run_setup_stream(model, runner)
+
+
+def _openai_usage(raw: dict[str, Any]) -> dict[str, int]:
+    prompt = int(raw.get("prompt_tokens") or 0)
+    details = raw.get("prompt_tokens_details") or {}
+    cache_read = int(details.get("cached_tokens") or raw.get("prompt_cache_hit_tokens") or 0)
+    cache_write = int(details.get("cache_write_tokens") or 0)
+    output = int(raw.get("completion_tokens") or 0)
+    input_tokens = max(0, prompt - cache_read - cache_write)
+    return {
+        "input": input_tokens,
+        "output": output,
+        "cacheRead": cache_read,
+        "cacheWrite": cache_write,
+        "totalTokens": input_tokens + output + cache_read + cache_write,
+    }
 
 
 def _map_finish(reason: str) -> str:

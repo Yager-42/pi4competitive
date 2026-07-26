@@ -209,7 +209,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 |------|-------|--------|------|
 | G0 | P1–P3.1 + search offline green | **done** | 2026-07-26: `124 passed, 25 deselected` (`-m "not live"`) |
 | D0 | Docs gate: freeze already done; extension feature P3.2 delta + P3.1 plan delta | **done** | feature v0.3.0；P3.1 plan v0.2.4 remains completed |
-| A1 | OpenAI-compatible cache request + usage fixtures | **todo** | V1 |
+| A1 | OpenAI-compatible cache request + usage fixtures | **done** | request key/retention + nested/DeepSeek usage fixtures |
 | A2 | Anthropic Messages cache_control + usage fixtures | **todo** | V1 |
 | A3 | onPayload / onResponse once-per-attempt parity both families | **todo** | §2.14(5) |
 | A4 | cacheRetention default short + generic none/short/long passthrough | **todo** | R3 |

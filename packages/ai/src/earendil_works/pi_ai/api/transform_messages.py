@@ -149,6 +149,16 @@ def build_openai_completions_payload(
         "messages": context_to_openai_messages(context),
         "stream": True,
     }
+    retention = options.get("cacheRetention", "short")
+    compat = model.get("compat") or {}
+    supports_long = bool(compat.get("supportsLongCacheRetention"))
+    if options.get("sessionId") and (
+        ("api.openai.com" in (model.get("baseUrl") or "") and retention != "none")
+        or (retention == "long" and supports_long)
+    ):
+        payload["prompt_cache_key"] = options["sessionId"][:64]
+    if retention == "long" and supports_long:
+        payload["prompt_cache_retention"] = "24h"
     if options.get("temperature") is not None:
         payload["temperature"] = options["temperature"]
     if options.get("maxTokens") is not None:
