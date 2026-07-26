@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.18` |
+| **roadmap_version** | `0.1.23` |
 | **status** | active |
 | **updated** | 2026-07-26 |
-| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.4** |
+| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.5** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
 ---
@@ -14,17 +14,18 @@
 
 1. **架构冲突 → 先改契约 + ADR**，再改 roadmap。  
 2. **范围冲突 → 改本文**，升 `roadmap_version`。  
-3. 实现 PR 须标明：**阶段 ID（P1–P4）** + 对照上游（若移植）。  
+3. 实现 PR 须标明：**阶段 ID（P1–P4，含 P3.1/P3.2）** + 对照上游（若移植）。
 4. **禁止**在 P1–P3 未完成时合并依赖真基座的 `competitive_app` 主路径（契约 D16/G8）。
 
 ### 还要不要继续聊？
 
 | 话题 | 状态 | 建议 |
 |------|------|------|
-| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 **v0.3.4**） | **不必再聊**；要改走 ADR |
+| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 **v0.3.5**） | **不必再聊**；要改走 ADR |
 | **实现顺序与完成标准** | 见本文阶段 | 按 roadmap 执行；细节可在阶段开工时补 checklist |
 | **业务能力（研究流程、报告等）** | 搜索 capability v1 **frozen** | 边界：[`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.12**；其余 workflow/报告另开 |
-| **agent engine extensions** | **done** | feature **v0.2.2**；计划 **v0.2.3 completed**（Offline + Live L3a/L3b） |
+| **agent engine extensions** | **done** | feature **v0.3.0**（P3.1 completed baseline + P3.2 delta）；计划 **v0.2.4 completed** |
+| **P3.2 Pi extension capability enablement** | **done** | feature **v0.1.0 frozen**；extension runtime delta **v0.3.0 frozen**；plan [`P3_2_pi_extension_capability_enablement.md`](plans/P3_2_pi_extension_capability_enablement.md) **v0.1.2 completed**；ADR 0009 |
 | **capability 里具体有哪些搜抓包** | **frozen** + 实现计划 | 搜索 feature 契约；计划 [`docs/plans/P4_search_capability_packages.md`](plans/P4_search_capability_packages.md) |
 
 ---
@@ -40,6 +41,8 @@ P3  capability 本地加载器 + capability_packages/ 约定
         ↓
 P3.1 agent engine extension 运行时（S-engine 同构）
         ↓
+P3.2 Pi extension capability enablement（generic bridge + upstream cache parity）
+        ↓
 P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引入）
 ```
 
@@ -49,6 +52,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | **P2** | `packages/agent/` | `earendil_works.pi_agent` | 宣称 loader/app 可依赖未完成 agent |
 | **P3** | loader + `capability_packages/` | （loader 挂在 agent 扩展点或薄模块） | 远程 install；家目录发现 |
 | **P3.1** | `pi_agent/extensions/` + loop emit | `earendil_works.pi_agent.extensions` | 宣称 extension 钩子完成；TUI/install |
+| **P3.2** | `packages/ai` + `packages/agent` + local consumer package | `earendil_works.pi_ai` / `pi_agent.extensions` | Reasonix policy 写入 core；新 hook / TUI / 第二 runtime |
 | **P4** | `competitive_app/` | `competitive_app` | 绕过 agent 直连厂商 SDK 当内核 |
 
 **上游对照：** 一律 `https://github.com/earendil-works/pi` 的 **`main`**。
@@ -106,12 +110,26 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | **完成标准** | Offline O1–O11 + Live L1+L2+L3a+L3b+L4；search offline 仍绿 |
 | **退出条件** | §10 Offline+Live + ADR 0006 omit 仍成立 → `P3.1=done` |
 
+### P3.2 — Pi extension capability enablement
+
+| 项 | 内容 |
+|----|------|
+| **目标** | 在 P3.1 已完成 S-engine baseline 上，为已冻结 local extension consumer 补齐最小 Pi enablement（ADR 0009） |
+| **依赖** | **P3.1 done**；consumer feature **frozen**；版本化 `agent-engine-extensions-v1` / P3.1 plan delta（plan D0） |
+| **实现计划** | [`docs/plans/P3_2_pi_extension_capability_enablement.md`](plans/P3_2_pi_extension_capability_enablement.md) **v0.1.1** |
+| **边界契约** | [`docs/features/reasonix_prefix_cache_v1.md`](features/reasonix_prefix_cache_v1.md) **v0.1.0 frozen** |
+| **范围** | upstream `packages/ai` cache transport / usage parity；`packages/agent` provider-neutral `CompactionPlan` transaction；`capability_packages/reasonix_prefix_cache` consumer |
+| **硬边界** | Reasonix threshold/summary/provider policy 仅在 package；不得新 hook、第二 loop、TUI、boot/environment host 产品、npm/git/home install；**无**有序 `enabled` load plan（Q21 构造性 terminal） |
+| **与 search** | 无业务依赖；必须有 search + Reasonix 同载、无 collision / lifecycle interference 门禁 |
+| **完成标准** | consumer feature §6 T1、extension-contract delta、upstream adapter parity tests、generic bridge tests 全绿；C8 走正式 loader/Harness 全栈路径且留存脱敏 live green 证据 |
+| **退出条件** | ADR 0006/0008 omit 仍成立，P3.2 feature/plan 所列 offline 门禁全绿，且 C8 实配成功；普通 CI 可 skip live，但 skip 不能关闭 P3.2 → `P3.2=done` |
+
 ### P4 — `competitive_app`
 
 | 项 | 内容 |
 |----|------|
 | **目标** | FastAPI + DDD + workflow Process Manager；引入**业务能力**（研究闭环） |
-| **依赖** | **P1+P2+P3 done**（**P3.1 强烈建议 done** 后再依赖 extension 钩子的业务包） |
+| **依赖** | **P1+P2+P3+P3.1+P3.2 done** |
 | **结构** | `domain` / `application/workflow` / `adapter/in/fastapi` / `adapter/out` / `wiring` |
 | **配置** | `config/settings.example.yaml` + env 覆盖密钥（D23） |
 | **投影** | App SQLite（与 JSONL 史实分离） |
@@ -143,7 +161,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 |------|------|
 | 1 | 搜索能力边界：**frozen** — [`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.12**（`search-capability-packages-v1`） |
 | 2 | 本期已冻结能力：**三搜索 package + 五 AgentTool + Offline/Live 验收**（feature 契约 §4 / §10） |
-| 3 | 能力只进 `competitive_app` + `capability_packages/*`，**不**进 `packages/ai|agent` |
+| 3 | 业务 policy 只进 `competitive_app` + `capability_packages/*`，不进 `packages/ai|agent`；P3.2 仅允许 ADR 0009 的 provider-neutral bridge / upstream parity |
 | 4 | 旧仓 = **能力参考**（非 1:1 复刻）：[`xj120/competitive-agent`](https://github.com/xj120/competitive-agent)；本地与本仓并排 `competitive-agent/`；契约 D12 / ADR 0007 / §1.3 |
 
 **本期已冻结（search capability v1）：**
@@ -163,7 +181,8 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P1 `packages/ai` | **done** | 2026-07-22 | branch `p1/packages-ai`; offline tests green |
 | P2 `packages/agent` | **done** | 2026-07-23 | branch `p2/packages-agent`; offline suite green; JSONL resume smoke |
 | P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
-| P3.1 agent engine extensions | **done** | 2026-07-24 | feature v0.2.2；plan v0.2.3；Offline 124 passed；Live 24 passed |
+| P3.1 agent engine extensions | **done** | 2026-07-24 | feature v0.3.0（P3.2 delta）；plan v0.2.4 remains completed；Offline 124 passed；Live 24 passed |
+| P3.2 Pi extension capability enablement | **done** | 2026-07-26 | A+B+E；Offline 139 passed；full-stack Live warm-cache green；plan v0.1.2 |
 | P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.2.0）+ 六阶段研究 workflow（`research-workflow-v1` v0.1.1 frozen；plan v0.1.1 **completed**；替换占位 runner；offline 35+159 passed；L1 live 真搜索验证）；后续：多角色评审/缺口补搜/报告 schema |
 | 业务能力 v1 | **partial**（搜索 capability **done** + 研究闭环 **done**） | 2026-07-26 | search packages + 六阶段研究 workflow 落地；完整 fact_report schema 仍 todo |
 
@@ -201,7 +220,11 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.13 | 2026-07-24 | P3.1 验收加完整 Live + Offline 高覆盖；feature/plan **v0.2.1** |
 | 0.1.14 | 2026-07-24 | P3.1 Live 收紧 L3a/L3b 双钩子必过；feature/plan **v0.2.2** |
 | 0.1.15 | 2026-07-24 | P3.1 extension runtime done：AP3/M2/H1/SK2；Offline+Live exit green；search contract v0.1.12 |
-| 0.1.16 | 2026-07-26 | P4 `competitive_app` → **in_progress**：HTTP 骨架切片落地（feature `competitive-app-http-v1` frozen v0.1.3；14 路由；DDD 分层门禁；offline 19+124 passed）；研究 workflow 仍占位 |
-| 0.1.17 | 2026-07-26 | 六阶段研究 workflow 落地（feature `research-workflow-v1` frozen v0.1.1；替换占位 runner；24 决策；offline 35+124 passed）；`competitive-app-http-v1` 升 v0.2.0 |
-| 0.1.18 | 2026-07-26 | research-workflow-v1 plan **completed** v0.1.1：L1 live 真搜索验证（DeepSeek + tavily/anysearch/grok；165s；六阶段全 ok；报告非空）；修 5 个 live bug；全仓 offline 159 passed |
-| 0.1.17 | 2026-07-26 | 六阶段研究 workflow 落地（feature `research-workflow-v1` frozen v0.1.1；替换占位 runner；24 决策；offline 35+124 passed）；`competitive-app-http-v1` 升 v0.2.0 |
+| 0.1.16 | 2026-07-26 | **ADR 0009 / contract 0.3.5**：新增 P3.2 Pi extension capability enablement，位于 P3.1 与 P4；Reasonix 不归 P4 App |
+| 0.1.17 | 2026-07-26 | **P3.2**：Reasonix feature **v0.1.0 frozen**；新增 plan `P3_2_pi_extension_capability_enablement.md` v0.1.0 |
+| 0.1.18 | 2026-07-26 | P3.2 plan v0.1.1：C8 收紧为正式 loader/Harness 全栈 live close gate；普通 CI 可 skip，但关闭阶段必须有脱敏 green 证据 |
+| 0.1.19 | 2026-07-26 | P3.2 implementation started；D0 publishes extension feature v0.3.0 + P3.1 plan v0.2.4 delta without reopening P3.1 |
+| 0.1.20 | 2026-07-26 | P3.2 done：Reasonix prefix cache A+B+E；Offline 139 passed；full-stack Live warm-cache green；plan v0.1.2 completed |
+| 0.1.21 | 2026-07-26 | P4 `competitive_app` → **in_progress**：HTTP 骨架切片落地（feature `competitive-app-http-v1` frozen v0.1.3；14 路由；DDD 分层门禁；offline 19+124 passed）；研究 workflow 仍占位 |
+| 0.1.22 | 2026-07-26 | 六阶段研究 workflow 落地（feature `research-workflow-v1` frozen v0.1.1；替换占位 runner；24 决策；offline 35+124 passed）；`competitive-app-http-v1` 升 v0.2.0 |
+| 0.1.23 | 2026-07-26 | research-workflow-v1 plan **completed** v0.1.1：L1 live 真搜索验证（DeepSeek + tavily/anysearch/grok；165s；六阶段全 ok；报告非空）；修 5 个 live bug；全仓 offline 159 passed |

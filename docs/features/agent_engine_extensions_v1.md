@@ -2,14 +2,14 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.2.2` |
+| **feature_contract_version** | `0.3.0` |
 | **status** | **frozen** |
-| **updated** | 2026-07-24 |
+| **updated** | 2026-07-26 |
 | **feature_id** | `agent-engine-extensions-v1` |
 | **roadmap_stage** | **P3.1**（`P3-extensions`：本地 package 子集加厚 extension 运行时；非 P4 业务） |
-| **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.4**（ADR **0008** accepted） |
+| **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.5**（ADR **0008/0009** accepted） |
 | **roadmap** | [`ROADMAP.md`](../ROADMAP.md) |
-| **plan** | [`docs/plans/P3_1_agent_engine_extensions.md`](../plans/P3_1_agent_engine_extensions.md) **v0.2.3 completed** |
+| **plan** | [`docs/plans/P3_1_agent_engine_extensions.md`](../plans/P3_1_agent_engine_extensions.md) **v0.2.4 completed baseline**；P3.2 delta 由 [`P3_2_pi_extension_capability_enablement.md`](../plans/P3_2_pi_extension_capability_enablement.md) **v0.1.1** 实施 |
 | **path** | `docs/features/agent_engine_extensions_v1.md` |
 | **upstream SoT** | `earendil-works/pi` **`main`**：`packages/coding-agent/src/core/extensions/**`（及与之同构的 package 资源加载语义） |
 | **local vendor mirror** | `vendor/earendil-works-pi/packages/coding-agent/src/core/extensions/` |
@@ -140,6 +140,16 @@ OUT — TUI / UI / theme / 依赖 hasUI 的交互 API / 完整 coding-agent 产�
 
 **错误语义：** OUT 字段 **不出现在公开类型**。IN 方法在某次运行未接线时 **显式抛错**，禁止静默 no-op 伪装成功。
 
+
+### 3.3 P3.2 CompactionPlan delta（locked）
+
+P3.2 只加 provider-neutral bridge，不改变 §3.1 事件名或引入第二 hook 面：
+
+1. `SessionBeforeCompactResult` 新增可选 `compactionPlan`；legacy `compaction` 结果继续有效。
+2. `compactionPlan` 必须包含 snapshot fingerprint、互斥且完整的 fold/retain partition、summary instructions；host 必须校验 active turn 保留与 tool-call/result 原子性。校验失败拒绝 rewrite。
+3. 同一次 `session_before_compact`：`cancel` 短路；至多一个 plan；多 plan 或 plan 与 legacy `compaction` 并存必须 fail-closed，不执行 rewrite。
+4. Harness-backed Context 将 `compact()` 绑定为 register-only pending request，将 `getContextUsage()` 绑定到当前 Harness usage/context 视图；bare Agent 未绑定时仍按 §3.2 显式抛错。
+5. Harness 在 `prepareNextTurn` checkpoint 串行处理 pending compaction、验证、summary、原子 rewrite、状态同步和 `session_compact`；Reasonix policy 不得进入 `packages/agent`。
 
 ---
 
@@ -354,6 +364,7 @@ E2 含义：
 | 2026-07-24 | ADR 0008 + 契约 0.3.4 + roadmap P3.1 + plan | **A1 docs** |
 | 2026-07-24 | 验收加 **完整 Live**（假 extension + 真模型 toolCall）+ Offline 高覆盖边界 | **AC1+** |
 | 2026-07-24 | Live 收紧：L3a systemPrompt + L3b payload **均必过**；非全链路 live | **AC1++** |
+| 2026-07-26 | P3.2 delta：`compactionPlan`、Harness Context binding、single-plan fail-closed；保留 legacy compaction | **P3.2/C1/P1/X1** |
 
 ---
 
@@ -374,3 +385,4 @@ E2 含义：
 | 0.2.0 | 2026-07-24 | **frozen**（F1）；grill 收口 |
 | 0.2.1 | 2026-07-24 | **AC1+**：Offline O1–O11 高覆盖；Live L1–L5 真模型/假 extension 必过（有密钥）；仍 frozen |
 | 0.2.2 | 2026-07-24 | Live：**L3a/L3b 双钩子必过**（systemPrompt + payload）；明确非 live 范围；仍 frozen |
+| 0.3.0 | 2026-07-26 | **P3.2 versioned delta**：`SessionBeforeCompactResult.compactionPlan`；C1 Harness `compact/getContextUsage` binding；P1 validation；X1 single-plan fail-closed；legacy `compaction` 保留；仍 frozen |

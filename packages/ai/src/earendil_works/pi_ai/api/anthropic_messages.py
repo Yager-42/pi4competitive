@@ -73,6 +73,13 @@ def stream(
             timeout = ((options or {}).get("timeoutMs") or 600_000) / 1000.0
             async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as resp:
+                    on_response = (options or {}).get("onResponse")
+                    if on_response:
+                        recorded = on_response(
+                            {"status": resp.status_code, "headers": dict(resp.headers)}, model
+                        )
+                        if hasattr(recorded, "__await__"):
+                            await recorded
                     if resp.status_code >= 400:
                         text = (await resp.aread()).decode("utf-8", errors="replace")
                         msg = error_message(model, f"HTTP {resp.status_code}: {text[:500]}")
@@ -205,19 +212,20 @@ def stream(
                                         "partial": json.loads(json.dumps(partial)),
                                     }
                                 )
-                        elif et == "message_delta":
-                            usage = (event.get("usage") or {})
+                        elif et in ("message_delta", "message_start"):
+                            usage = (
+                                event.get("usage")
+                                if et == "message_delta"
+                                else (event.get("message") or {}).get("usage")
+                            ) or {}
                             if usage:
-                                partial["usage"]["output"] = int(usage.get("output_tokens") or 0)
-                            stop_reason = (event.get("delta") or {}).get("stop_reason")
-                            if stop_reason == "tool_use":
-                                partial["stopReason"] = "toolUse"
-                            elif stop_reason == "max_tokens":
-                                partial["stopReason"] = "length"
-                        elif et == "message_start":
-                            usage = ((event.get("message") or {}).get("usage") or {})
-                            if usage:
-                                partial["usage"]["input"] = int(usage.get("input_tokens") or 0)
+                                _apply_anthropic_usage(partial["usage"], usage)
+                            if et == "message_delta":
+                                stop_reason = (event.get("delta") or {}).get("stop_reason")
+                                if stop_reason == "tool_use":
+                                    partial["stopReason"] = "toolUse"
+                                elif stop_reason == "max_tokens":
+                                    partial["stopReason"] = "length"
 
             reason = partial["stopReason"] if partial["stopReason"] in ("stop", "length", "toolUse") else "stop"
             partial["stopReason"] = reason  # type: ignore[typeddict-item]
@@ -235,6 +243,22 @@ def stream(
     except RuntimeError:
         pass
     return outer
+
+
+def _apply_anthropic_usage(target: dict[str, Any], raw: dict[str, Any]) -> None:
+    fields = {
+        "input": "input_tokens",
+        "output": "output_tokens",
+        "cacheRead": "cache_read_input_tokens",
+        "cacheWrite": "cache_creation_input_tokens",
+    }
+    for target_key, raw_key in fields.items():
+        if raw.get(raw_key) is not None:
+            target[target_key] = int(raw[raw_key])
+    creation = raw.get("cache_creation") or {}
+    if creation.get("ephemeral_1h_input_tokens") is not None:
+        target["cacheWrite1h"] = int(creation["ephemeral_1h_input_tokens"])
+    target["totalTokens"] = sum(int(target.get(k) or 0) for k in ("input", "output", "cacheRead", "cacheWrite"))
 
 
 def stream_simple(

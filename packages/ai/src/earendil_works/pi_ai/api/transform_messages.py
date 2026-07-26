@@ -1,6 +1,7 @@
 """Message transform helpers — port intent of api/transform-messages.ts."""
 
 from __future__ import annotations
+import os
 
 from typing import Any
 
@@ -138,6 +139,13 @@ def _user_content(msg: Message) -> Any:
     return parts if parts else ""
 
 
+def _cache_retention(options: dict[str, Any]) -> str:
+    if options.get("cacheRetention") in ("none", "short", "long"):
+        return options["cacheRetention"]
+    env = options.get("env") or {}
+    return "long" if env.get("PI_CACHE_RETENTION", os.environ.get("PI_CACHE_RETENTION")) == "long" else "short"
+
+
 def build_openai_completions_payload(
     model: dict[str, Any],
     context: Context,
@@ -149,6 +157,16 @@ def build_openai_completions_payload(
         "messages": context_to_openai_messages(context),
         "stream": True,
     }
+    retention = _cache_retention(options)
+    compat = model.get("compat") or {}
+    supports_long = bool(compat.get("supportsLongCacheRetention"))
+    if options.get("sessionId") and (
+        ("api.openai.com" in (model.get("baseUrl") or "") and retention != "none")
+        or (retention == "long" and supports_long)
+    ):
+        payload["prompt_cache_key"] = options["sessionId"][:64]
+    if retention == "long" and supports_long:
+        payload["prompt_cache_retention"] = "24h"
     if options.get("temperature") is not None:
         payload["temperature"] = options["temperature"]
     if options.get("maxTokens") is not None:
@@ -179,4 +197,20 @@ def build_anthropic_messages_payload(
     tools = tools_to_anthropic(context.get("tools"))  # type: ignore[arg-type]
     if tools:
         payload["tools"] = tools
+
+    retention = _cache_retention(options)
+    if retention != "none":
+        cache_control = {"type": "ephemeral"}
+        if retention == "long" and (model.get("compat") or {}).get("supportsLongCacheRetention"):
+            cache_control["ttl"] = "1h"
+        if system:
+            payload["system"] = [{"type": "text", "text": system, "cache_control": cache_control}]
+        if messages and messages[-1].get("role") == "user":
+            content = messages[-1].get("content")
+            if isinstance(content, str):
+                messages[-1]["content"] = [{"type": "text", "text": content, "cache_control": cache_control}]
+            elif content:
+                content[-1]["cache_control"] = cache_control
+        if tools:
+            tools[-1]["cache_control"] = cache_control
     return payload
