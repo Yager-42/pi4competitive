@@ -202,30 +202,32 @@ class TaskService:
         # Build a per-task harness (F-R7: default model via factory).
         # Always create a fresh agent — resume must not reuse the prior run's
         # agent (its state.messages carry the failed run's history).
-        self._registry.drop_agent(session_id)
-        harness = await self._harness_factory.build(
-            session=session,
-            model=None,  # factory resolves default
-            system_prompt="",
-        )
-        agent = harness.agent
-        self._registry.get_or_create_agent(session_id, factory=lambda: agent)
-        abort_signal = asyncio.Event()
-        runner = ResearchRunner(
-            task_id=task_id,
-            agent=agent,
-            session=session,
-            store=self._store,
-            research_brief=research_brief,
-            all_tools=self._capability_tools,
-            abort_signal=abort_signal,
-        )
-        self._runners[task_id] = (runner, abort_signal, agent)
+        agent: Any = None
         try:
+            self._registry.drop_agent(session_id)
+            harness = await self._harness_factory.build(
+                session=session,
+                model=None,  # factory resolves default
+                system_prompt="",
+            )
+            agent = harness.agent
+            self._registry.get_or_create_agent(session_id, factory=lambda: agent)
+            abort_signal = asyncio.Event()
+            runner = ResearchRunner(
+                task_id=task_id,
+                agent=agent,
+                session=session,
+                store=self._store,
+                research_brief=research_brief,
+                all_tools=self._capability_tools,
+                abort_signal=abort_signal,
+            )
+            self._runners[task_id] = (runner, abort_signal, agent)
             await self._store.update_task_status(task_id, "running")
             await runner.run(start_stage=start_stage)
         except asyncio.CancelledError:
-            agent.abort()
+            if agent is not None:
+                agent.abort()
             await self._store.update_task_status(task_id, "aborted")
             raise
         except Exception:  # noqa: BLE001

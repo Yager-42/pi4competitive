@@ -16,6 +16,7 @@ from ...domain.research_brief import ResearchBrief
 from ...domain.stage import (
     STAGES,
     STAGE_DEPENDENCIES,
+    STAGE_OUTPUT_SCHEMA,
     StageResult,
     empty_projection,
     validate_stage_output,
@@ -74,10 +75,7 @@ class ResearchRunner:
             # Run the stage.
             projection["current_stage"] = name
             projection["stages"][name] = "running"
-            try:
-                await self._save_projection(projection)
-            except Exception as e:
-                raise
+            await self._save_projection(projection)
             try:
                 result = await self._run_stage(name, projection)
             except asyncio.CancelledError:
@@ -114,7 +112,7 @@ class ResearchRunner:
         if self.abort_signal.is_set():
             return StageResult(stage=name, ok=False, output={}, error="aborted")
         # Parse output (F-R10).
-        output = self._extract_output()
+        output = self._extract_output(name)
         result = validate_stage_output(name, output)
         if result.ok:
             await append_stage_output(self.session, name, output)
@@ -140,8 +138,13 @@ class ResearchRunner:
         parts.append(f"Now run the '{name}' stage. Output ONLY the JSON described in the system prompt.")
         return "\n\n".join(parts)
 
-    def _extract_output(self) -> dict[str, Any]:
-        """Extract the JSON output from the agent's last assistant message (F-R10)."""
+    def _extract_output(self, name: str) -> dict[str, Any]:
+        """Extract the JSON output from the agent's last assistant message (F-R10).
+
+        If JSON parsing fails, wrap the raw text in the stage's primary field so
+        the stage still passes (tolerant fallback — the model doesn't always emit
+        strict JSON).
+        """
         for message in reversed(self.agent.state.messages):
             if isinstance(message, dict) and message.get("role") == "assistant":
                 text = _message_text(message)
@@ -149,8 +152,10 @@ class ResearchRunner:
                     parsed = _try_parse_json(text)
                     if isinstance(parsed, dict):
                         return parsed
-                # Fallback: wrap raw text (stage still ok if non-empty after validation).
-                return {"raw": text}
+                # Fallback: stuff raw text into the stage's primary field.
+                required = STAGE_OUTPUT_SCHEMA.get(name, {"raw"})
+                primary = next(iter(required))
+                return {primary: text}
         return {}
 
     async def _load_projection(self) -> dict[str, Any]:
