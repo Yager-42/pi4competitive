@@ -42,7 +42,13 @@ class AppConfig:
     sessions_root: str = "data/sessions"
     app_db: str = "data/app.db"
     capability_packages_enabled: list[str] = field(
-        default_factory=lambda: ["echo_example", "search_tavily", "search_anysearch", "search_grok"]
+        default_factory=lambda: [
+            "echo_example",
+            "search_tavily",
+            "search_anysearch",
+            "search_grok",
+            "reasonix_prefix_cache",
+        ]
     )
     prompt_lock_timeout: float = 30.0
     default_model: str = ""
@@ -71,9 +77,10 @@ class _ModelResolver(ModelResolver):
     """Resolves ``model`` string → pi_ai Model dict.
 
     Empty/None → config.default_model. Resolution order:
-      1. static catalog (getModels) — for known models
-      2. synthesize an OpenAI-compatible Model from env — for gateway/custom IDs
-         not in the static catalog (mirrors tests/live_env.live_openai_model)
+      1. explicit ``OPENAI_BASE_URL`` → synthesize a gateway-bound model, even
+         when its ID now also exists in the static catalog
+      2. static catalog (getModels) — for known models
+      3. synthesize an OpenAI-compatible Model for other custom IDs
 
     No full Model dict accepted from callers (feature F-A8).
     """
@@ -87,13 +94,15 @@ class _ModelResolver(ModelResolver):
         model_id = (model or self._default_model) if model is not None else self._default_model
         if not model_id:
             raise KeyError("no model specified and no default configured")
-        for candidate in self._models.getModels():
-            if candidate.get("id") == model_id:
-                return candidate  # type: ignore[return-value]
+        explicit_gateway = self._allow_synthesize and bool(os.environ.get("OPENAI_BASE_URL"))
+        if not explicit_gateway:
+            for candidate in self._models.getModels():
+                if candidate.get("id") == model_id:
+                    return candidate  # type: ignore[return-value]
         if not self._allow_synthesize:
             raise KeyError(f"model not in catalog: {model_id}")
-        # Not in catalog: synthesize an OpenAI-compatible Model from env so that
-        # gateway/custom model IDs (e.g. deepseek-v4-flash via chatanywhere) work.
+        # Explicit gateway or uncatalogued ID: synthesize from env so caller
+        # routing is never silently replaced by a catalog provider endpoint.
         base_url = os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
         ctx = int(os.environ.get("MODEL_CONTEXT_WINDOW_TOKENS") or "128000")
         return {

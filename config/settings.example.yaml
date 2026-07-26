@@ -17,6 +17,7 @@ capability_packages:
     - search_tavily
     - search_anysearch
     - search_grok
+    - reasonix_prefix_cache
 
 # P4 competitive_app runtime config (feature competitive-app-http-v1 §4.5).
 sessions:

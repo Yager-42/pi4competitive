@@ -53,8 +53,8 @@ async def test_live_six_stages_real_provider(tmp_path: Path, live_env) -> None:
     os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
     os.environ["APP_DB"] = str(tmp_path / "app.db")
     os.environ["SESSIONS_CWD"] = "live-test"
-    # Use the default whitelist (echo + search_*); search packages load when
-    # their env keys are present, fail-closed otherwise.
+    # Use the default whitelist (echo + search_* + Reasonix prefix cache);
+    # search packages load when their env keys are present, fail-closed otherwise.
 
     from competitive_app.wiring import build_application_state, load_config_from_env
 

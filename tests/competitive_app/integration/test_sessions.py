@@ -109,6 +109,39 @@ async def test_capability_echo_tool_invoked(app_state):
 
 
 @pytest.mark.asyncio
+async def test_reasonix_prefix_cache_is_active_by_default(app_state):
+    runner = app_state.capability_report.extension_runner
+    reasonix = next(
+        extension
+        for extension in runner.extensions
+        if "reasonix_prefix_cache" in extension.resolvedPath
+    )
+    assert set(reasonix.handlers) == {
+        "before_provider_request",
+        "after_provider_response",
+        "message_end",
+        "turn_end",
+        "session_before_compact",
+        "session_compact",
+    }
+    assert not reasonix.tools
+
+
+def test_model_resolver_honors_explicit_gateway_for_catalog_id(monkeypatch):
+    from competitive_app.wiring import _ModelResolver
+
+    class Models:
+        @staticmethod
+        def getModels():
+            return [{"id": "catalog-model", "baseUrl": "https://api.openai.com/v1"}]
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://gateway.example/v1")
+    resolved = _ModelResolver(Models(), "catalog-model", allow_synthesize=True).resolve(None)
+    assert resolved["baseUrl"] == "https://gateway.example/v1"
+    assert resolved["api"] == "openai-completions"
+
+
+@pytest.mark.asyncio
 async def test_model_resolution_unknown_returns_422(app_state):
     async with await _client(app_state) as client:
         resp = await client.post("/api/v2/sessions", json={"model": "does-not-exist"})
