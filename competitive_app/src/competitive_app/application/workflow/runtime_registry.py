@@ -1,20 +1,15 @@
-"""Runtime registry — caches Agent instances + per-session locks + task runners.
+"""Runtime registry — caches AgentHarness instances, locks, and task runners.
 
 Feature F-A10/F-A11:
-  - Agents cached by session_id (reuse, avoid re-opening JSONL each prompt).
+  - Harnesses cached by session_id so prompts retain Session and extension checkpoints.
   - per-session asyncio.Lock serializes prompts; queue timeout → 409.
   - abort: cancel the in-flight prompt AND all queued waiters (cancelled → 409).
-
-Rewritten from legacy ``RuntimeRegistry`` (competitive-agent rr-refactor) — same
-shape, different types (uses earendil_works.pi_agent.Agent, not legacy Agent).
 """
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-
-from earendil_works.pi_agent.agent import Agent
 
 
 @dataclass(slots=True)
@@ -24,30 +19,34 @@ class _ActiveTask:
 
 
 class RuntimeRegistry:
-    """Tracks live agents (per session) and workflow tasks (per task_id)."""
+    """Tracks live harnesses (per session) and workflow tasks (per task_id)."""
 
     def __init__(self) -> None:
-        self._agents: dict[str, Agent] = {}
+        self._harnesses: dict[str, Any] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         # session_id → list of queued prompt waiters (for abort to cancel)
         self._queued: dict[str, list[asyncio.Task[Any]]] = {}
-        # task_id → active placeholder runner
+        # task_id → active workflow runner
         self._tasks: dict[str, _ActiveTask] = {}
 
-    # ------------------------------------------------------------------ agents
+    # ---------------------------------------------------------------- harnesses
 
-    def get_or_create_agent(self, session_id: str, factory: Any) -> Agent:
-        agent = self._agents.get(session_id)
-        if agent is None:
-            agent = factory()
-            self._agents[session_id] = agent
-        return agent
+    def register_harness(self, session_id: str, harness: Any) -> Any:
+        existing = self._harnesses.get(session_id)
+        if existing is None:
+            self._harnesses[session_id] = harness
+            return harness
+        return existing
 
-    def get_agent(self, session_id: str) -> Agent | None:
-        return self._agents.get(session_id)
+    def get_harness(self, session_id: str) -> Any | None:
+        return self._harnesses.get(session_id)
 
-    def drop_agent(self, session_id: str) -> None:
-        self._agents.pop(session_id, None)
+    def get_agent(self, session_id: str) -> Any | None:
+        harness = self.get_harness(session_id)
+        return harness.agent if harness is not None else None
+
+    def drop_harness(self, session_id: str) -> None:
+        self._harnesses.pop(session_id, None)
         self._locks.pop(session_id, None)
         for waiter in self._queued.pop(session_id, []):
             waiter.cancel()
@@ -72,10 +71,10 @@ class RuntimeRegistry:
 
         Returns True if an in-flight agent run was aborted.
         """
-        agent = self._agents.get(session_id)
+        harness = self._harnesses.get(session_id)
         aborted_in_flight = False
-        if agent is not None:
-            # Agent.abort() is a no-op if no active run; that's fine.
+        if harness is not None:
+            agent = harness.agent
             agent.abort()
             aborted_in_flight = agent.signal is not None
         for waiter in self._queued.pop(session_id, []):
@@ -126,9 +125,10 @@ class RuntimeRegistry:
                 *(item.task for item in self._tasks.values()), return_exceptions=True
             )
         self._tasks.clear()
-        for agent in self._agents.values():
-            agent.abort()
-        self._agents.clear()
+        for harness in self._harnesses.values():
+            harness.agent.abort()
+            await harness.shutdown()
+        self._harnesses.clear()
         self._locks.clear()
         self._queued.clear()
 

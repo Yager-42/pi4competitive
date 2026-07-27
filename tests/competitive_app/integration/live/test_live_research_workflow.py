@@ -335,17 +335,10 @@ async def test_live_reasonix_long_context_compaction(tmp_path: Path, live_env) -
                 json={"content": ("Evidence detail about pricing and features. " * 900)},
             )
             assert pressure.status_code == 200, pressure.text
-            compact_action = agent.extension_runner._context_actions["compact"]
-            harness = next(
-                cell.cell_contents for cell in compact_action.__closure__
-                if hasattr(cell.cell_contents, "_compaction_pending")
-            )
-            auto_pending = harness._compaction_pending
-            assert auto_pending is True, "Reasonix threshold must request compaction"
-            # SessionService currently drives Agent directly, so execute the retained
-            # Harness transaction explicitly and expose that integration gap in output.
-            compact_result = await harness.compact()
-            assert compact_result is not None
+            harness = state.registry.get_harness(session_id)
+            assert harness is not None
+            pending_after_prompt = harness._compaction_pending
+            assert pending_after_prompt is False, "App must consume the Harness checkpoint"
 
             extension = next(
                 ext for ext in agent.extension_runner.extensions
@@ -373,7 +366,7 @@ async def test_live_reasonix_long_context_compaction(tmp_path: Path, live_env) -
             assert reasonix_state.epoch >= 1
             print(json.dumps({
                 "scenario": "long_context_compaction",
-                "auto_pending_after_pressure": auto_pending,
+                "pending_after_prompt": pending_after_prompt,
                 "compactions": len(compactions),
                 "epoch": reasonix_state.epoch,
                 "buckets": reasonix_state.buckets,

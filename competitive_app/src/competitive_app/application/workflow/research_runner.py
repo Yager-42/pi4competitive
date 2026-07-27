@@ -30,7 +30,7 @@ class ResearchRunner:
         self,
         *,
         task_id: str,
-        agent: Any,
+        harness: Any,
         session: Any,
         store: Any,
         research_brief: ResearchBrief,
@@ -39,7 +39,8 @@ class ResearchRunner:
         abort_signal: asyncio.Event | None = None,
     ) -> None:
         self.task_id = task_id
-        self.agent = agent
+        self.harness = harness
+        self.agent = harness.agent
         self.session = session
         self.store = store
         self.research_brief = research_brief
@@ -79,7 +80,7 @@ class ResearchRunner:
             try:
                 result = await self._run_stage(name, projection)
             except asyncio.CancelledError:
-                await self.agent.abort()
+                self.agent.abort()
                 projection["stages"][name] = "failed"
                 await self._save_projection(projection)
                 await self._set_status("aborted")
@@ -106,9 +107,8 @@ class ResearchRunner:
         # Build prompt with prior outputs (F-R9).
         prior = await collect_prior_outputs(self.session, STAGE_DEPENDENCIES[name])
         prompt = self._build_prompt(name, profile, prior)
-        # Run agent (F-R2).
-        await self.agent.prompt(prompt)
-        await self.agent.wait_for_idle()
+        # Run through AgentHarness so Session hydration and extension checkpoints execute.
+        await self.harness.prompt(prompt)
         if self.abort_signal.is_set():
             return StageResult(stage=name, ok=False, output={}, error="aborted")
         # Parse output (F-R10).

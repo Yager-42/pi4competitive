@@ -127,6 +127,42 @@ async def test_reasonix_prefix_cache_is_active_by_default(app_state):
     assert not reasonix.tools
 
 
+@pytest.mark.asyncio
+async def test_session_prompt_consumes_reasonix_compaction_checkpoint(app_state):
+    from earendil_works.pi_ai.providers.faux import faux_assistant_message
+
+    app_state.models.__faux["setResponses"]([  # type: ignore[attr-defined]
+        faux_assistant_message("baseline"),
+        faux_assistant_message("pressure accepted"),
+        faux_assistant_message("compacted summary"),
+    ])
+    async with await _client(app_state) as client:
+        created = await client.post("/api/v2/sessions", json={})
+        session_id = created.json()["session_id"]
+        agent = app_state.registry.get_agent(session_id)
+        assert agent is not None
+        agent.state.model["contextWindow"] = 800
+
+        first = await client.post(
+            f"/api/v2/sessions/{session_id}/prompt", json={"content": "baseline"}
+        )
+        assert first.status_code == 200, first.text
+        pressure = await client.post(
+            f"/api/v2/sessions/{session_id}/prompt", json={"content": "evidence " * 500}
+        )
+        assert pressure.status_code == 200, pressure.text
+
+    metadata = next(
+        item for item in await app_state.repo.list({"cwd": "test"})
+        if item["id"] == session_id
+    )
+    session = await app_state.repo.open(metadata)
+    entries = await session.get_entries()
+    assert any(entry.get("type") == "compaction" for entry in entries)
+    harness = app_state.registry.get_harness(session_id)
+    assert harness is not None and harness._compaction_pending is False
+
+
 def test_model_resolver_honors_explicit_gateway_for_catalog_id(monkeypatch):
     from competitive_app.wiring import _ModelResolver
 

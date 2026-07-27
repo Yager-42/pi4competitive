@@ -87,9 +87,7 @@ class SessionService:
         harness = await self._harness_factory.build(
             session=session, model=resolved_model, system_prompt=system_prompt
         )
-        self._registry.get_or_create_agent(
-            meta["id"], factory=lambda: harness.agent
-        )
+        self._registry.register_harness(meta["id"], harness)
         await self._store.index_session(
             session_id=meta["id"],
             file_path=meta["path"],
@@ -119,8 +117,8 @@ class SessionService:
         record = await self._store.get_session(session_id)
         if record is None:
             raise SessionNotFoundError(session_id)
-        agent = self._registry.get_agent(session_id)
-        if agent is None:
+        harness = self._registry.get_harness(session_id)
+        if harness is None:
             # Resume path: rebuild harness from the indexed config.
             session = await self._repo.open(
                 {"path": record["file_path"], "cwd": record["cwd"]}
@@ -131,8 +129,8 @@ class SessionService:
                 model=resolved_model,
                 system_prompt=record["system_prompt"],
             )
-            agent = self._registry.get_or_create_agent(session_id, factory=lambda: harness.agent)
-
+            harness = self._registry.register_harness(session_id, harness)
+        agent = harness.agent
         lock = self._registry.lock_for(session_id)
         try:
             await asyncio.wait_for(lock.acquire(), timeout=self._prompt_lock_timeout)
@@ -141,8 +139,7 @@ class SessionService:
                 f"session {session_id} is busy; prompt queue timeout"
             ) from exc
         try:
-            await agent.prompt(content)
-            await agent.wait_for_idle()
+            await harness.prompt(content)
         finally:
             lock.release()
 

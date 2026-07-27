@@ -200,22 +200,21 @@ class TaskService:
         start_stage: str | None = None,
     ) -> None:
         # Build a per-task harness (F-R7: default model via factory).
-        # Always create a fresh agent — resume must not reuse the prior run's
-        # agent (its state.messages carry the failed run's history).
+        # Always create a fresh harness — resume must not reuse prior runtime state.
         agent: Any = None
         try:
-            self._registry.drop_agent(session_id)
+            self._registry.drop_harness(session_id)
             harness = await self._harness_factory.build(
                 session=session,
                 model=None,  # factory resolves default
                 system_prompt="",
             )
+            harness = self._registry.register_harness(session_id, harness)
             agent = harness.agent
-            self._registry.get_or_create_agent(session_id, factory=lambda: agent)
             abort_signal = asyncio.Event()
             runner = ResearchRunner(
                 task_id=task_id,
-                agent=agent,
+                harness=harness,
                 session=session,
                 store=self._store,
                 research_brief=research_brief,
