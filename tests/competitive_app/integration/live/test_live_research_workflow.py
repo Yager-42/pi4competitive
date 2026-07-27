@@ -200,6 +200,190 @@ async def test_live_multiturn_collect_retry_cache(tmp_path: Path, live_env) -> N
     finally:
         await state.shutdown()
 
+async def test_live_tool_order_perturbation_cache(tmp_path: Path, live_env) -> None:
+    """Reverse model-visible tools between warm and measured requests."""
+    import json
+    import os
+    from dataclasses import replace
+
+    os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
+    os.environ["APP_DB"] = str(tmp_path / "app.db")
+    os.environ["SESSIONS_CWD"] = "live-tool-order-test"
+    from competitive_app.wiring import build_application_state, load_config_from_env
+
+    state = await build_application_state(load_config_from_env())
+    try:
+        async with await _client(state) as client:
+            created = await client.post(
+                "/api/v2/sessions", json={"system_prompt": "Stable tool-order experiment."}
+            )
+            assert created.status_code == 200, created.text
+            session_id = created.json()["session_id"]
+            seed = await client.post(
+                f"/api/v2/sessions/{session_id}/prompt",
+                json={"content": "Reply exactly: seeded. Do not call tools."},
+            )
+            assert seed.status_code == 200, seed.text
+            agent = state.registry.get_agent(session_id)
+            assert agent is not None and len(agent.state.tools) >= 2
+            expanded = [
+                replace(tool, description=tool.description + (f" stable-{tool.name}" * 900))
+                for tool in agent.state.tools
+            ]
+            agent.state.tools = sorted(expanded, key=lambda tool: tool.name)
+            warm = await client.post(
+                f"/api/v2/sessions/{session_id}/prompt",
+                json={"content": "Reply exactly: warm. Do not call tools."},
+            )
+            assert warm.status_code == 200, warm.text
+            agent.state.tools = list(reversed(agent.state.tools))
+            measured = await client.post(
+                f"/api/v2/sessions/{session_id}/prompt",
+                json={"content": "Reply exactly: measured. Do not call tools."},
+            )
+            assert measured.status_code == 200, measured.text
+            warm_usage = warm.json()["message"].get("usage") or {}
+            measured_usage = measured.json()["message"].get("usage") or {}
+            print(json.dumps({
+                "scenario": "tool_order_perturbation",
+                "enabled": os.environ.get("CAPABILITY_PACKAGES_ENABLED", "<default>"),
+                "warm_cache_read": int(warm_usage.get("cacheRead") or 0),
+                "measured_cache_read": int(measured_usage.get("cacheRead") or 0),
+                "measured_input": int(measured_usage.get("input") or 0),
+            }, sort_keys=True))
+    finally:
+        await state.shutdown()
+
+
+async def test_live_stable_six_stage_prefix_cache(tmp_path: Path, live_env) -> None:
+    """Prototype six stages as user instructions under one fixed system/tools prefix."""
+    import json
+    import os
+
+    os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
+    os.environ["APP_DB"] = str(tmp_path / "app.db")
+    os.environ["SESSIONS_CWD"] = "live-stable-stages-test"
+    from competitive_app.wiring import build_application_state, load_config_from_env
+
+    state = await build_application_state(load_config_from_env())
+    stable_protocol = (
+        "You are one competitive-research engine. Keep this protocol fixed across all stages. "
+        "Follow the stage named by the user, preserve evidence, and emit concise JSON. " * 140
+    )
+    try:
+        async with await _client(state) as client:
+            created = await client.post(
+                "/api/v2/sessions", json={"system_prompt": stable_protocol}
+            )
+            assert created.status_code == 200, created.text
+            session_id = created.json()["session_id"]
+            usages = []
+            for stage in ("plan", "collect", "analyze", "write", "review", "cite"):
+                response = await client.post(
+                    f"/api/v2/sessions/{session_id}/prompt",
+                    json={"content": f"Stage={stage}. Do not call tools. Return one small JSON object."},
+                )
+                assert response.status_code == 200, response.text
+                usages.append(response.json()["message"].get("usage") or {})
+            cache_read = sum(int(item.get("cacheRead") or 0) for item in usages)
+            input_tokens = sum(int(item.get("input") or 0) for item in usages)
+            denominator = input_tokens + cache_read
+            assert cache_read > 0
+            print(json.dumps({
+                "scenario": "stable_six_stage_prefix",
+                "enabled": os.environ.get("CAPABILITY_PACKAGES_ENABLED", "<default>"),
+                "requests": len(usages),
+                "input_tokens": input_tokens,
+                "cache_read": cache_read,
+                "cache_rate": cache_read / denominator if denominator else 0,
+            }, sort_keys=True))
+    finally:
+        await state.shutdown()
+
+
+async def test_live_reasonix_long_context_compaction(tmp_path: Path, live_env) -> None:
+    """Force a small host window and verify Reasonix performs a real rewrite epoch."""
+    import json
+    import os
+
+    os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
+    os.environ["APP_DB"] = str(tmp_path / "app.db")
+    os.environ["SESSIONS_CWD"] = "live-reasonix-compaction-test"
+    os.environ["MODEL_CONTEXT_WINDOW_TOKENS"] = "8000"
+    from competitive_app.wiring import build_application_state, load_config_from_env
+
+    state = await build_application_state(load_config_from_env())
+    stable_protocol = "Stable compaction research protocol. " * 700
+    try:
+        async with await _client(state) as client:
+            created = await client.post(
+                "/api/v2/sessions", json={"system_prompt": stable_protocol}
+            )
+            assert created.status_code == 200, created.text
+            session_id = created.json()["session_id"]
+            first = await client.post(
+                f"/api/v2/sessions/{session_id}/prompt",
+                json={"content": "Record baseline fact: Notion and Obsidian are note-taking tools."},
+            )
+            assert first.status_code == 200, first.text
+            agent = state.registry.get_agent(session_id)
+            assert agent is not None and agent.extension_runner is not None
+            extension_errors = []
+            agent.extension_runner.on_error(extension_errors.append)
+            pressure = await client.post(
+                f"/api/v2/sessions/{session_id}/prompt",
+                json={"content": ("Evidence detail about pricing and features. " * 900)},
+            )
+            assert pressure.status_code == 200, pressure.text
+            compact_action = agent.extension_runner._context_actions["compact"]
+            harness = next(
+                cell.cell_contents for cell in compact_action.__closure__
+                if hasattr(cell.cell_contents, "_compaction_pending")
+            )
+            auto_pending = harness._compaction_pending
+            assert auto_pending is True, "Reasonix threshold must request compaction"
+            # SessionService currently drives Agent directly, so execute the retained
+            # Harness transaction explicitly and expose that integration gap in output.
+            compact_result = await harness.compact()
+            assert compact_result is not None
+
+            extension = next(
+                ext for ext in agent.extension_runner.extensions
+                if "reasonix_prefix_cache" in ext.resolvedPath
+            )
+            handler = extension.handlers["message_end"][0]
+            reasonix_state = next(
+                cell.cell_contents for cell in handler.__closure__
+                if hasattr(cell.cell_contents, "buckets")
+            )
+            metadata = next(
+                item for item in await state.repo.list({"cwd": "live-reasonix-compaction-test"})
+                if item["id"] == session_id
+            )
+            session = await state.repo.open(metadata)
+            entries = await session.get_entries()
+            compactions = [entry for entry in entries if entry.get("type") == "compaction"]
+            from earendil_works.pi_agent.harness.compaction import estimate_context_tokens
+            assert compactions, (
+                "Reasonix must append a real compaction entry; "
+                f"state={reasonix_state}; errors={extension_errors}; "
+                f"tokens={estimate_context_tokens(agent.state.messages)}; "
+                f"window={agent.state.model.get('contextWindow')}"
+            )
+            assert reasonix_state.epoch >= 1
+            print(json.dumps({
+                "scenario": "long_context_compaction",
+                "auto_pending_after_pressure": auto_pending,
+                "compactions": len(compactions),
+                "epoch": reasonix_state.epoch,
+                "buckets": reasonix_state.buckets,
+                "diagnostics": reasonix_state.diagnostics,
+                "extension_errors": [error.error for error in extension_errors],
+            }, sort_keys=True))
+    finally:
+        await state.shutdown()
+
+
 
 def _stringify_messages(messages: list) -> str:
     """Flatten all message content into one string for substring checks."""
