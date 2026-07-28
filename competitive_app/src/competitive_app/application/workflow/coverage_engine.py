@@ -18,7 +18,6 @@ JSONL — F-R28). Mid-search projection updates go to the TaskProjectionStore.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Any
 from uuid import uuid4
@@ -29,10 +28,8 @@ from ...domain.socm import (
     CoverageMap,
     Entity,
     EntityType,
-    EvidenceNode,
     SOCMState,
 )
-from ...domain.socm.coverage import CellStatus
 from ...domain.stage import STAGES
 from .extraction import current_subtask
 from .profiles import is_search_tool
@@ -325,97 +322,6 @@ class CoverageEngine:
             _log.exception("sub-agent prompt failed for subtask %s", subtask.get("question"))
             return
 
-    async def _run_subagent_on(
-        self, harness: Any, agent: Any, state: SOCMState, subtask: dict[str, Any]
-    ) -> None:
-        """Run one sub-agent prompt on the given harness, then fill SOCM.
-
-        Distinguishes three outcomes (A2 fix):
-        - ran + returned evidence → fill cells.
-        - ran + explicit ``{"evidence": []}`` → mark_unknown.
-        - exception / no new message → leave cells empty (re-dispatchable).
-        """
-        # Tools come from the factory (build_ephemeral passes search_tools);
-        # just set the runtime system prompt for the sub-agent.
-        agent.state.systemPrompt = _SEARCH_RUNTIME_PROMPT
-        prompt = _build_subagent_prompt(state, subtask)
-        msg_count_before = len(agent.state.messages)
-        ran_clean = False
-        try:
-            await harness.prompt(prompt)
-            ran_clean = True
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001
-            _log.exception("sub-agent prompt failed for subtask %s", subtask.get("question"))
-            return
-
-        if self._abort.is_set() or not ran_clean:
-            return
-
-        evidence = _extract_evidence(agent, msg_count_before)
-        await self._fill_socm_from_evidence(state, subtask, evidence)
-
-    async def _fill_socm_from_evidence(
-        self, state: SOCMState, subtask: dict[str, Any], evidence: list[dict[str, Any]] | None
-    ) -> None:
-        """Map sub-agent evidence into SOCM coverage cells (PR3 direct fill).
-
-        PR5 will replace this with judge-based Extraction (EvidenceIntake).
-        - ``evidence is None`` → sub-agent produced no new message (transient
-          failure); leave cells ``empty`` for re-dispatch.
-        - ``evidence == []`` → sub-agent explicitly searched and found nothing;
-          ``mark_unknown`` (terminal, won't re-dispatch).
-        - ``evidence`` non-empty → fill cells directly (PR5 judge will extract
-          proper entity/attribute/value).
-        """
-        if evidence is None:
-            return  # transient failure; leave empty (re-dispatchable)
-
-        if not evidence:
-            # Genuinely searched, no evidence found → mark_unknown (terminal).
-
-            def _mark_unknowns(s: SOCMState) -> SOCMState:
-                for cell_key in subtask.get("target_cells", []):
-                    entity_id, attr_id = cell_key.split(".", 1)
-                    s.coverage_map.mark_unknown(entity_id, attr_id)
-                return s
-
-            await self._socm_store.atomic_update(self._session_id, _mark_unknowns)
-            return
-
-        def _fill(s: SOCMState) -> SOCMState:
-            for item in evidence:
-                source = str(item.get("source") or "")
-                content = str(item.get("content") or "")
-                if not content:
-                    continue
-                # Naive PR3 mapping: try each target cell; fill if content non-empty.
-                # (PR5 judge will do proper entity/attribute/value extraction.)
-                for cell_key in subtask.get("target_cells", []):
-                    entity_id, attr_id = cell_key.split(".", 1)
-                    cell = s.coverage_map.get_cell(entity_id, attr_id)
-                    if cell is None or cell.status != CellStatus.EMPTY:
-                        continue
-                    s.evidence_graph.add_node(
-                        EvidenceNode(
-                            id=f"ev_{uuid4().hex[:8]}",
-                            entity=entity_id,
-                            attribute=attr_id,
-                            value=content,
-                            finding=content,
-                            source=source,
-                            source_excerpt=content[:200],
-                            confidence=0.6,
-                        )
-                    )
-                    s.coverage_map.fill(
-                        entity_id, attr_id, value=content, source=source, source_excerpt=content[:200], confidence=0.6
-                    )
-            return s
-
-        await self._socm_store.atomic_update(self._session_id, _fill)
-
     async def _update_projection(self) -> None:
         state = await self._socm_store.load(self._session_id)
         task = await self._store.get_task(self._task_id)
@@ -505,65 +411,6 @@ def _build_subagent_prompt(state: SOCMState, subtask: dict[str, Any]) -> str:
 
 
 _SEARCH_RUNTIME_PROMPT = "You are a search sub-agent. Find pages and fetch them to fill coverage cells."
-
-
-def _extract_evidence(agent: Any, since: int = 0) -> list[dict[str, Any]] | None:
-    """Pull the sub-agent's JSON evidence from NEW assistant messages (index >= since).
-
-    Only messages added after the sub-agent prompt began are considered, so a
-    faux empty-response queue doesn't re-read prior stages' assistant messages.
-    Returns:
-      - a list (possibly empty) if a new assistant message was produced.
-      - None if no new assistant message exists (transient failure / abort).
-    """
-    for message in reversed(agent.state.messages[since:]):
-        if isinstance(message, dict) and message.get("role") == "assistant":
-            text = _message_text(message)
-            if not text:
-                continue
-            parsed = _try_parse_json(text)
-            if isinstance(parsed, dict):
-                ev = parsed.get("evidence")
-                if isinstance(ev, list):
-                    return ev
-            # Tolerant fallback: stuff raw text as one evidence item.
-            return [{"source": "subagent", "content": text}]
-    return None
-
-
-def _message_text(message: dict[str, Any]) -> str:
-    content = message.get("content")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        chunks: list[str] = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                chunks.append(str(block.get("text") or ""))
-        return "".join(chunks)
-    return ""
-
-
-def _try_parse_json(text: str) -> Any:
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    try:
-        return json.loads(text)
-    except Exception:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            try:
-                return json.loads(text[start : end + 1])
-            except Exception:
-                return None
-        return None
 
 
 def _evidence_summary(state: SOCMState) -> list[dict[str, Any]]:

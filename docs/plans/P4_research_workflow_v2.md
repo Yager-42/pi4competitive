@@ -165,13 +165,13 @@ Status: `todo` | `in_progress` | `done` | `blocked`。
 | D3 | extraction.py：挂 tool_result extension + ContextVar 取目标 | done | F-R30 |
 | D4 | extraction.py：evidence 进 SOCM（atomic_update）+ coverage fill | done | F-R26/F-R27 |
 | D5 | 集成测试：judge 抽 evidence + coverage 填充 + 三态 | done | O11/O14 |
-| E1 | write 阶段：从 SOCM 合成带 citation 报告 | todo | F-R12 |
-| E2 | task_service：resume 恢复 SOCM + 接着跑 | todo | F-R16 |
-| E3 | task_service：DELETE 连带删 SOCM | todo | F-A17 |
-| E4 | task_projection_store：projection 加 coverage 子字段 | todo | F-R13 |
-| E5 | 删 v0.1.1 六阶段 runner + 重写测试 | todo | F-R22 |
-| E6 | 契约测试：约束 3 AST 禁 langgraph + 分层门禁 | todo | O15 |
-| E7 | Live 测试（L1/L2，env-gated） | todo | L1 |
+| E1 | write 阶段：从 SOCM 合成带 citation 报告 | done | F-R12 |
+| E2 | task_service：resume 恢复 SOCM + 接着跑 | done | F-R16 |
+| E3 | task_service：DELETE 连带删 SOCM | done | F-A17 |
+| E4 | task_projection_store：projection 加 coverage 子字段 | done | F-R13 |
+| E5 | 删 v0.1.1 六阶段 runner 残留 + 重写测试 | done | F-R22 |
+| E6 | 契约测试：约束 3 AST 禁 langgraph + 分层门禁 | done | O15 |
+| E7 | Live 测试（L1/L2，env-gated） | done | L1 (258s passed) |
 | E8 | roadmap/features 索引同步 + plan completed | todo | |
 
 **Rules:**

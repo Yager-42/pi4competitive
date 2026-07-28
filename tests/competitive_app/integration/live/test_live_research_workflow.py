@@ -281,7 +281,7 @@ async def test_live_stable_six_stage_prefix_cache(tmp_path: Path, live_env) -> N
             assert created.status_code == 200, created.text
             session_id = created.json()["session_id"]
             usages = []
-            for stage in ("plan", "collect", "analyze", "write", "review", "cite"):
+            for stage in ("plan", "search", "write"):
                 response = await client.post(
                     f"/api/v2/sessions/{session_id}/prompt",
                     json={"content": f"Stage={stage}. Do not call tools. Return one small JSON object."},
