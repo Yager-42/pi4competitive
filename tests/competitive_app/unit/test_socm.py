@@ -453,3 +453,59 @@ async def test_socm_store_atomic_update_returns_updated_state(tmp_path: Path):
     # And persisted
     loaded = await store.load("sid_new")
     assert loaded.budget.consumed_queries == 3
+
+
+@pytest.mark.asyncio
+async def test_coverage_engine_dispatch_parallel_runs_concurrently(tmp_path: Path):
+    """PR4 E1: _dispatch_parallel actually runs sub-agents concurrently.
+
+    Injects a subagent_factory whose harness.prompt sleeps; tracks max in-flight
+    count. With max_parallel=4 and 4 subtasks, all 4 should be in-flight at once
+    (assert max_in_flight >= 2, proving non-serial execution).
+    """
+    import asyncio as _aio
+    from competitive_app.application.workflow.coverage_engine import CoverageEngine
+
+    in_flight = 0
+    max_in_flight = 0
+    guard = _aio.Lock()
+
+    class _FakeAgent:
+        def __init__(self) -> None:
+            self.state = type("S", (), {"messages": [], "systemPrompt": "", "tools": []})()
+
+    class _FakeHarness:
+        def __init__(self) -> None:
+            self.agent = _FakeAgent()
+
+        async def prompt(self, _input) -> None:
+            nonlocal in_flight, max_in_flight
+            async with guard:
+                in_flight += 1
+                max_in_flight = max(max_in_flight, in_flight)
+            await _aio.sleep(0.05)
+            async with guard:
+                in_flight -= 1
+
+        async def shutdown(self) -> None:
+            pass
+
+    class _FakeFactory:
+        async def build_ephemeral(self, tools=None, system_prompt=""):
+            return _FakeHarness()
+
+    main_harness = _FakeHarness()  # has .agent; not used for prompt when factory set
+    engine = CoverageEngine(
+        socm_store=SocmStore(tmp_path),
+        session_id="sid",
+        harness=main_harness,
+        all_tools=[],
+        store=object(),
+        task_id="t",
+        abort_signal=_aio.Event(),
+        max_parallel=4,
+        subagent_factory=_FakeFactory(),
+    )
+    subtasks = [{"entity_id": f"e_{i}", "target_cells": [f"e_{i}.a"], "question": "q"} for i in range(4)]
+    await engine._dispatch_parallel(SOCMState(), subtasks)
+    assert max_in_flight >= 2, f"parallel dispatch did not run concurrently (max_in_flight={max_in_flight})"

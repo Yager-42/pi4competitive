@@ -184,30 +184,34 @@ async def test_search_termination_budget_exhausted(app_state, faux, monkeypatch)
 
 @pytest.mark.asyncio
 async def test_search_termination_no_progress(app_state, faux, monkeypatch):
-    """Termination 3: no progress (stalled_iterations) → search ends (F-R31)."""
+    """Termination 3: no progress (stalled_iterations) → search ends (F-R31).
+
+    Sub-agent returns evidence with EMPTY content → `_fill` skips (cell stays
+    EMPTY, not unknown) → next iteration re-dispatches same cells → no filled
+    delta → stalled_iterations increments → terminates at the cap.
+    """
     monkeypatch.setenv("SEARCH_MAX_STALLED_ITERATIONS", "2")
     monkeypatch.setenv("SEARCH_MAX_ITERATIONS", "20")  # high, so stall is the trigger
     monkeypatch.setenv("SEARCH_COVERAGE_THRESHOLD", "0.99")
-    # Sub-agent returns evidence that does NOT map to cells (content empty after
-    # the fill check) → no progress → stall terminates.
-    empty_evidence = '{"evidence": []}'
-    faux["setResponses"](
-        [
-            faux_assistant_message(_plan_response()),
-            faux_assistant_message(empty_evidence),  # acme: no evidence → unknown
-            faux_assistant_message(empty_evidence),  # beta: no evidence → unknown
-            faux_assistant_message(_write_response()),
-        ]
-    )
+    # evidence with empty content: _fill's `if not content: continue` skips,
+    # cell stays EMPTY (re-dispatchable), filled_count unchanged → stall.
+    # 2 iterations × 2 sub-agents = 4 empty responses needed before stall cap.
+    empty_content_evidence = '{"evidence": [{"source": "x", "content": ""}]}'
+    responses = [faux_assistant_message(_plan_response())]
+    responses += [faux_assistant_message(empty_content_evidence) for _ in range(4)]
+    responses.append(faux_assistant_message(_write_response()))
+    faux["setResponses"](responses)
     async with await _client(app_state) as client:
         task_id = (await client.post("/api/v2/tasks", json=_TASK_BODY)).json()["task_id"]
         status = await _wait_status(client, task_id, {"completed", "failed"})
         assert status == "completed"
         task = await client.get(f"/api/v2/tasks/{task_id}")
-        # Both cells marked unknown (explicit empty evidence) → search ok, write ok.
         proj = task.json()["projection"]
+        # search terminated via stall (stalled_iterations hit cap); write ran.
         assert proj["stages"]["search"] == "ok"
         assert proj["stages"]["write"] == "ok"
+        # No cells actually filled (all evidence had empty content).
+        assert proj["coverage"]["filled"] == 0
 
 
 @pytest.mark.asyncio

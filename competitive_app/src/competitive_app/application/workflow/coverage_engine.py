@@ -237,10 +237,22 @@ class CoverageEngine:
             if self._abort.is_set():
                 for t in pool.values():
                     t.cancel()
+                # Await cancellation so a sub-agent mid-atomic_update finishes
+                # its RMW before the engine moves on (no post-abort SOCM writes).
+                await asyncio.gather(*pool.values(), return_exceptions=True)
+                pool.clear()
                 break
             done, _pending = await asyncio.wait(
                 pool.values(), return_when=asyncio.FIRST_COMPLETED
             )
+            # Re-check abort after reaping (observe promptly when a sub-agent finishes).
+            if self._abort.is_set():
+                for t in pool.values():
+                    if not t.done():
+                        t.cancel()
+                await asyncio.gather(*pool.values(), return_exceptions=True)
+                pool.clear()
+                break
             # Reap every completed task (SearchOS whole-pool reap pattern).
             finished_labels = [lbl for lbl, t in pool.items() if t.done()]
             for lbl in finished_labels:
@@ -259,19 +271,29 @@ class CoverageEngine:
         """Run one sub-agent on a fresh ephemeral harness (PR4 parallel, F-R28).
 
         Uses the subagent_factory to build an in-memory harness (no JSONL).
-        Falls back to the main harness if no factory is wired (serial mode).
-        After the prompt, extracts evidence and fills SOCM (atomic_update).
+        Each sub-agent gets its OWN harness + tool list — never shares the main
+        agent or the shared ExtensionRuntime (parallel prompts on a shared agent
+        would RuntimeError/corrupt state; a shared runtime's ``invalidate``
+        would kill all siblings). The harness is shut down after use to release
+        the agent's event subscription (no leak).
         """
-        if self._subagent_factory is not None:
-            harness = await self._subagent_factory.build_ephemeral()
+        if self._subagent_factory is None:
+            raise RuntimeError(
+                "CoverageEngine requires a subagent_factory for parallel dispatch "
+                "(F-R28); the serial main-harness fallback is unsafe under max_parallel>1."
+            )
+        search_tools = [t for t in self._all_tools if is_search_tool(t.name)]
+        harness = await self._subagent_factory.build_ephemeral(tools=search_tools)
+        try:
             agent = harness.agent
-        else:
-            # Serial fallback (PR3): use the main harness.
-            harness = self._harness
-            agent = self._agent
-
-        state = await self._socm_store.load(self._session_id)
-        await self._run_subagent_on(harness, agent, state, subtask)
+            state = await self._socm_store.load(self._session_id)
+            await self._run_subagent_on(harness, agent, state, subtask)
+        finally:
+            # Release the agent's event subscription (B3: avoid leak).
+            try:
+                await harness.shutdown()
+            except Exception:  # noqa: BLE001
+                pass
 
     async def _run_subagent_on(
         self, harness: Any, agent: Any, state: SOCMState, subtask: dict[str, Any]
@@ -283,7 +305,8 @@ class CoverageEngine:
         - ran + explicit ``{"evidence": []}`` → mark_unknown.
         - exception / no new message → leave cells empty (re-dispatchable).
         """
-        agent.state.tools = [t for t in self._all_tools if is_search_tool(t.name)]
+        # Tools come from the factory (build_ephemeral passes search_tools);
+        # just set the runtime system prompt for the sub-agent.
         agent.state.systemPrompt = _SEARCH_RUNTIME_PROMPT
         prompt = _build_subagent_prompt(state, subtask)
         msg_count_before = len(agent.state.messages)

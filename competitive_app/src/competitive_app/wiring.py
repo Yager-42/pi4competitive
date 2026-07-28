@@ -154,11 +154,18 @@ class _HarnessFactory(HarnessFactory):
             capability_report=self._capability_report,
         )
 
-    async def build_ephemeral(self, system_prompt: str = "") -> AgentHarness:
+    async def build_ephemeral(self, tools: list[Any] | None = None, system_prompt: str = "") -> AgentHarness:
         """Build an in-memory AgentHarness for an ephemeral sub-agent (F-R28).
 
         Sub-agents don't persist to JSONL — their findings go to SOCM via the
         engine. Uses InMemorySessionRepo so there's no disk side-effect.
+
+        Tools are passed directly (NOT via ``capability_report``) so each
+        ephemeral harness gets its own tool list without sharing the
+        ExtensionRuntime — parallel sub-agents must not share one runtime
+        (``bind_core`` mutates a shared ``actions`` dict and ``invalidate``
+        would kill all siblings). PR5 will attach a per-harness Extraction
+        extension here.
         """
         from earendil_works.pi_agent.harness.session.memory_repo import InMemorySessionRepo
 
@@ -169,8 +176,9 @@ class _HarnessFactory(HarnessFactory):
             session=session,
             stream_fn=self._models.streamSimple,
             model=model,
+            tools=tools or [],
             system_prompt=system_prompt,
-            capability_report=self._capability_report,
+            # capability_report=None: do NOT attach the shared ExtensionRuntime.
         )
 
 
