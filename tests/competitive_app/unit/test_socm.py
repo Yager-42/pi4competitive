@@ -92,6 +92,42 @@ def test_coverage_fill_different_low_delta_becomes_conflict():
     assert len(cell.candidates) == 2
 
 
+def test_coverage_conflict_third_low_confidence_stays_conflict():
+    """A 3rd dissenting low-confidence candidate must NOT collapse CONFLICT→FILLED."""
+    cm = _map()
+    cm.fill("e_a", "a_p", value="$10", source="u1", confidence=0.5)
+    cm.fill("e_a", "a_p", value="$20", source="u2", confidence=0.55)  # CONFLICT (delta 0.05)
+    cm.fill("e_a", "a_p", value="$30", source="u3", confidence=0.35)  # 3rd dissenter
+    cell = cm.get_cell("e_a", "a_p")
+    assert cell.status == CellStatus.CONFLICT  # not buried
+    assert len(cell.candidates) == 3
+
+
+def test_coverage_conflict_dominant_candidate_resolves_to_filled():
+    """If one candidate dominates ALL dissenters by >= delta, conflict resolves."""
+    cm = _map()
+    cm.fill("e_a", "a_p", value="$10", source="u1", confidence=0.5)
+    cm.fill("e_a", "a_p", value="$20", source="u2", confidence=0.55)  # CONFLICT
+    # Third candidate at 0.9 dominates BOTH dissenters (0.5 delta 0.4, 0.55 delta 0.35)
+    cm.fill("e_a", "a_p", value="$30", source="u3", confidence=0.9)
+    cell = cm.get_cell("e_a", "a_p")
+    assert cell.status == CellStatus.FILLED
+    assert cell.value == "$30"
+    assert cell.confidence == 0.9
+
+
+def test_coverage_conflict_corroboration_resolves():
+    """A new candidate agreeing with the dominant one resolves the conflict."""
+    cm = _map()
+    cm.fill("e_a", "a_p", value="$10", source="u1", confidence=0.5)
+    cm.fill("e_a", "a_p", value="$20", source="u2", confidence=0.9)  # FILLED (delta 0.4)
+    # A third agreeing with $20 (support) — still FILLED, candidates track history
+    cm.fill("e_a", "a_p", value="$20", source="u3", confidence=0.85)
+    cell = cm.get_cell("e_a", "a_p")
+    assert cell.status == CellStatus.FILLED
+    assert cell.confidence == 0.9
+
+
 def test_coverage_mark_unknown_terminal_for_dispatch():
     cm = _map()
     cm.mark_unknown("e_a", "a_p")
@@ -162,6 +198,18 @@ def test_evidence_get_conflicts():
     assert {conflicts[0][0].id, conflicts[0][1].id} == {"n1", "n2"}
 
 
+def test_evidence_dedup_works_after_restore():
+    """PrivateAttr _sig_index rebuilds after model_validate (review B1/G5)."""
+    g = EvidenceGraph()
+    g.add_node(EvidenceNode(id="n1", entity="A", attribute="P", value="$10", source="url1"))
+    data = g.model_dump()
+    g2 = EvidenceGraph.model_validate(data)
+    # Same fact+source after restore → still deduped
+    assert g2.add_node(EvidenceNode(id="n1b", entity="A", attribute="P", value="$10", source="url1")) is False
+    # Different source → added
+    assert g2.add_node(EvidenceNode(id="n2", entity="A", attribute="P", value="$10", source="url2")) is True
+
+
 # ------------------------------------------------------------------- frontier
 
 
@@ -181,12 +229,12 @@ def test_frontier_dequeue_highest_priority_first():
 
 def test_frontier_dequeue_fifo_within_same_priority():
     f = Frontier()
-    f.add(_task("t1", priority=0.5))
-    f.add(_task("t2", priority=0.5))
-    # created_at equal (0.0) → stable by id order in sort; pick first added
+    # Distinct created_at: earlier timestamp wins within same priority.
+    f.add(FrontierTask(id="t2", priority=0.5, target_cells=["e.a_t2"], created_at=100.0))
+    f.add(FrontierTask(id="t1", priority=0.5, target_cells=["e.a_t1"], created_at=50.0))
     picked = f.dequeue()
     assert picked is not None
-    assert picked.id == "t1"
+    assert picked.id == "t1"  # earlier created_at wins
 
 
 def test_frontier_blocked_by_keeps_pending_until_deps_done():
@@ -219,6 +267,42 @@ def test_frontier_dedup_subset_match():
     assert len(f.tasks) == 1
 
 
+def test_frontier_max_attempts_excludes_task():
+    """A task dispatched MAX_TASK_ATTEMPTS times is no longer dequeueable."""
+    from competitive_app.domain.socm.frontier import MAX_TASK_ATTEMPTS
+
+    f = Frontier()
+    f.add(_task("t1", priority=0.5))
+    for _ in range(MAX_TASK_ATTEMPTS):
+        picked = f.dequeue()
+        assert picked is not None
+        assert picked.id == "t1"
+        # Simulate failed dispatch: reset to PENDING for retry (without resolve).
+        f.retry("t1")
+    # 4th attempt excluded by attempts cap
+    assert f.dequeue() is None
+
+
+def test_frontier_retry_resets_running_to_pending():
+    f = Frontier()
+    f.add(_task("t1", priority=0.5))
+    picked = f.dequeue()
+    assert picked is not None
+    assert picked.status == FrontierTaskStatus.RUNNING
+    assert f.retry("t1") is True
+    assert picked.status == FrontierTaskStatus.PENDING
+
+
+def test_frontier_resolve_stores_resolution():
+    f = Frontier()
+    f.add(_task("t1", priority=0.5))
+    f.dequeue()
+    assert f.resolve("t1", resolution="found $10") is True
+    task = f.tasks[0]
+    assert task.status == FrontierTaskStatus.COMPLETED
+    assert task.resolution == "found $10"
+
+
 # --------------------------------------------------------------------- budget
 
 
@@ -247,6 +331,22 @@ def test_budget_zero_max_disables_dim():
     b = Budget(max_queries=0, max_iterations=5)  # queries disabled
     b.consume_query(99999)
     assert b.exhausted() is False
+
+
+def test_budget_consume_open_increments_both_opens_and_fetches():
+    """v0.2.0 unifies opens/fetches — a fetch is a page open (plan §A4)."""
+    b = Budget(max_opens=10, max_fetches=10)
+    b.consume_open(3)
+    assert b.consumed_opens == 3
+    assert b.consumed_fetches == 3
+
+
+def test_budget_exhausted_dim_returns_first_at_cap():
+    b = Budget(max_queries=5, max_iterations=5)
+    b.consume_query(5)
+    b.consume_iteration(5)
+    # Both at cap; returns the first in fixed order (queries).
+    assert b.exhausted_dim() == "queries"
 
 
 def test_strategy_record_dedup_bumps_count():

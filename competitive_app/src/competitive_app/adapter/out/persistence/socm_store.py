@@ -54,10 +54,15 @@ class SocmStore:
         return SOCMState.restore(data)
 
     async def save(self, session_id: str, state: SOCMState) -> None:
-        """Save full state (non-atomic across concurrent writers — prefer atomic_update)."""
+        """Full-state overwrite (in-process atomic; for RMW use ``atomic_update``).
+
+        Serializes with other same-session writers via the per-session
+        asyncio.Lock and acquires the cross-process fcntl lock for the write.
+        Not safe for read-then-write sequences — use ``atomic_update``.
+        """
         lock = await self._lock_for(session_id)
         async with lock:
-            self._write(session_id, state)
+            self._write_locked(session_id, state)
 
     async def atomic_update(
         self,
@@ -67,24 +72,41 @@ class SocmStore:
         """Read-modify-write under per-session lock + fcntl (F-R27/D-S4).
 
         ``updater`` receives the current state and returns the new state.
-        Concurrent same-session flushes serialize on the asyncio.Lock; cross-
-        process access serializes on fcntl.flock. The write uses tmp + os.replace
-        so readers never see a partial file.
+        Concurrent same-session flushes serialize on the asyncio.Lock; the
+        fcntl lock is held across the **entire** read-modify-write so cross-
+        process writers cannot interleave (a stale read clobbering a fresh
+        write). The write itself uses tmp + os.replace so lock-less readers
+        never see a partial file.
         """
         lock = await self._lock_for(session_id)
         async with lock:
-            state = await self._load_unlocked(session_id)
-            state = updater(state)
-            self._write(session_id, state)
+            with self._cross_process_lock(session_id) as acquired:
+                state = await self._load_unlocked(session_id)
+                state = updater(state)
+                self._write_unlocked(session_id, state)
+                # acquired is only False on non-POSIX; in-process lock still held.
+                _ = acquired
             return state
 
     async def delete(self, session_id: str) -> None:
-        """Delete the SOCM file (called on task DELETE cascade, F-A17 v0.3.0)."""
+        """Delete the SOCM file + sidecars (called on task DELETE cascade, F-A17 v0.3.0)."""
         lock = await self._lock_for(session_id)
         async with lock:
             path = self._state_path(session_id)
             if path.is_file():
                 path.unlink()
+            # Clean up sidecar files (review minor E6).
+            for sidecar in (
+                path.parent / ".search_state.json.lock",
+                path.parent / ".search_state.json.tmp",
+            ):
+                if sidecar.is_file():
+                    try:
+                        sidecar.unlink()
+                    except OSError:
+                        pass
+            # Drop the per-session lock entry (review minor E5).
+            self._locks.pop(session_id, None)
 
     async def exists(self, session_id: str) -> bool:
         return self._state_path(session_id).is_file()
@@ -98,29 +120,63 @@ class SocmStore:
         data = json.loads(path.read_text(encoding="utf-8"))
         return SOCMState.restore(data)
 
-    def _write(self, session_id: str, state: SOCMState) -> None:
+    # ------------------------------------------------------------------ internals
+
+    def _cross_process_lock(self, session_id: str):
+        """Context manager: fcntl.flock around the lock file for the full RMW.
+
+        Returns (acquired: bool). On non-POSIX or unsupported filesystems,
+        yields False (no cross-process lock; in-process asyncio.Lock still
+        serializes same-process writers).
+        """
+        import contextlib
+
+        lock_path = self._state_path(session_id).parent / ".search_state.json.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.touch(exist_ok=True)
+
+        @contextlib.contextmanager
+        def _cm():
+            fd = open(lock_path, "r")
+            acquired = False
+            try:
+                try:
+                    import fcntl
+
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+                    acquired = True
+                except (ImportError, OSError):
+                    acquired = False
+                yield acquired
+            finally:
+                if acquired:
+                    try:
+                        import fcntl
+
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                    except (ImportError, OSError):
+                        pass
+                fd.close()
+
+        return _cm()
+
+    def _write_locked(self, session_id: str, state: SOCMState) -> None:
+        """Write with the cross-process fcntl lock (for ``save``)."""
+        with self._cross_process_lock(session_id):
+            self._write_unlocked(session_id, state)
+
+    def _write_unlocked(self, session_id: str, state: SOCMState) -> None:
+        """Write tmp + os.replace (caller holds the cross-process lock if needed).
+
+        The tmp+replace makes the file swap atomic for lock-less readers even
+        if they read concurrently with this write.
+        """
         path = self._state_path(session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         content = json.dumps(state.snapshot(), ensure_ascii=False, indent=2)
-        # Cross-process advisory lock (POSIX; SearchOS workspace.py pattern).
-        lock_path = path.parent / ".search_state.json.lock"
-        lock_path.touch(exist_ok=True)
-        with open(lock_path, "r") as lock_fd:
-            try:
-                import fcntl
-
-                fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            except (ImportError, OSError):
-                # Non-POSIX or filesystem without flock — fall back to no cross-
-                # process lock (in-process asyncio.Lock still serializes).
-                fcntl = None  # type: ignore[assignment]
-            try:
-                tmp = path.parent / ".search_state.json.tmp"
-                tmp.write_text(content, encoding="utf-8")
-                os.replace(tmp, path)  # atomic on same filesystem
-            finally:
-                if fcntl is not None:
-                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        tmp = path.parent / ".search_state.json.tmp"
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, path)  # atomic on same filesystem
 
 
 __all__ = ["SocmStore"]

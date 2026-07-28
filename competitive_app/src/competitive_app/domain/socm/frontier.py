@@ -52,6 +52,7 @@ class FrontierTask(BaseModel):
     assigned_agent_id: str = ""
     attempts: int = 0
     created_at: float = 0.0
+    resolution: str = ""
 
     def is_terminal(self) -> bool:
         return self.status in _TERMINAL
@@ -111,6 +112,21 @@ class Frontier(BaseModel):
         for t in self.tasks:
             if t.id == task_id:
                 t.status = FrontierTaskStatus.COMPLETED
+                t.resolution = resolution
+                return True
+        return False
+
+    def retry(self, task_id: str) -> bool:
+        """Reset a RUNNING task back to PENDING so it can be re-dispatched.
+
+        ``attempts`` was already incremented on dequeue; the ``MAX_TASK_ATTEMPTS``
+        cap in ``dequeue`` will eventually exclude a persistently-failing task.
+        The coverage engine must call this when a sub-agent crashes/times out
+        without resolving (otherwise the task is stuck in RUNNING forever).
+        """
+        for t in self.tasks:
+            if t.id == task_id and t.status == FrontierTaskStatus.RUNNING:
+                t.status = FrontierTaskStatus.PENDING
                 return True
         return False
 

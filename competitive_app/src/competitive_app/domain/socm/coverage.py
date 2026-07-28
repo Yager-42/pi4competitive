@@ -204,9 +204,12 @@ class CoverageMap(BaseModel):
             cell.confidence = max(cell.confidence, confidence)
             if cell.status == CellStatus.CONFLICT:
                 cell.candidates.append(candidate)
+                # Re-check if all candidates now agree (conflict resolved).
+                if _all_candidates_agree(cell.candidates):
+                    cell.status = CellStatus.FILLED
             return cell
 
-        # Conflict: retain candidates and arbitrate by confidence delta.
+        # Conflicting value: retain candidates and arbitrate.
         if cell.status == CellStatus.FILLED:
             cell.candidates = [
                 CellCandidate(
@@ -220,20 +223,19 @@ class CoverageMap(BaseModel):
         else:  # CONFLICT
             cell.candidates.append(candidate)
 
-        delta = abs(cell.confidence - confidence)
-        if delta >= CONFLICT_CONFIDENCE_DELTA:
-            # Higher confidence wins; loser stays in candidates for traceability.
-            if confidence > cell.confidence:
-                cell.value = value
-                cell.source = source
-                cell.source_excerpt = source_excerpt
-                cell.confidence = confidence
+        # Arbitrate: find the highest-confidence candidate. A cell can leave
+        # CONFLICT only if ONE candidate is clearly dominant (delta >= threshold
+        # over EVERY other disagreeing candidate). Otherwise keep CONFLICT so
+        # dissenting values are never silently buried (ADR 0010 D-S3).
+        best = max(cell.candidates, key=lambda c: c.confidence)
+        if _candidate_dominates(best, cell.candidates, CONFLICT_CONFIDENCE_DELTA):
+            cell.value = best.value
+            cell.source = best.source
+            cell.source_excerpt = best.source_excerpt
+            cell.confidence = best.confidence
             cell.status = CellStatus.FILLED
         else:
-            # Too close to call — keep conflict state with all candidates.
             cell.status = CellStatus.CONFLICT
-            # value/source/confidence reflect the highest-confidence candidate.
-            best = max(cell.candidates, key=lambda c: c.confidence)
             cell.value = best.value
             cell.source = best.source
             cell.source_excerpt = best.source_excerpt
@@ -241,21 +243,28 @@ class CoverageMap(BaseModel):
         return cell
 
     def mark_unknown(self, entity_id: str, attribute_id: str) -> Cell:
-        """Mark a cell as searched-but-not-found (terminal for dispatch)."""
+        """Mark a cell as searched-but-not-found (terminal for dispatch).
+
+        Only transitions EMPTY→UNKNOWN (a filled/conflict cell stays as-is).
+        ``attempts`` counts mark_unknown calls on empty/unknown cells only.
+        """
         key = self.cell_key(entity_id, attribute_id)
         cell = self.cells.get(key)
         if cell is None:
             raise KeyError(f"no cell for {key}")
-        if cell.status == CellStatus.EMPTY:
+        if cell.status in {CellStatus.EMPTY, CellStatus.UNKNOWN}:
             cell.status = CellStatus.UNKNOWN
-        cell.attempts += 1
+            cell.attempts += 1
         return cell
 
     def coverage_ratio(self) -> float:
-        """filled / total (F-R31 termination condition 1).
+        """Covered / total — F-R31 termination condition 1 (≥ 0.8).
 
-        unknown/conflict count as "covered" for ratio (they've been searched).
-        Only empty cells keep the ratio below 1.0.
+        "Covered" = non-empty: filled, unknown, or conflict. A cell that was
+        searched but found nothing (unknown) or has conflicting sources
+        (conflict) still counts as covered — only empty (never-dispatched)
+        cells keep the ratio below 1.0. This matches the SearchOS intent that
+        recall-first dispatch keeps targeting empty cells until coverage is met.
         """
         total = len(self.cells)
         if total == 0:
@@ -281,6 +290,35 @@ class CoverageMap(BaseModel):
 def _normalize_value(value: str) -> str:
     """Normalize a value for same/different comparison (case + whitespace)."""
     return " ".join(value.lower().split())
+
+
+def _all_candidates_agree(candidates: list[CellCandidate]) -> bool:
+    """True if every candidate normalizes to the same value."""
+    if not candidates:
+        return True
+    first = _normalize_value(candidates[0].value)
+    return all(_normalize_value(c.value) == first for c in candidates[1:])
+
+
+def _candidate_dominates(
+    best: CellCandidate,
+    candidates: list[CellCandidate],
+    delta: float,
+) -> bool:
+    """True if `best` beats every DISAGREEING candidate by >= delta confidence.
+
+    Agreement candidates (same normalized value) don't block dominance — they
+    corroborate. Only dissenting values prevent a FILLED outcome.
+    """
+    best_value = _normalize_value(best.value)
+    for c in candidates:
+        if c is best:
+            continue
+        if _normalize_value(c.value) == best_value:
+            continue  # corroborating, not dissenting
+        if best.confidence - c.confidence < delta:
+            return False  # too close to a dissenter → keep CONFLICT
+    return True
 
 
 __all__ = [
