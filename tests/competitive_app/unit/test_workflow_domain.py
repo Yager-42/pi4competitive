@@ -1,4 +1,7 @@
-"""Unit tests — STAGES / StageResult schema / ResearchBrief (research-workflow-v1)."""
+"""Unit tests — STAGES / StageResult schema / ResearchBrief (research-workflow-v1 v0.2.0).
+
+Three stages (plan/search/write); v0.1.1 six-stage tests rewritten.
+"""
 from __future__ import annotations
 
 import pytest
@@ -14,8 +17,8 @@ from competitive_app.domain.stage import (
 )
 
 
-def test_stages_six_in_order() -> None:
-    assert STAGES == ("plan", "collect", "analyze", "write", "review", "cite")
+def test_stages_three_in_order() -> None:
+    assert STAGES == ("plan", "search", "write")
 
 
 def test_stage_output_schema_covers_all_stages() -> None:
@@ -25,18 +28,17 @@ def test_stage_output_schema_covers_all_stages() -> None:
 
 def test_stage_dependencies_chain() -> None:
     assert STAGE_DEPENDENCIES["plan"] == ()
-    assert STAGE_DEPENDENCIES["collect"] == ("plan",)
-    assert STAGE_DEPENDENCIES["analyze"] == ("collect",)
-    assert STAGE_DEPENDENCIES["write"] == ("analyze",)
-    assert STAGE_DEPENDENCIES["review"] == ("write",)
-    assert STAGE_DEPENDENCIES["cite"] == ("write",)
+    assert STAGE_DEPENDENCIES["search"] == ("plan",)
+    assert STAGE_DEPENDENCIES["write"] == ("search",)
 
 
-def test_empty_projection_all_pending() -> None:
+def test_empty_projection_three_stages_and_coverage() -> None:
     proj = empty_projection()
     assert proj["current_stage"] is None
     for name in STAGES:
         assert proj["stages"][name] == "pending"
+    assert "coverage" in proj
+    assert proj["coverage"] == {"filled": 0, "total": 0, "pending_cells": 0}
 
 
 def test_validate_stage_output_ok() -> None:
@@ -46,7 +48,7 @@ def test_validate_stage_output_ok() -> None:
 
 
 def test_validate_stage_output_missing_field() -> None:
-    result = validate_stage_output("collect", {"wrong": "x"})
+    result = validate_stage_output("search", {"wrong": "x"})
     assert result.ok is False
     assert "evidence" in (result.error or "")
 

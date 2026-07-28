@@ -26,6 +26,7 @@ from earendil_works.pi_agent import AgentHarness, JsonlSessionRepo
 from earendil_works.pi_agent.harness.env.python_env import LocalFileSystem
 from earendil_works.pi_agent.package_manager import load_capability_packages
 
+from .adapter.out.persistence.socm_store import SocmStore
 from .adapter.out.persistence.task_projection_store import TaskProjectionStore
 from .application.workflow.runtime_registry import RuntimeRegistry
 from .application.workflow.session_service import (
@@ -62,6 +63,7 @@ class ApplicationState:
     models: Any  # ModelsImpl
     repo: JsonlSessionRepo
     store: TaskProjectionStore
+    socm_store: SocmStore
     registry: RuntimeRegistry
     session_service: SessionService
     task_service: TaskService
@@ -187,6 +189,9 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
     store = TaskProjectionStore(str(app_db_path))
     await store.init()
 
+    # --- SOCM store (search state of truth, F-R27/D-S4) --------------------
+    socm_store = SocmStore(sessions_root)
+
     # --- capability packages (failure → diagnostics, not crash) ------------
     capability_report: Any | None = None
     diagnostics: list[Any] = []
@@ -218,6 +223,7 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         harness_factory=harness_factory,
         capability_tools=capability_tools,
         sessions_cwd=config.sessions_cwd,
+        socm_store=socm_store,
     )
 
     return ApplicationState(
@@ -225,6 +231,7 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         models=models,
         repo=repo,
         store=store,
+        socm_store=socm_store,
         registry=registry,
         session_service=session_service,
         task_service=task_service,

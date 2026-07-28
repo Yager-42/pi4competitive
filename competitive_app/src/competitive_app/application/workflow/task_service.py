@@ -35,6 +35,7 @@ class TaskService:
         harness_factory: Any,
         capability_tools: list[Any] | None = None,
         sessions_cwd: str = "competitive_app",
+        socm_store: Any = None,
     ) -> None:
         self._store = store
         self._repo = repo
@@ -42,6 +43,7 @@ class TaskService:
         self._harness_factory = harness_factory
         self._capability_tools = list(capability_tools or [])
         self._sessions_cwd = sessions_cwd
+        self._socm_store = socm_store
         # task_id → (runner, abort_signal, agent) for abort/resume.
         self._runners: dict[str, tuple[ResearchRunner, asyncio.Event, Any]] = {}
 
@@ -217,9 +219,11 @@ class TaskService:
                 harness=harness,
                 session=session,
                 store=self._store,
+                socm_store=self._socm_store,
                 research_brief=research_brief,
                 all_tools=self._capability_tools,
                 abort_signal=abort_signal,
+                session_id=session_id,
             )
             self._runners[task_id] = (runner, abort_signal, agent)
             await self._store.update_task_status(task_id, "running")
@@ -271,10 +275,16 @@ class TaskService:
         record = await self._store.get_session(session_id)
         if record is None:
             return
+        # Delete the JSONL session + SOCM search_state.json (F-A17 v0.3.0).
         try:
             await self._repo.delete({"path": record["file_path"], "cwd": record["cwd"]})
         except Exception:
             pass
+        if self._socm_store is not None:
+            try:
+                await self._socm_store.delete(session_id)
+            except Exception:
+                pass
         await self._store.delete_session(session_id)
 
 

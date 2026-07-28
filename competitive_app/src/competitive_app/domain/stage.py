@@ -1,7 +1,7 @@
-"""Six-stage research workflow — STAGES + StageResult + minimal output schemas.
+"""Three-stage research workflow — STAGES + StageResult + minimal output schemas.
 
-upstream reference: competitive-agent rr-refactor workflows/competitive/models.py
-(structure isomorphic, behavior rewritten — feature research-workflow-v1 F-R1/F-R10).
+research-workflow-v1 v0.2.0 (ADR 0010 D-S2): six stages → three stages
+(plan/search/write). analyze/cite职责并入 search/write, 不作为独立 stage。
 
 Pure domain: no fastapi / aiosqlite / pi_agent / pi_ai imports (contract G1).
 """
@@ -10,32 +10,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-# F-R1: six stages, isomorphic to legacy STAGES.
-STAGES: tuple[str, ...] = ("plan", "collect", "analyze", "write", "review", "cite")
+# F-R25: three stages (was six in v0.1.1).
+STAGES: tuple[str, ...] = ("plan", "search", "write")
 
-StageName = Literal["plan", "collect", "analyze", "write", "review", "cite"]
+StageName = Literal["plan", "search", "write"]
 StageState = Literal["pending", "running", "ok", "failed"]
 
 # F-R10: minimal per-stage output schema (required top-level keys).
 # Agent prompts must produce JSON matching these; handler tolerates parse failure
 # by falling back to a raw wrapper (stage still counts as ok if non-empty).
 STAGE_OUTPUT_SCHEMA: dict[str, set[str]] = {
-    "plan": {"plan"},
-    "collect": {"evidence"},
-    "analyze": {"analysis"},
-    "write": {"report"},
-    "review": {"verdict"},
-    "cite": {"citations"},
+    "plan": {"plan"},                        # + coverage_schema (validated separately)
+    "search": {"evidence"},                  # + coverage snapshot
+    "write": {"report"},                     # markdown with citations
 }
 
 # Dependencies: which prior stages must be ok before this one runs (F-R3).
+# stage 间严格顺序不回退; search 阶段内循环补搜不算回退 (ADR 0010 D-S8).
 STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "plan": (),
-    "collect": ("plan",),
-    "analyze": ("collect",),
-    "write": ("analyze",),
-    "review": ("write",),
-    "cite": ("write",),
+    "search": ("plan",),
+    "write": ("search",),
 }
 
 
@@ -55,7 +50,7 @@ class StageResult:
 def validate_stage_output(stage: str, output: dict[str, Any]) -> StageResult:
     """Validate a stage output dict against the minimal schema (F-R10).
 
-    Returns a StageResult; ok=False if required keys missing.
+    Returns a StageResult; ok=False if required keys missing or empty.
     """
     required = STAGE_OUTPUT_SCHEMA.get(stage, set())
     missing = [k for k in required if k not in output]
@@ -66,7 +61,7 @@ def validate_stage_output(stage: str, output: dict[str, Any]) -> StageResult:
             output=output,
             error=f"missing required fields: {missing}",
         )
-    # Non-empty check: required field must be truthy (plan text, evidence list, ...).
+    # Non-empty check: required field must be truthy.
     for k in required:
         if not output.get(k):
             return StageResult(
@@ -79,10 +74,11 @@ def validate_stage_output(stage: str, output: dict[str, Any]) -> StageResult:
 
 
 def empty_projection() -> dict[str, Any]:
-    """Initial projection for a task (F-R13)."""
+    """Initial projection for a task (F-R13). v0.2.0: 3 stages + coverage."""
     return {
         "current_stage": None,
         "stages": {name: "pending" for name in STAGES},
+        "coverage": {"filled": 0, "total": 0, "pending_cells": 0},
     }
 
 

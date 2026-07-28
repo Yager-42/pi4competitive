@@ -144,15 +144,16 @@ Status: `todo` | `in_progress` | `done` | `blocked`。
 | A4 | domain/socm/strategy.py：Strategy Memory + Budget | done | F-R31 |
 | A5 | domain/socm/state.py：SOCM 顶层 + snapshot/restore | done | F-R27 |
 | A6 | adapter/out/persistence/socm_store.py：原子写 | done | D-S4 |
-| A7 | domain/stage.py 改：STAGES=(plan,search,write) + schema | todo | F-R25；**挪 PR3**（STAGES 改与 runner/profiles 强耦合，不能单独切） |
-| A7b | v0.1.1 六阶段测试：PR2 不动 stage.py，六阶段继续跑；PR3 切 STAGES 时一并重写 | todo | PR3 |
+| A7 | domain/stage.py 改：STAGES=(plan,search,write) + schema | done | F-R25（PR3 切，与 runner/profiles 一起） |
+| A7b | v0.1.1 六阶段测试重写为三阶段（unit + integration） | done | PR3 |
 | A8 | 契约测试：domain/socm 纯（G1）+ 原子写 + cell 四态 | done | O11/O12 |
-| B1 | profiles.py 改：3 profile + system prompt | todo | F-R20 |
-| B2 | coverage_engine.py：派发循环 + 评估 + 终止（单 sub-agent 串行）+ pause_event 注入点（O6 测试 seam） | todo | F-R31 |
-| B3 | research_runner.py 改：三阶段主循环 + 门禁 | todo | F-R3/F-R25 |
-| B4 | coverage_engine：projection coverage 更新 | todo | F-R13 |
+| B1 | profiles.py 改：3 profile + system prompt | done | F-R20 |
+| B2 | coverage_engine.py：派发循环 + 评估 + 终止（单 sub-agent 串行）+ pause_event 注入点（O6 测试 seam） | done | F-R31 |
+| B3 | research_runner.py 改：三阶段主循环 + 门禁 | done | F-R3/F-R25 |
+| B4 | coverage_engine：projection coverage 更新（runner re-load merge） | done | F-R13 |
 | B5 | settings.example.yaml：加 SEARCH_* + JUDGE_MODEL + CONFLICT_* env 注释 | todo | |
-| B6 | 集成测试：三阶段串行跑通（faux） | todo | O1/O2 |
+| B6 | 集成测试：三阶段串行跑通（faux） | done | O1/O2 |
+| B7 | 重写 v0.1.1 六阶段测试为三阶段（unit + integration） | done | A7b |
 | C1 | sub_agent.py：spawn + ContextVar 注入（copy_context） | todo | F-R28/F-R30 |
 | C1b | 契约测试：sub-agent ephemeral（不落 JSONL） | todo | O13 |
 | C2 | coverage_engine：并行池（max_parallel=4 + FIRST_COMPLETED） | todo | F-R31 |
