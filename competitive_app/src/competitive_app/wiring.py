@@ -154,6 +154,25 @@ class _HarnessFactory(HarnessFactory):
             capability_report=self._capability_report,
         )
 
+    async def build_ephemeral(self, system_prompt: str = "") -> AgentHarness:
+        """Build an in-memory AgentHarness for an ephemeral sub-agent (F-R28).
+
+        Sub-agents don't persist to JSONL — their findings go to SOCM via the
+        engine. Uses InMemorySessionRepo so there's no disk side-effect.
+        """
+        from earendil_works.pi_agent.harness.session.memory_repo import InMemorySessionRepo
+
+        repo = InMemorySessionRepo()
+        session = await repo.create({"cwd": "ephemeral"})
+        model = self._model_resolver.resolve(None)
+        return AgentHarness(
+            session=session,
+            stream_fn=self._models.streamSimple,
+            model=model,
+            system_prompt=system_prompt,
+            capability_report=self._capability_report,
+        )
+
 
 async def build_application_state(config: AppConfig) -> ApplicationState:
     """Build the full application state. Called from FastAPI lifespan.

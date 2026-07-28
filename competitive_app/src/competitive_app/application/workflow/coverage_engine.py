@@ -42,6 +42,7 @@ _log = logging.getLogger(__name__)
 DEFAULT_COVERAGE_THRESHOLD = 0.8
 DEFAULT_MAX_ITERATIONS = 10
 DEFAULT_MAX_STALLED_ITERATIONS = 3
+DEFAULT_MAX_PARALLEL = 4
 
 
 def _env_int(name: str, default: int) -> int:
@@ -84,7 +85,9 @@ class CoverageEngine:
         coverage_threshold: float | None = None,
         max_iterations: int | None = None,
         max_stalled_iterations: int | None = None,
+        max_parallel: int | None = None,
         pause_event: asyncio.Event | None = None,
+        subagent_factory: Any = None,
     ) -> None:
         self._socm_store = socm_store
         self._session_id = session_id
@@ -94,8 +97,6 @@ class CoverageEngine:
         self._store = store
         self._task_id = task_id
         self._abort = abort_signal
-        # Bind the agent's session_id too (harness.prompt sets it, but ensure
-        # the SOCM path uses the explicit id passed in, not the agent's).
         self._coverage_threshold = coverage_threshold or _env_float(
             "SEARCH_COVERAGE_THRESHOLD", DEFAULT_COVERAGE_THRESHOLD
         )
@@ -103,8 +104,13 @@ class CoverageEngine:
         self._max_stalled = max_stalled_iterations or _env_int(
             "SEARCH_MAX_STALLED_ITERATIONS", DEFAULT_MAX_STALLED_ITERATIONS
         )
+        self._max_parallel = max_parallel or _env_int("SEARCH_MAX_PARALLEL", DEFAULT_MAX_PARALLEL)
         # O6 test seam: if set, the engine pauses before the first search iteration.
         self._pause_event = pause_event
+        # Factory for ephemeral sub-agent harnesses (PR4 parallel). If None,
+        # the engine falls back to running sub-agents serially on the main
+        # harness (PR3 behavior — used when a factory isn't wired).
+        self._subagent_factory = subagent_factory
 
     async def run(self, plan_output: dict[str, Any]) -> dict[str, Any]:
         """Run the search loop. Returns the search stage output (evidence + coverage).
@@ -149,14 +155,20 @@ class CoverageEngine:
             if state.coverage_map.coverage_ratio() >= self._coverage_threshold:
                 break
 
-            # Dispatch ONE subtask (serial PR3) — batch empty cells by entity.
-            subtask = _build_subtask(empties)
-            await self._run_subagent(state, subtask)
+            # Termination 2: budget exhausted (checked before dispatching more).
+            if state.budget.exhausted():
+                _log.info("search stage: budget exhausted (%s), terminating", state.budget.exhausted_dim())
+                break
+
+            # Dispatch subtasks in PARALLEL (PR4): batch empty cells by entity,
+            # spawn up to max_parallel sub-agents, reap with FIRST_COMPLETED.
+            subtasks = _build_subtasks(empties, self._max_parallel)
+            filled_before = state.coverage_map.filled_count()
+            await self._dispatch_parallel(state, subtasks)
 
             # Re-load to see what got filled.
             after = await self._socm_store.load(self._session_id)
             after.iteration = iteration
-            filled_before = state.coverage_map.filled_count()
             filled_after = after.coverage_map.filled_count()
 
             # Termination 3: no progress.
@@ -170,13 +182,12 @@ class CoverageEngine:
                 after.stalled_iterations = 0
                 await self._socm_store.save(self._session_id, after)
 
-            # Persist budget iteration count.
+            # Persist budget iteration count (one per outer-loop round).
             latest = await self._socm_store.load(self._session_id)
             latest.budget.consume_iteration()
             await self._socm_store.save(self._session_id, latest)
             await self._update_projection()
 
-            # Termination 2: budget exhausted (check the post-consumption state).
             if latest.budget.exhausted():
                 _log.info("search stage: budget exhausted (%s), terminating", latest.budget.exhausted_dim())
                 break
@@ -189,45 +200,107 @@ class CoverageEngine:
             "coverage": final.coverage_map.to_projection(),
         }
 
-    async def _run_subagent(self, state: SOCMState, subtask: dict[str, Any]) -> None:
-        """Run one sub-agent prompt for a subtask, then map findings into SOCM.
+    async def _dispatch_parallel(self, state: SOCMState, subtasks: list[dict[str, Any]]) -> None:
+        """Spawn sub-agents in parallel (PR4) — up to max_parallel concurrent.
 
-        PR3: the sub-agent returns ``{"evidence": [...]}``; we fill cells directly
-        from the evidence list. PR5 replaces this with judge-based Extraction.
-
-        Returns implicitly via SOCM mutation. Distinguishes three outcomes:
-        - sub-agent ran and returned evidence → fill cells.
-        - sub-agent ran and explicitly returned ``{"evidence": []}`` → mark_unknown
-          (genuinely searched, found nothing; terminal for re-dispatch).
-        - sub-agent prompt raised / was aborted / produced no new message → leave
-          cells ``empty`` so they can be re-dispatched next iteration (A2 fix).
+        Each sub-agent runs on a fresh ephemeral AgentHarness (InMemorySessionRepo,
+        F-R28 — findings go to SOCM, not JSONL). Uses asyncio.wait(FIRST_COMPLETED)
+        to reap as soon as any finishes, so new subtasks can fill freed slots.
+        Pattern mirrors SearchOS scheduler.py (task_pool + _running_count cap).
         """
-        # Filter tools to search tools for this stage (F-R8).
-        self._agent.state.tools = [t for t in self._all_tools if is_search_tool(t.name)]
-        self._agent.state.systemPrompt = _SEARCH_RUNTIME_PROMPT
+        if not subtasks:
+            return
 
+        # Pre-consume query/fetch budget for the subtasks we're about to dispatch
+        # (Sensor role, PR4 engine-layer): each subtask costs 1 query budget.
+        # PR5 will move fine-grained per-tool counting into a Sensor extension.
+        for _subtask in subtasks:
+            await self._consume_query_budget()
+
+        pool: dict[str, asyncio.Task[Any]] = {}
+        queue = list(subtasks)
+
+        async def _spawn_one(subtask: dict[str, Any]) -> str:
+            label = f"sub_{uuid4().hex[:8]}"
+            task = asyncio.create_task(
+                self._run_subagent_ephemeral(subtask), name=f"search:{label}"
+            )
+            pool[label] = task
+            return label
+
+        # Initial fill up to max_parallel.
+        while queue and len(pool) < self._max_parallel:
+            await _spawn_one(queue.pop(0))
+
+        # Reap with FIRST_COMPLETED; refill slots as they free.
+        while pool:
+            if self._abort.is_set():
+                for t in pool.values():
+                    t.cancel()
+                break
+            done, _pending = await asyncio.wait(
+                pool.values(), return_when=asyncio.FIRST_COMPLETED
+            )
+            # Reap every completed task (SearchOS whole-pool reap pattern).
+            finished_labels = [lbl for lbl, t in pool.items() if t.done()]
+            for lbl in finished_labels:
+                pool.pop(lbl, None)
+            # Refill from queue.
+            while queue and len(pool) < self._max_parallel:
+                await _spawn_one(queue.pop(0))
+
+    async def _consume_query_budget(self) -> None:
+        """Decrement the queries budget dimension for one dispatched subtask."""
+        latest = await self._socm_store.load(self._session_id)
+        latest.budget.consume_query(1)
+        await self._socm_store.save(self._session_id, latest)
+
+    async def _run_subagent_ephemeral(self, subtask: dict[str, Any]) -> None:
+        """Run one sub-agent on a fresh ephemeral harness (PR4 parallel, F-R28).
+
+        Uses the subagent_factory to build an in-memory harness (no JSONL).
+        Falls back to the main harness if no factory is wired (serial mode).
+        After the prompt, extracts evidence and fills SOCM (atomic_update).
+        """
+        if self._subagent_factory is not None:
+            harness = await self._subagent_factory.build_ephemeral()
+            agent = harness.agent
+        else:
+            # Serial fallback (PR3): use the main harness.
+            harness = self._harness
+            agent = self._agent
+
+        state = await self._socm_store.load(self._session_id)
+        await self._run_subagent_on(harness, agent, state, subtask)
+
+    async def _run_subagent_on(
+        self, harness: Any, agent: Any, state: SOCMState, subtask: dict[str, Any]
+    ) -> None:
+        """Run one sub-agent prompt on the given harness, then fill SOCM.
+
+        Distinguishes three outcomes (A2 fix):
+        - ran + returned evidence → fill cells.
+        - ran + explicit ``{"evidence": []}`` → mark_unknown.
+        - exception / no new message → leave cells empty (re-dispatchable).
+        """
+        agent.state.tools = [t for t in self._all_tools if is_search_tool(t.name)]
+        agent.state.systemPrompt = _SEARCH_RUNTIME_PROMPT
         prompt = _build_subagent_prompt(state, subtask)
-        # Snapshot message count BEFORE the prompt so we only parse the new
-        # assistant message (not historical ones — faux with an empty response
-        # queue would otherwise re-read the plan stage's assistant message).
-        msg_count_before = len(self._agent.state.messages)
+        msg_count_before = len(agent.state.messages)
         ran_clean = False
         try:
-            await self._harness.prompt(prompt)
+            await harness.prompt(prompt)
             ran_clean = True
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
             _log.exception("sub-agent prompt failed for subtask %s", subtask.get("question"))
-            return  # leave cells empty (re-dispatchable)
+            return
 
         if self._abort.is_set() or not ran_clean:
-            return  # leave cells empty
+            return
 
-        # Extract the sub-agent's JSON evidence from the NEW assistant message only.
-        # `_extract_evidence` returns None if no new assistant message was produced
-        # (distinguishing "ran but said nothing" from "returned explicit []").
-        evidence = _extract_evidence(self._agent, msg_count_before)
+        evidence = _extract_evidence(agent, msg_count_before)
         await self._fill_socm_from_evidence(state, subtask, evidence)
 
     async def _fill_socm_from_evidence(
@@ -339,20 +412,31 @@ def _coverage_map_from_schema(schema: dict[str, Any]) -> CoverageMap:
     return CoverageMap.from_schema(table_id=table_id, entities=entities, attributes=attributes)
 
 
-def _build_subtask(empty_cells: list[Any]) -> dict[str, Any]:
-    """Batch empty cells by entity into one subtask (PR3: single subtask per iteration)."""
-    # Group by entity_id.
+def _build_subtasks(empty_cells: list[Any], max_parallel: int) -> list[dict[str, Any]]:
+    """Batch empty cells by entity into up to max_parallel subtasks (PR4).
+
+    Each subtask targets one entity's empty cells (so the sub-agent's fetch
+    results map cleanly to that entity). Returns at most max_parallel subtasks;
+    if there are more entities than slots, the highest-cell-count entities go
+    first (highest leverage). Remaining entities are deferred to the next
+    iteration (the loop re-evaluates empty_cells each round).
+    """
     by_entity: dict[str, list[str]] = {}
     for cell in empty_cells:
         by_entity.setdefault(cell.entity_id, []).append(f"{cell.entity_id}.{cell.attribute_id}")
-    # Pick the entity with the most empty cells (highest leverage).
-    entity_id = max(by_entity, key=lambda k: len(by_entity[k]))
-    target_cells = by_entity[entity_id]
-    return {
-        "entity_id": entity_id,
-        "target_cells": target_cells,
-        "question": f"Fill coverage cells for {entity_id}: {', '.join(target_cells)}",
-    }
+    # Sort entities by cell count desc (highest leverage first).
+    ranked = sorted(by_entity.items(), key=lambda kv: len(kv[1]), reverse=True)
+    # One subtask per entity, up to max_parallel.
+    subtasks: list[dict[str, Any]] = []
+    for entity_id, cells in ranked[:max_parallel]:
+        subtasks.append(
+            {
+                "entity_id": entity_id,
+                "target_cells": cells,
+                "question": f"Fill coverage cells for {entity_id}: {', '.join(cells)}",
+            }
+        )
+    return subtasks
 
 
 def _build_subagent_prompt(state: SOCMState, subtask: dict[str, Any]) -> str:

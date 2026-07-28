@@ -45,6 +45,7 @@ class ResearchRunner:
         abort_signal: asyncio.Event | None = None,
         coverage_engine: CoverageEngine | None = None,
         session_id: str | None = None,
+        subagent_factory: Any = None,
     ) -> None:
         self.task_id = task_id
         self.harness = harness
@@ -57,6 +58,7 @@ class ResearchRunner:
         self.profiles = profiles or build_profiles()
         self.abort_signal = abort_signal or asyncio.Event()
         self._coverage_engine = coverage_engine
+        self._subagent_factory = subagent_factory
         # Explicit session_id for SOCM path (don't rely on agent.session_id,
         # which is only set inside harness.prompt and stale on resume).
         self._session_id = session_id or getattr(self.agent, "session_id", "") or ""
@@ -161,6 +163,7 @@ class ResearchRunner:
             store=self.store,
             task_id=self.task_id,
             abort_signal=self.abort_signal,
+            subagent_factory=self._subagent_factory,
         )
         search_output = await engine.run(plan_output)
         # Validate + persist the search stage output (F-R10/F-R4).

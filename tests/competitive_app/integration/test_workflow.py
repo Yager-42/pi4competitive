@@ -157,14 +157,18 @@ async def test_dependency_gate_failed(app_state, faux):
 
 @pytest.mark.asyncio
 async def test_search_termination_budget_exhausted(app_state, faux, monkeypatch):
-    """Termination 2: budget exhausted (SEARCH_MAX_ITERATIONS=1) → search ends (F-R31)."""
+    """Termination 2: budget exhausted (SEARCH_MAX_ITERATIONS=1) → search ends (F-R31).
+
+    Parallel dispatch sends 2 sub-agents in iteration 1 (one per entity). After
+    that iteration, consume_iteration hits the cap → search terminates on budget.
+    """
     monkeypatch.setenv("SEARCH_MAX_ITERATIONS", "1")
     monkeypatch.setenv("SEARCH_COVERAGE_THRESHOLD", "0.99")  # force not to hit threshold
-    # plan + 1 search response (fills 1 of 2 cells); iteration cap=1 → terminate.
     faux["setResponses"](
         [
             faux_assistant_message(_plan_response()),
             faux_assistant_message(_search_response("acme")),
+            faux_assistant_message(_search_response("beta")),
             faux_assistant_message(_write_response()),
         ]
     )
@@ -173,9 +177,9 @@ async def test_search_termination_budget_exhausted(app_state, faux, monkeypatch)
         status = await _wait_status(client, task_id, {"completed", "failed"})
         assert status == "completed"
         task = await client.get(f"/api/v2/tasks/{task_id}")
-        # Only 1 iteration ran; beta cell may be empty/unknown but write still ran.
         proj = task.json()["projection"]
         assert proj["stages"]["search"] == "ok"
+        assert proj["stages"]["write"] == "ok"
 
 
 @pytest.mark.asyncio
@@ -333,3 +337,52 @@ async def test_capability_tools_empty_when_no_search(app_state, faux):
         task_id = (await client.post("/api/v2/tasks", json=_TASK_BODY)).json()["task_id"]
         status = await _wait_status(client, task_id, {"completed", "failed"})
         assert status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_parallel_fanout_multi_entity(app_state, faux, monkeypatch):
+    """PR4: parallel fan-out — 4 entities dispatched concurrently in one iteration.
+
+    With 4 competitors × 1 attribute, the engine dispatches up to max_parallel=4
+    sub-agents in one iteration. All 4 fill → coverage 1.0 → search terminates.
+    """
+    monkeypatch.setenv("SEARCH_MAX_PARALLEL", "4")
+    four_body = {
+        "research_brief": {
+            "target": {"name": "ACME", "category": "SaaS"},
+            "goal": "compare 4 competitors pricing",
+            "competitors": ["ACME", "Beta", "Gamma", "Delta"],
+            "dimensions": ["pricing"],
+        },
+        "metadata": {"trace": "parallel"},
+    }
+    import json as _json
+
+    plan = _json.dumps(
+        {
+            "plan": "search 4 competitors",
+            "coverage_schema": {
+                "table_id": "t",
+                "entities": [
+                    {"id": f"e_{n.lower()}", "name": n, "kind": "competitor"}
+                    for n in ["ACME", "Beta", "Gamma", "Delta"]
+                ],
+                "attributes": [
+                    {"id": "a_price", "name": "Price", "dimension": "pricing", "type": "money_usd"}
+                ],
+            },
+        }
+    )
+    responses = [faux_assistant_message(plan)]
+    for name in ["acme", "beta", "gamma", "delta"]:
+        responses.append(faux_assistant_message(_search_response(name)))
+    responses.append(faux_assistant_message(_write_response()))
+    faux["setResponses"](responses)
+    async with await _client(app_state) as client:
+        task_id = (await client.post("/api/v2/tasks", json=four_body)).json()["task_id"]
+        status = await _wait_status(client, task_id, {"completed", "failed"})
+        assert status == "completed", f"expected completed, got {status}"
+        task = await client.get(f"/api/v2/tasks/{task_id}")
+        proj = task.json()["projection"]
+        assert proj["coverage"]["total"] == 4
+        assert proj["coverage"]["filled"] == 4

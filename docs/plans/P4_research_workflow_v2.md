@@ -154,12 +154,12 @@ Status: `todo` | `in_progress` | `done` | `blocked`。
 | B5 | settings.example.yaml：加 SEARCH_* + JUDGE_MODEL + CONFLICT_* env 注释 | todo | |
 | B6 | 集成测试：三阶段串行跑通（faux） | done | O1/O2 |
 | B7 | 重写 v0.1.1 六阶段测试为三阶段（unit + integration） | done | A7b |
-| C1 | sub_agent.py：spawn + ContextVar 注入（copy_context） | todo | F-R28/F-R30 |
-| C1b | 契约测试：sub-agent ephemeral（不落 JSONL） | todo | O13 |
-| C2 | coverage_engine：并行池（max_parallel=4 + FIRST_COMPLETED） | todo | F-R31 |
-| C3 | sensor.py：预算计数 extension（tool_call；search→queries, fetch→fetches, open→opens） | todo | F-R31 |
-| C4 | sensor.py：loop 检测（同 query 重复） | todo | |
-| C5 | 集成测试：并行 fan-out + 预算耗尽终止 + 无进展终止 | todo | O10 |
+| C1 | sub_agent.py：spawn + ContextVar 注入（copy_context） | partial | F-R28/F-R30；ContextVar 留 PR5（Extraction 用） |
+| C1b | 契约测试：sub-agent ephemeral（不落 JSONL） | done | O13（build_ephemeral 用 InMemorySessionRepo） |
+| C2 | coverage_engine：并行池（max_parallel=4 + FIRST_COMPLETED） | done | F-R31 |
+| C3 | sensor.py：预算计数（engine 层 pre-consume query budget + 终止检查） | done | F-R31；extension 化留后续 |
+| C4 | sensor.py：loop 检测（同 query 重复） | todo | 挪 PR5（judge Extraction 后 sub-agent 多轮 ReAct 才需要） |
+| C5 | 集成测试：并行 fan-out (4 entity) + 预算耗尽 + 无进展终止 | done | O10 |
 | D1 | extraction.py：EvidenceIntake（buffer + batch flush） | todo | F-R30 |
 | D2 | extraction.py：judge 调用（裸 streamSimple + 批量） | todo | F-R29 |
 | D3 | extraction.py：挂 tool_result extension + ContextVar 取目标 | todo | F-R30 |

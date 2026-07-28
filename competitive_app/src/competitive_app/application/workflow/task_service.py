@@ -225,6 +225,7 @@ class TaskService:
                 all_tools=self._capability_tools,
                 abort_signal=abort_signal,
                 session_id=session_id,
+                subagent_factory=self._harness_factory,
             )
             self._runners[task_id] = (runner, abort_signal, agent)
             await self._store.update_task_status(task_id, "running")
