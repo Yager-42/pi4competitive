@@ -1,9 +1,10 @@
-"""Task service — create / list / get / resume / abort / delete (six-stage runner).
+"""Task service — create / list / get / resume / abort / delete (three-stage runner).
 
-research-workflow-v1: the placeholder runner is replaced by ResearchRunner,
-which runs the six stages (plan/collect/analyze/write/review/cite) against a
-real pi_agent AgentHarness, persists stage outputs to JSONL, and updates the
-SQLite projection.
+research-workflow-v1 v0.2.0: the runner is ResearchRunner, which runs the three
+stages (plan/search/write) against a real pi_agent AgentHarness. The search
+stage delegates to CoverageEngine (ADR 0010 D-S8) which drives the iterative
+coverage-map search loop and persists SOCM. Stage outputs go to JSONL; task
+status/progress + coverage projection go to SQLite.
 """
 from __future__ import annotations
 

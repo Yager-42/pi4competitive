@@ -115,9 +115,20 @@ class CoverageEngine:
         schema = plan_output.get("coverage_schema") or {}
         intent = plan_output.get("plan") or ""
 
-        # Initialize SOCM with an empty coverage map built from the schema.
-        coverage_map = _coverage_map_from_schema(schema)
-        await self._socm_store.save(self._session_id, SOCMState(intent=intent, coverage_map=coverage_map))
+        # F-R16: do NOT overwrite an existing SOCM on resume. If a SOCM already
+        # exists for this session (search was interrupted with partial progress),
+        # continue from it — filled/unknown cells are preserved, only empty cells
+        # get re-dispatched. Only initialize fresh when no SOCM exists yet.
+        existing = await self._socm_store.load(self._session_id)
+        if existing.coverage_map.filled_count() == 0 and len(existing.coverage_map.cells) == 0:
+            coverage_map = _coverage_map_from_schema(schema)
+            await self._socm_store.save(
+                self._session_id, SOCMState(intent=intent, coverage_map=coverage_map)
+            )
+        else:
+            # Resume: keep existing coverage_map; refresh intent only.
+            existing.intent = intent or existing.intent
+            await self._socm_store.save(self._session_id, existing)
         await self._update_projection()
 
         if self._pause_event is not None:
@@ -165,9 +176,9 @@ class CoverageEngine:
             await self._socm_store.save(self._session_id, latest)
             await self._update_projection()
 
-            # Termination 2: budget exhausted (checked after the iteration).
-            if after.budget.exhausted():
-                _log.info("search stage: budget exhausted (%s), terminating", after.budget.exhausted_dim())
+            # Termination 2: budget exhausted (check the post-consumption state).
+            if latest.budget.exhausted():
+                _log.info("search stage: budget exhausted (%s), terminating", latest.budget.exhausted_dim())
                 break
 
         # Final state + projection.
@@ -183,6 +194,13 @@ class CoverageEngine:
 
         PR3: the sub-agent returns ``{"evidence": [...]}``; we fill cells directly
         from the evidence list. PR5 replaces this with judge-based Extraction.
+
+        Returns implicitly via SOCM mutation. Distinguishes three outcomes:
+        - sub-agent ran and returned evidence → fill cells.
+        - sub-agent ran and explicitly returned ``{"evidence": []}`` → mark_unknown
+          (genuinely searched, found nothing; terminal for re-dispatch).
+        - sub-agent prompt raised / was aborted / produced no new message → leave
+          cells ``empty`` so they can be re-dispatched next iteration (A2 fix).
         """
         # Filter tools to search tools for this stage (F-R8).
         self._agent.state.tools = [t for t in self._all_tools if is_search_tool(t.name)]
@@ -193,31 +211,43 @@ class CoverageEngine:
         # assistant message (not historical ones — faux with an empty response
         # queue would otherwise re-read the plan stage's assistant message).
         msg_count_before = len(self._agent.state.messages)
+        ran_clean = False
         try:
             await self._harness.prompt(prompt)
+            ran_clean = True
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
             _log.exception("sub-agent prompt failed for subtask %s", subtask.get("question"))
-            return
+            return  # leave cells empty (re-dispatchable)
 
-        if self._abort.is_set():
-            return
+        if self._abort.is_set() or not ran_clean:
+            return  # leave cells empty
 
         # Extract the sub-agent's JSON evidence from the NEW assistant message only.
+        # `_extract_evidence` returns None if no new assistant message was produced
+        # (distinguishing "ran but said nothing" from "returned explicit []").
         evidence = _extract_evidence(self._agent, msg_count_before)
         await self._fill_socm_from_evidence(state, subtask, evidence)
 
     async def _fill_socm_from_evidence(
-        self, state: SOCMState, subtask: dict[str, Any], evidence: list[dict[str, Any]]
+        self, state: SOCMState, subtask: dict[str, Any], evidence: list[dict[str, Any]] | None
     ) -> None:
         """Map sub-agent evidence into SOCM coverage cells (PR3 direct fill).
 
         PR5 will replace this with judge-based Extraction (EvidenceIntake).
-        For now: each evidence item whose content mentions an entity+attribute
-        keyword fills that cell. Cells with no evidence found get mark_unknown.
+        - ``evidence is None`` → sub-agent produced no new message (transient
+          failure); leave cells ``empty`` for re-dispatch.
+        - ``evidence == []`` → sub-agent explicitly searched and found nothing;
+          ``mark_unknown`` (terminal, won't re-dispatch).
+        - ``evidence`` non-empty → fill cells directly (PR5 judge will extract
+          proper entity/attribute/value).
         """
+        if evidence is None:
+            return  # transient failure; leave empty (re-dispatchable)
+
         if not evidence:
+            # Genuinely searched, no evidence found → mark_unknown (terminal).
 
             def _mark_unknowns(s: SOCMState) -> SOCMState:
                 for cell_key in subtask.get("target_cells", []):
@@ -340,12 +370,14 @@ def _build_subagent_prompt(state: SOCMState, subtask: dict[str, Any]) -> str:
 _SEARCH_RUNTIME_PROMPT = "You are a search sub-agent. Find pages and fetch them to fill coverage cells."
 
 
-def _extract_evidence(agent: Any, since: int = 0) -> list[dict[str, Any]]:
+def _extract_evidence(agent: Any, since: int = 0) -> list[dict[str, Any]] | None:
     """Pull the sub-agent's JSON evidence from NEW assistant messages (index >= since).
 
     Only messages added after the sub-agent prompt began are considered, so a
     faux empty-response queue doesn't re-read prior stages' assistant messages.
-    Returns [] if no new assistant message or no parseable evidence.
+    Returns:
+      - a list (possibly empty) if a new assistant message was produced.
+      - None if no new assistant message exists (transient failure / abort).
     """
     for message in reversed(agent.state.messages[since:]):
         if isinstance(message, dict) and message.get("role") == "assistant":
@@ -359,7 +391,7 @@ def _extract_evidence(agent: Any, since: int = 0) -> list[dict[str, Any]]:
                     return ev
             # Tolerant fallback: stuff raw text as one evidence item.
             return [{"source": "subagent", "content": text}]
-    return []
+    return None
 
 
 def _message_text(message: dict[str, Any]) -> str:

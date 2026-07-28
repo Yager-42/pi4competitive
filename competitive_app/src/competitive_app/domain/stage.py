@@ -19,9 +19,12 @@ StageState = Literal["pending", "running", "ok", "failed"]
 # F-R10: minimal per-stage output schema (required top-level keys).
 # Agent prompts must produce JSON matching these; handler tolerates parse failure
 # by falling back to a raw wrapper (stage still counts as ok if non-empty).
+# search: `coverage` is required (the coverage snapshot); `evidence` may be empty
+# when all cells were searched but yielded nothing (unknown) — search still counts
+# as ok because the coverage map was driven to a terminal state.
 STAGE_OUTPUT_SCHEMA: dict[str, set[str]] = {
-    "plan": {"plan"},                        # + coverage_schema (validated separately)
-    "search": {"evidence"},                  # + coverage snapshot
+    "plan": {"plan"},                        # + coverage_schema (validated in runner)
+    "search": {"coverage"},                  # evidence is optional (may be empty)
     "write": {"report"},                     # markdown with citations
 }
 

@@ -50,7 +50,7 @@ def test_validate_stage_output_ok() -> None:
 def test_validate_stage_output_missing_field() -> None:
     result = validate_stage_output("search", {"wrong": "x"})
     assert result.ok is False
-    assert "evidence" in (result.error or "")
+    assert "coverage" in (result.error or "")
 
 
 def test_validate_stage_output_empty_field() -> None:

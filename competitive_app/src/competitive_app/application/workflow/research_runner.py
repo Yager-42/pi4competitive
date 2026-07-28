@@ -141,6 +141,17 @@ class ResearchRunner:
         plan_output = prior.get("plan") or {}
         if not plan_output:
             return StageResult(stage="search", ok=False, output={}, error="missing plan output")
+        # Validate plan's coverage_schema (F-R26): ≥1 entity × ≥1 attribute.
+        schema = plan_output.get("coverage_schema") or {}
+        entities = schema.get("entities") or []
+        attributes = schema.get("attributes") or []
+        if not entities or not attributes:
+            return StageResult(
+                stage="search",
+                ok=False,
+                output={},
+                error="plan output missing coverage_schema with ≥1 entity × ≥1 attribute",
+            )
 
         engine = self._coverage_engine or CoverageEngine(
             socm_store=self.socm_store,
