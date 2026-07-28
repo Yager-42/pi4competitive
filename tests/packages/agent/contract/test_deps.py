@@ -9,6 +9,10 @@ AGENT_SRC = ROOT / "packages/agent/src/earendil_works/pi_agent"
 FORBIDDEN_FRAMEWORKS = {
     "langchain",
     "langchain_core",
+    "langchain_anthropic",
+    "langchain_openai",
+    "langgraph",
+    "deepagents",
     "llama_index",
     "haystack",
     "semantic_kernel",

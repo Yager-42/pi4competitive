@@ -6,14 +6,14 @@ This file is for humans and coding agents working in this repo.
 
 | Doc | Role |
 |-----|------|
-| [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.5** — process, paths, imports, stack; P3 local subset (ADR 0006); **P3.1 engine extensions (ADR 0008)**; **P3.2 enablement (ADR 0009)**; P4 旧仓 pin (ADR 0007) |
+| [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.6** — process, paths, imports, stack; P3 local subset (ADR 0006); **P3.1 engine extensions (ADR 0008)**; **P3.2 enablement (ADR 0009)**; P4 旧仓 pin (ADR 0007); **research-workflow v0.2.0 SearchOS 引擎复现 (ADR 0010)** |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Serial phases P1→P3→**P3.1**→**P3.2**→P4 and exit gates |
 | [`docs/features/`](docs/features/) | Per-feature boundary contracts; see README index |
 | [`docs/features/search_capability_packages_v1.md`](docs/features/search_capability_packages_v1.md) | search capability v1 **frozen v0.1.12**（F-S1…F-S18 + §10） |
 | [`docs/features/agent_engine_extensions_v1.md`](docs/features/agent_engine_extensions_v1.md) | agent engine extensions **frozen v0.3.0**（P3.1 completed baseline + P3.2 delta） |
 | [`docs/features/reasonix_prefix_cache_v1.md`](docs/features/reasonix_prefix_cache_v1.md) | reasonix prefix cache v1 **frozen v0.1.0**（P3.2；A+B+E） |
-| [`docs/features/competitive_app_http_v1.md`](docs/features/competitive_app_http_v1.md) | P4 app HTTP 边界 **frozen v0.2.0**（`competitive-app-http-v1`；14 路由；task 行为由 research-workflow-v1 提供） |
-| [`docs/features/research_workflow_v1.md`](docs/features/research_workflow_v1.md) | P4 六阶段研究 workflow **frozen v0.1.1**（`research-workflow-v1`；替换占位 runner；24 决策） |
+| [`docs/features/competitive_app_http_v1.md`](docs/features/competitive_app_http_v1.md) | P4 app HTTP 边界 **frozen v0.3.0**（`competitive-app-http-v1`；14 路由；task 行为由 research-workflow-v1 v0.2.0 三阶段提供） |
+| [`docs/features/research_workflow_v1.md`](docs/features/research_workflow_v1.md) | P4 三阶段研究 workflow **frozen v0.2.0**（`research-workflow-v1`；SearchOS coverage 引擎复现；31 决策；ADR 0010） |
 | [`docs/plans/P1_packages_ai.md`](docs/plans/P1_packages_ai.md) | P1 plan (**completed**) — `packages/ai` |
 | [`docs/plans/P2_packages_agent.md`](docs/plans/P2_packages_agent.md) | P2 plan (**completed**) — `packages/agent` |
 | [`docs/plans/P3_capability_loader.md`](docs/plans/P3_capability_loader.md) | P3 plan (**completed**) — package-manager local subset |
@@ -21,7 +21,7 @@ This file is for humans and coding agents working in this repo.
 | [`docs/plans/P3_2_pi_extension_capability_enablement.md`](docs/plans/P3_2_pi_extension_capability_enablement.md) | P3.2 Pi extension capability enablement (**completed v0.1.2**); consumer = reasonix |
 | [`docs/plans/P4_search_capability_packages.md`](docs/plans/P4_search_capability_packages.md) | search capability packages v1 (**completed** implementation; feature frozen) |
 | [`docs/plans/P4_competitive_app_http.md`](docs/plans/P4_competitive_app_http.md) | P4 competitive_app HTTP 骨架（v0.2.0；14 路由） |
-| [`docs/plans/P4_research_workflow.md`](docs/plans/P4_research_workflow.md) | P4 六阶段研究 workflow（v0.1.1 **completed**；替换占位 runner；L1 live 真搜索验证过） |
+| [`docs/plans/P4_research_workflow_v2.md`](docs/plans/P4_research_workflow_v2.md) | P4 三阶段研究 workflow v0.2.0（SearchOS coverage 引擎；ADR 0010；plan 随 PR2 起补）；v1 plan `P4_research_workflow.md` completed v0.1.1 |
 | [`docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md`](docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md) | ADR: port subset, omit install/npm/git/home |
 | [`docs/contracts/adr/0007-legacy-repo-capability-reference.md`](docs/contracts/adr/0007-legacy-repo-capability-reference.md) | ADR: 旧仓 = `competitive-agent`（能力参考 only） |
 | [`docs/contracts/adr/0008-agent-engine-extensions-runtime.md`](docs/contracts/adr/0008-agent-engine-extensions-runtime.md) | ADR: P3.1 extension runtime S-engine |

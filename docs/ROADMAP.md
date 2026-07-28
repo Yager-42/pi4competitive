@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.23` |
+| **roadmap_version** | `0.1.24` |
 | **status** | active |
-| **updated** | 2026-07-26 |
-| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.5** |
+| **updated** | 2026-07-28 |
+| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
 ---
@@ -183,8 +183,8 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
 | P3.1 agent engine extensions | **done** | 2026-07-24 | feature v0.3.0（P3.2 delta）；plan v0.2.4 remains completed；Offline 124 passed；Live 24 passed |
 | P3.2 Pi extension capability enablement | **done** | 2026-07-26 | A+B+E；Offline 139 passed；full-stack Live warm-cache green；plan v0.1.2 |
-| P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.2.0）+ 六阶段研究 workflow（`research-workflow-v1` v0.1.1 frozen；plan v0.1.1 **completed**；替换占位 runner；offline 35+159 passed；L1 live 真搜索验证）；后续：多角色评审/缺口补搜/报告 schema |
-| 业务能力 v1 | **partial**（搜索 capability **done** + 研究闭环 **done**） | 2026-07-26 | search packages + 六阶段研究 workflow 落地；完整 fact_report schema 仍 todo |
+| P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.3.0）+ 三阶段研究 workflow（`research-workflow-v1` v0.2.0 frozen；SearchOS coverage 引擎复现；ADR 0010；plan 随 PR2 起补）；v1 六阶段 runner 待 PR6 删除；后续 PR2-6：SOCM domain / coverage_engine / 并行 sub-agent / Extraction / write+resume |
+| 业务能力 v1 | **partial**（搜索 capability **done** + 研究闭环 v1 done / v2 in_progress） | 2026-07-28 | search packages + 三阶段研究 workflow v0.2.0 冻结（ADR 0010）；v2 引擎实现 PR2-6；完整 fact_report schema 仍 todo |
 
 状态枚举：`todo` | `in_progress` | `done` | `blocked`。
 
@@ -228,3 +228,4 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.21 | 2026-07-26 | P4 `competitive_app` → **in_progress**：HTTP 骨架切片落地（feature `competitive-app-http-v1` frozen v0.1.3；14 路由；DDD 分层门禁；offline 19+124 passed）；研究 workflow 仍占位 |
 | 0.1.22 | 2026-07-26 | 六阶段研究 workflow 落地（feature `research-workflow-v1` frozen v0.1.1；替换占位 runner；24 决策；offline 35+124 passed）；`competitive-app-http-v1` 升 v0.2.0 |
 | 0.1.23 | 2026-07-26 | research-workflow-v1 plan **completed** v0.1.1：L1 live 真搜索验证（DeepSeek + tavily/anysearch/grok；165s；六阶段全 ok；报告非空）；修 5 个 live bug；全仓 offline 159 passed |
+| 0.1.24 | 2026-07-28 | **research-workflow-v1 v0.2.0 frozen（ADR 0010 / 契约 0.3.6）**：六阶段→三阶段（plan/search/write）+ SearchOS coverage 引擎复现（SOCM + 并行 sub-agent + Extraction + Sensor）；反转 F-R2/F-R3/F-R7/F-R10（局部）；`competitive-app-http-v1` 升 v0.3.0（投影 stages 6→3 + coverage）；PR1 文档冻结，实现 PR2-6 |

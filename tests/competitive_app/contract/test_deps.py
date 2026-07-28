@@ -60,7 +60,7 @@ def test_application_does_not_import_fastapi() -> None:
 
 
 def test_workflow_code_in_competitive_app_not_packages() -> None:
-    """F-R3/D8: six-stage workflow lives in competitive_app, not packages/agent."""
+    """F-R3/D8: three-stage workflow lives in competitive_app, not packages/agent."""
     import subprocess
 
     result = subprocess.run(
@@ -73,3 +73,25 @@ def test_workflow_code_in_competitive_app_not_packages() -> None:
     assert result.returncode == 0, (
         f"packages/ must not be modified by research-workflow-v1; changed: {result.stdout}"
     )
+
+
+# Constraint 3 (CLAUDE.md) + ADR 0010 D-S1: SearchOS is architecture reference only.
+# langgraph / langchain / deepagents are forbidden across the whole app — the v0.2.0
+# SearchOS engine port must reimplement on pi_agent, not import its langgraph stack.
+FORBIDDEN_FRAMEWORKS_APP = {
+    "langchain",
+    "langchain_core",
+    "langchain_anthropic",
+    "langchain_openai",
+    "langgraph",
+    "deepagents",
+    "llama_index",
+    "haystack",
+    "semantic_kernel",
+}
+
+
+def test_no_forbidden_llm_frameworks_in_app() -> None:
+    """ADR 0010 D-S1: no langgraph/langchain/deepagents anywhere in competitive_app."""
+    offenders = _scan(APP_SRC, FORBIDDEN_FRAMEWORKS_APP)
+    assert not offenders, f"forbidden LLM frameworks in competitive_app: {offenders}"

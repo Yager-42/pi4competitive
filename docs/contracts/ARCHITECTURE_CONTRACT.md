@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **contract_version** | `0.3.5` |
-| **status** | **active**（0.3.5 + ADR 0009 P3.2 Pi extension capability enablement；变更仍须 ADR + 升版本） |
-| **updated** | 2026-07-26 |
-| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、**engine extension 运行时及 P3.2 capability enablement**、P4 旧仓参考身份 |
+| **contract_version** | `0.3.6` |
+| **status** | **active**（0.3.6 + ADR 0010 research-workflow v0.2.0 SearchOS coverage 引擎复现；变更仍须 ADR + 升版本） |
+| **updated** | 2026-07-28 |
+| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、P4 旧仓参考身份、**SearchOS 引擎架构参考身份（ADR 0010）** |
 | **roadmap** | 实现顺序与阶段门禁见 [`docs/ROADMAP.md`](../ROADMAP.md) |
 | **out of scope for this doc** | 业务特性 backlog 细则、各业务 JSON Schema 字段表（另文） |
 
@@ -47,9 +47,9 @@
 | D21 | 校验 | **Pydantic v2**（tool 参数 + App domain） | 多套校验库混用 |
 | D22 | 本地能力包根 | **`capability_packages/`** 仅加载其下已实现子包 | 远程下载；`~/.pi` 默认发现 |
 | D23 | 模型/密钥配置 | **配置文件 + env 覆盖（C）**；密钥不入 git | 密钥提交仓库 |
-| D24 | Agent Session 默认存储 | **JSONL** 作对话/tool SoT | 仅内存当默认 SoT |
+| D24 | Agent Session 默认存储 | **JSONL** 作对话/tool SoT；搜索状态（SOCM）可落 JSON（`search_state.json`），属搜索 SoT 非对话 SoT（ADR 0010 D-S4） | 仅内存当默认 SoT |
 | D25 | JSONL 落盘路径 | 默认 **`data/sessions/`**（`data/` 不入库） | 默认写系统临时目录导致无法稳定 resume |
-| D26 | 架构冻结 | v0.3.1 baseline；0.3.2+ 按 ADR 演进（含 0006、0007、0008、**0009**） | 仅聊天改架构不改本文 |
+| D26 | 架构冻结 | v0.3.1 baseline；0.3.2+ 按 ADR 演进（含 0006、0007、0008、0009、**0010**） | 仅聊天改架构不改本文 |
 
 ### 1.1 已废弃
 
@@ -80,6 +80,18 @@
 | 优先参考 | `backend/workflows/competitive/`、业务 API、搜抓/packages 面 |
 | **禁止** | 以旧仓 `backend/agent/**` 替代 `packages/ai|agent`；把旧仓范围当必须 1:1 复刻清单 |
 | 对照 | **Pi 父本** 仍只为 §1.2 `earendil-works/pi` **main**（ADR 0007） |
+
+### 1.4 SearchOS — P4 research-workflow v0.2.0 引擎架构参考
+
+| 项 | 约定 |
+|----|------|
+| 角色 | **仅** `research-workflow-v1` v0.2.0 引擎架构参考（coverage map / SOCM / Extraction / Sensor 概念来源）；**不是** agent 内核规范源，**不是**代码同构对象 |
+| 仓库名 | `SearchOS`（`antins-labs/SearchOS`） |
+| 远程 | https://github.com/antins-labs/SearchOS |
+| 本地约定 | 与 `pi4competitive` **并排** 检出 `SearchOS/` |
+| 优先参考 | `searchos/socm/`、`searchos/harness/middleware/`、`searchos/agents/orchestrator/` |
+| **禁止** | 引入 langgraph/langchain/deepagents（约束 3）；把 SearchOS 当 1:1 复刻 backlog；以 SearchOS 替代 `packages/ai|agent` 作 Pi 父本 |
+| 对照 | **Pi 父本** 仍只为 §1.2 `earendil-works/pi` **main**；旧仓（§1.3）是业务形状参考，SearchOS 是引擎架构参考（ADR 0010 D-S1） |
 
 ---
 
@@ -202,6 +214,7 @@ capability_packages/
 | v0.3.2 | 阶段③ = **coding-agent 本地同构子集**（仍无 install） |
 | **v0.3.4** | **P3.1** = 同子集上加厚 **extension 运行时（引擎）**；仍无 install/TUI |
 | **v0.3.5** | **P3.2** = P3.1 后的 Pi extension capability enablement（ADR 0009）；P4 保持 App/workflow 阶段 |
+| **v0.3.6** | **P4 research-workflow v0.2.0** = 六阶段→三阶段 + SearchOS coverage 引擎复现（ADR 0010 D-S1..D-S9）；反转 F-R2/F-R3/F-R7/F-R10（局部）；D24 澄清搜索状态 SoT |
 
 ---
 
@@ -342,3 +355,4 @@ pi4competitive/
 | **0.3.3** | 2026-07-23 | **ADR 0007**：钉死 D12 旧仓身份（`competitive-agent` / xj120）；§1.3 + 术语表；角色仍仅为能力参考 |
 | **0.3.4** | 2026-07-24 | **ADR 0008**：P3.1 agent engine extension 运行时；D5/D16/§5；feature `agent-engine-extensions-v1` frozen v0.2.0 |
 | **0.3.5** | 2026-07-26 | **ADR 0009**：新增 P3.2 Pi extension capability enablement；D5/D16/§5/术语更新；Reasonix policy 仍在 local package |
+| **0.3.6** | 2026-07-28 | **ADR 0010**：P4 research-workflow v0.2.0 — SearchOS coverage 引擎复现（三阶段 plan/search/write + SOCM + 并行 sub-agent + Extraction + Sensor）；反转 F-R2/F-R3/F-R7/F-R10（局部）；§1.4 SearchOS 参考身份；D24 澄清；feature `research-workflow-v1` v0.2.0 + `competitive-app-http-v1` v0.3.0 |

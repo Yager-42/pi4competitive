@@ -13,6 +13,10 @@ AI_SRC = ROOT / "packages/ai/src/earendil_works/pi_ai"
 FORBIDDEN = {
     "langchain",
     "langchain_core",
+    "langchain_anthropic",
+    "langchain_openai",
+    "langgraph",
+    "deepagents",
     "llama_index",
     "haystack",
     "semantic_kernel",

@@ -1,5 +1,7 @@
 # Plan: P4 — Research workflow v1（六阶段，替换占位 runner）
 
+> **⚠️ SUPERSEDED (2026-07-28)** — 本 v0.1.1 plan 已被 [`P4_research_workflow_v2.md`](P4_research_workflow_v2.md)（v0.2.0，三阶段 + SearchOS coverage 引擎；ADR 0010）取代。本文件作为**历史记录保留**，不再驱动实现。当前实现以 v2 plan 为准。
+
 | Field | Value |
 |-------|--------|
 | **plan_id** | `P4-research-workflow` |
