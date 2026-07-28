@@ -1,7 +1,8 @@
-"""Live L1 — six-stage research workflow against a real provider.
+"""Live L1 — three-stage research workflow against a real provider.
 
-research-workflow-v1 §6.2 L1: real provider key → POST /tasks runs the six
-stages over the network → /report returns non-empty markdown.
+research-workflow-v1 v0.2.0 §6.2 L1: real provider key → POST /tasks runs the
+three stages (plan/search/write) over the network with judge extraction →
+/report returns non-empty markdown.
 
 Marked @pytest.mark.live; skipped without key (conftest L2).
 """
@@ -47,7 +48,7 @@ async def _wait_terminal(client: AsyncClient, task_id: str, timeout: float = 180
     return status
 
 
-async def test_live_six_stages_real_provider(tmp_path: Path, live_env) -> None:
+async def test_live_three_stages_real_provider(tmp_path: Path, live_env) -> None:
     import os
 
     os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")

@@ -183,7 +183,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
 | P3.1 agent engine extensions | **done** | 2026-07-24 | feature v0.3.0（P3.2 delta）；plan v0.2.4 remains completed；Offline 124 passed；Live 24 passed |
 | P3.2 Pi extension capability enablement | **done** | 2026-07-26 | A+B+E；Offline 139 passed；full-stack Live warm-cache green；plan v0.1.2 |
-| P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.3.0）+ 三阶段研究 workflow（`research-workflow-v1` v0.2.0 frozen；SearchOS coverage 引擎复现；ADR 0010；plan 随 PR2 起补）；v1 六阶段 runner 待 PR6 删除；后续 PR2-6：SOCM domain / coverage_engine / 并行 sub-agent / Extraction / write+resume |
+| P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.3.0）+ 三阶段研究 workflow（`research-workflow-v1` v0.2.0 frozen；SearchOS coverage 引擎复现落地；ADR 0010；SOCM + 并行 sub-agent + judge Extraction + Sensor；PR2-6 done；offline 218 passed + L1 live 真搜索 258s passed）；后续：steering/effort 档位/multi-table/skills |
 | 业务能力 v1 | **partial**（搜索 capability **done** + 研究闭环 v1 done / v2 in_progress） | 2026-07-28 | search packages + 三阶段研究 workflow v0.2.0 冻结（ADR 0010）；v2 引擎实现 PR2-6；完整 fact_report schema 仍 todo |
 
 状态枚举：`todo` | `in_progress` | `done` | `blocked`。

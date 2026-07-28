@@ -145,8 +145,10 @@ class EvidenceIntake:
         if not findings:
             return 0
 
+        added = 0
+
         def _fill(s: SOCMState) -> SOCMState:
-            count = 0
+            nonlocal added
             for item in findings:
                 attr = str(item.get("attribute") or "")
                 value = str(item.get("value") or "").strip()
@@ -173,11 +175,11 @@ class EvidenceIntake:
                         entity_id, attr, value=value, source=source,
                         source_excerpt=excerpt, confidence=confidence,
                     )
-                    count += 1
+                    added += 1
             return s
 
         await self._socm_store.atomic_update(self._session_id, _fill)
-        return len(findings)
+        return added
 
     async def _call_judge(
         self, entity_id: str, empty_attrs: list[str], pages_blob: str

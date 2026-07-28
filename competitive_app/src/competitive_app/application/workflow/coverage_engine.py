@@ -4,12 +4,11 @@ ADR 0010 D-S8 / F-R31. Drives the iterative coverage-map-driven search loop:
 evaluate empty cells → dispatch subtask → sub-agent searches → fill SOCM →
 terminate when coverage≥threshold OR budget exhausted OR no progress.
 
-PR3 (Phase B): SERIAL single sub-agent — one subtask at a time, no parallelism.
-PR4 (Phase C) will add the asyncio Task pool (SEARCH_MAX_PARALLEL) + Sensor.
-PR5 (Phase D) will replace the direct `fill_from_subagent` with judge-based
-Extraction (EvidenceIntake). For now, the sub-agent's own evidence list is
-mapped into coverage cells directly (so the three-stage path runs end-to-end
-without the judge).
+Parallel dispatch (PR4): asyncio Task pool (SEARCH_MAX_PARALLEL) + FIRST_COMPLETED
+reap. Each sub-agent runs on a fresh ephemeral harness (F-R28). The Extraction
+extension (PR5) hooks ``tool_result`` on ``*_fetch`` tools; the judge LLM
+extracts (entity, attribute, value, source, confidence) into SOCM at sub-agent
+exit (intake.flush drain point).
 
 The engine reads/writes SOCM via SocmStore.atomic_update (F-R27). The sub-agent
 runs on the task's AgentHarness (ephemeral prompts; findings go to SOCM, not

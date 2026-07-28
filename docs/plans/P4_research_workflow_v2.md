@@ -4,7 +4,7 @@
 |-------|--------|
 | **plan_id** | `P4-research-workflow-v2` |
 | **plan_version** | `0.2.0` |
-| **status** | **in_progress**（PR1 文档冻结 done；实现 PR2–PR6 todo） |
+| **status** | **completed**（PR1-6 done；offline 218 passed + L1 live 258s passed） |
 | **created** | 2026-07-28 |
 | **updated** | 2026-07-28 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P4** `competitive_app` |
@@ -172,7 +172,7 @@ Status: `todo` | `in_progress` | `done` | `blocked`。
 | E5 | 删 v0.1.1 六阶段 runner 残留 + 重写测试 | done | F-R22 |
 | E6 | 契约测试：约束 3 AST 禁 langgraph + 分层门禁 | done | O15 |
 | E7 | Live 测试（L1/L2，env-gated） | done | L1 (258s passed) |
-| E8 | roadmap/features 索引同步 + plan completed | todo | |
+| E8 | roadmap/features 索引同步 + plan completed | done | |
 
 **Rules:**
 - Phase A（domain/socm）必须先于 B——B 依赖 SOCM 数据结构。
