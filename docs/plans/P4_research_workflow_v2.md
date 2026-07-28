@@ -138,15 +138,15 @@ Status: `todo` | `in_progress` | `done` | `blocked`。
 |------|-------|--------|------|
 | G0 | v0.1.1 六阶段 + P1–P3.2 离线绿（前置） | done | PR1 前已验证 |
 | P1 | 契约冻结：ADR 0010 + workflow v0.2.0 + http v0.3.0 + contract v0.3.6 | done | PR1 |
-| A1 | domain/socm/coverage.py：Coverage Map + cell 四态 | todo | F-R26 |
-| A2 | domain/socm/evidence.py：Evidence Graph + 冲突边 | todo | F-R26 |
-| A3 | domain/socm/frontier.py：任务队列 + 优先级 + DAG | todo | |
-| A4 | domain/socm/strategy.py：Strategy Memory + Budget | todo | F-R31 |
-| A5 | domain/socm/state.py：SOCM 顶层 + snapshot/restore | todo | F-R27 |
-| A6 | adapter/out/persistence/socm_store.py：原子写 | todo | D-S4 |
-| A7 | domain/stage.py 改：STAGES=(plan,search,write) + schema | todo | F-R25 |
-| A7b | v0.1.1 六阶段测试临时 xfail（STAGES 改了会 break） | todo | E5 重写 |
-| A8 | 契约测试：domain/socm 纯（G1）+ 原子写 + cell 四态 | todo | O11/O12 |
+| A1 | domain/socm/coverage.py：Coverage Map + cell 四态 | done | F-R26 |
+| A2 | domain/socm/evidence.py：Evidence Graph + 冲突边 | done | F-R26 |
+| A3 | domain/socm/frontier.py：任务队列 + 优先级 + DAG | done | |
+| A4 | domain/socm/strategy.py：Strategy Memory + Budget | done | F-R31 |
+| A5 | domain/socm/state.py：SOCM 顶层 + snapshot/restore | done | F-R27 |
+| A6 | adapter/out/persistence/socm_store.py：原子写 | done | D-S4 |
+| A7 | domain/stage.py 改：STAGES=(plan,search,write) + schema | todo | F-R25；**挪 PR3**（STAGES 改与 runner/profiles 强耦合，不能单独切） |
+| A7b | v0.1.1 六阶段测试：PR2 不动 stage.py，六阶段继续跑；PR3 切 STAGES 时一并重写 | todo | PR3 |
+| A8 | 契约测试：domain/socm 纯（G1）+ 原子写 + cell 四态 | done | O11/O12 |
 | B1 | profiles.py 改：3 profile + system prompt | todo | F-R20 |
 | B2 | coverage_engine.py：派发循环 + 评估 + 终止（单 sub-agent 串行）+ pause_event 注入点（O6 测试 seam） | todo | F-R31 |
 | B3 | research_runner.py 改：三阶段主循环 + 门禁 | todo | F-R3/F-R25 |
