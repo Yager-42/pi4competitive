@@ -37,6 +37,7 @@ class TaskService:
         capability_tools: list[Any] | None = None,
         sessions_cwd: str = "competitive_app",
         socm_store: Any = None,
+        judge_model: dict[str, Any] | None = None,
     ) -> None:
         self._store = store
         self._repo = repo
@@ -45,6 +46,7 @@ class TaskService:
         self._capability_tools = list(capability_tools or [])
         self._sessions_cwd = sessions_cwd
         self._socm_store = socm_store
+        self._judge_model = judge_model
         # task_id → (runner, abort_signal, agent) for abort/resume.
         self._runners: dict[str, tuple[ResearchRunner, asyncio.Event, Any]] = {}
 
@@ -226,6 +228,7 @@ class TaskService:
                 abort_signal=abort_signal,
                 session_id=session_id,
                 subagent_factory=self._harness_factory,
+                judge_model=self._judge_model,
             )
             self._runners[task_id] = (runner, abort_signal, agent)
             await self._store.update_task_status(task_id, "running")

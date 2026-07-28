@@ -160,11 +160,11 @@ Status: `todo` | `in_progress` | `done` | `blocked`。
 | C3 | sensor.py：预算计数（engine 层 pre-consume query budget + 终止检查） | done | F-R31；extension 化留后续 |
 | C4 | sensor.py：loop 检测（同 query 重复） | todo | 挪 PR5（judge Extraction 后 sub-agent 多轮 ReAct 才需要） |
 | C5 | 集成测试：并行 fan-out (4 entity) + 预算耗尽 + 无进展终止 | done | O10 |
-| D1 | extraction.py：EvidenceIntake（buffer + batch flush） | todo | F-R30 |
-| D2 | extraction.py：judge 调用（裸 streamSimple + 批量） | todo | F-R29 |
-| D3 | extraction.py：挂 tool_result extension + ContextVar 取目标 | todo | F-R30 |
-| D4 | extraction.py：evidence 进 SOCM（原子 merge）+ coverage 填充 | todo | F-R26/F-R27 |
-| D5 | 集成测试：judge 抽 evidence + coverage 填充 + 四态 | todo | O11/O14 |
+| D1 | extraction.py：EvidenceIntake（buffer + batch flush） | done | F-R30 |
+| D2 | extraction.py：judge 调用（completeSimple + 批量 per entity） | done | F-R29 |
+| D3 | extraction.py：挂 tool_result extension + ContextVar 取目标 | done | F-R30 |
+| D4 | extraction.py：evidence 进 SOCM（atomic_update）+ coverage fill | done | F-R26/F-R27 |
+| D5 | 集成测试：judge 抽 evidence + coverage 填充 + 三态 | done | O11/O14 |
 | E1 | write 阶段：从 SOCM 合成带 citation 报告 | todo | F-R12 |
 | E2 | task_service：resume 恢复 SOCM + 接着跑 | todo | F-R16 |
 | E3 | task_service：DELETE 连带删 SOCM | todo | F-A17 |

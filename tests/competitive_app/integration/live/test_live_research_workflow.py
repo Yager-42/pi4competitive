@@ -72,13 +72,15 @@ async def test_live_six_stages_real_provider(tmp_path: Path, live_env) -> None:
             status = await _wait_terminal(client, task_id, timeout=360.0)
             assert status == "completed", f"live run did not complete: {status}"
 
-            # 3) GET /tasks/{id} — projection shows all six stages ok.
+            # 3) GET /tasks/{id} — projection shows all three stages ok (v0.2.0).
             task = await client.get(f"/api/v2/tasks/{task_id}")
             assert task.status_code == 200
             proj = task.json()["projection"]
             assert proj["current_stage"] is None
-            for stage in ("plan", "collect", "analyze", "write", "review", "cite"):
+            for stage in ("plan", "search", "write"):
                 assert proj["stages"][stage] == "ok", f"{stage} not ok: {proj['stages']}"
+            # Coverage map was driven by the search stage.
+            assert proj["coverage"]["total"] > 0, "live run must build a coverage map"
 
             # 4) GET /tasks — list contains the task.
             listed = await client.get("/api/v2/tasks")
@@ -104,24 +106,25 @@ async def test_live_six_stages_real_provider(tmp_path: Path, live_env) -> None:
             assert sess.status_code == 200
             assert sess.json()["session_id"] == session_id
 
-            # 8) GET /sessions/{id}/messages — contains six stage outputs +
+            # 8) GET /sessions/{id}/messages — contains three stage outputs +
             #    the write report text (verify via interface, not service).
             msgs = await client.get(f"/api/v2/sessions/{session_id}/messages")
             assert msgs.status_code == 200
             messages = msgs.json()["messages"]
             blob = _stringify_messages(messages)
-            # Six stage_output custom_message entries (one per stage).
+            # Three stage_output custom_message entries (one per stage, v0.2.0).
             customs = [m for m in messages if isinstance(m, dict) and m.get("role") == "custom"]
-            assert len(customs) == 6, f"expected 6 stage_output entries, got {len(customs)}"
+            assert len(customs) == 3, f"expected 3 stage_output entries, got {len(customs)}"
             # The write report text appears in the serialized messages (use a
             # short newline-free prefix — JSON escaping turns \n into \\n).
             prefix = r["report"].split("\n")[0][:40]
             assert prefix and prefix in blob, f"write report prefix not in /messages: {prefix!r}"
-            # Each stage prompt produced an assistant message; expect >= 6.
+            # Each stage prompt produced an assistant message; expect >= 3
+            # (plan + write; search drives sub-agents that don't persist to JSONL).
             assistant_count = sum(
                 1 for m in messages if isinstance(m, dict) and m.get("role") == "assistant"
             )
-            assert assistant_count >= 6, f"expected >=6 assistant messages, got {assistant_count}"
+            assert assistant_count >= 2, f"expected >=2 assistant messages, got {assistant_count}"
     finally:
         await state.shutdown()
 

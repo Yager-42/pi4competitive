@@ -154,32 +154,60 @@ class _HarnessFactory(HarnessFactory):
             capability_report=self._capability_report,
         )
 
-    async def build_ephemeral(self, tools: list[Any] | None = None, system_prompt: str = "") -> AgentHarness:
+    async def build_ephemeral(
+        self,
+        tools: list[Any] | None = None,
+        system_prompt: str = "",
+        socm_store: Any = None,
+        session_id: str = "",
+        judge_model: dict[str, Any] | None = None,
+    ) -> tuple[AgentHarness, Any]:
         """Build an in-memory AgentHarness for an ephemeral sub-agent (F-R28).
 
-        Sub-agents don't persist to JSONL — their findings go to SOCM via the
-        engine. Uses InMemorySessionRepo so there's no disk side-effect.
+        Returns ``(harness, evidence_intake)``. The intake is the PR5
+        EvidenceIntake bound to this harness's own extension runtime; the
+        coverage engine flushes it at sub-agent exit. Each ephemeral harness
+        gets its OWN runtime (fresh ``create_extension_runtime()``) so parallel
+        sub-agents never share ``runtime.actions`` or risk cross-invalidation.
 
-        Tools are passed directly (NOT via ``capability_report``) so each
-        ephemeral harness gets its own tool list without sharing the
-        ExtensionRuntime — parallel sub-agents must not share one runtime
-        (``bind_core`` mutates a shared ``actions`` dict and ``invalidate``
-        would kill all siblings). PR5 will attach a per-harness Extraction
-        extension here.
+        Tools passed directly (NOT via ``capability_report``) — the shared
+        ExtensionRuntime is never attached.
         """
         from earendil_works.pi_agent.harness.session.memory_repo import InMemorySessionRepo
+        from earendil_works.pi_agent.extensions import (
+            attach_extension_runtime,
+            create_extension_runtime,
+            load_extension_from_factory,
+        )
+        from earendil_works.pi_agent.extensions.types import LoadExtensionsResult
+        from .application.workflow.extraction import EvidenceIntake, make_extraction_extension_factory
 
         repo = InMemorySessionRepo()
         session = await repo.create({"cwd": "ephemeral"})
         model = self._model_resolver.resolve(None)
-        return AgentHarness(
+        harness = AgentHarness(
             session=session,
             stream_fn=self._models.streamSimple,
             model=model,
             tools=tools or [],
             system_prompt=system_prompt,
-            # capability_report=None: do NOT attach the shared ExtensionRuntime.
+            # capability_report=None: shared runtime never attached.
         )
+        # Attach a per-harness Extraction extension (PR5) if SOCM wiring is provided.
+        intake: EvidenceIntake | None = None
+        if socm_store is not None and session_id:
+            intake = EvidenceIntake(
+                socm_store=socm_store,
+                session_id=session_id,
+                models=self._models,
+                judge_model=judge_model,
+            )
+            factory = make_extraction_extension_factory(intake)
+            runtime = create_extension_runtime()  # fresh per harness — no sharing
+            extension = await load_extension_from_factory(factory, "ephemeral", runtime, "<extraction>")
+            result = LoadExtensionsResult(extensions=[extension], errors=[], runtime=runtime)
+            attach_extension_runtime(harness.agent, result, "ephemeral")
+        return harness, intake
 
 
 async def build_application_state(config: AppConfig) -> ApplicationState:
@@ -243,6 +271,14 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         prompt_lock_timeout=config.prompt_lock_timeout,
     )
     capability_tools = list(getattr(capability_report, "tools", []) or []) if capability_report else []
+    # F-R29: judge model for Extraction. JUDGE_MODEL env if set; else fall back
+    # to the main model (judge is a stateless extractor — local F-R7 exemption).
+    judge_model_id = os.environ.get("JUDGE_MODEL") or ""
+    judge_model: dict[str, Any]
+    try:
+        judge_model = model_resolver.resolve(judge_model_id) if judge_model_id else model_resolver.resolve(None)
+    except KeyError:
+        judge_model = model_resolver.resolve(None)
     task_service = TaskService(
         store=store,
         repo=repo,
@@ -251,6 +287,7 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         capability_tools=capability_tools,
         sessions_cwd=config.sessions_cwd,
         socm_store=socm_store,
+        judge_model=judge_model,
     )
 
     return ApplicationState(

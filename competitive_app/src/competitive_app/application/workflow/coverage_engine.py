@@ -34,6 +34,7 @@ from ...domain.socm import (
 )
 from ...domain.socm.coverage import CellStatus
 from ...domain.stage import STAGES
+from .extraction import current_subtask
 from .profiles import is_search_tool
 
 _log = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ class CoverageEngine:
         max_parallel: int | None = None,
         pause_event: asyncio.Event | None = None,
         subagent_factory: Any = None,
+        judge_model: dict[str, Any] | None = None,
     ) -> None:
         self._socm_store = socm_store
         self._session_id = session_id
@@ -111,6 +113,8 @@ class CoverageEngine:
         # the engine falls back to running sub-agents serially on the main
         # harness (PR3 behavior — used when a factory isn't wired).
         self._subagent_factory = subagent_factory
+        # PR5 judge model for Extraction (F-R29; None → EvidenceIntake falls back).
+        self._judge_model = judge_model
 
     async def run(self, plan_output: dict[str, Any]) -> dict[str, Any]:
         """Run the search loop. Returns the search stage output (evidence + coverage).
@@ -270,12 +274,11 @@ class CoverageEngine:
     async def _run_subagent_ephemeral(self, subtask: dict[str, Any]) -> None:
         """Run one sub-agent on a fresh ephemeral harness (PR4 parallel, F-R28).
 
-        Uses the subagent_factory to build an in-memory harness (no JSONL).
-        Each sub-agent gets its OWN harness + tool list — never shares the main
-        agent or the shared ExtensionRuntime (parallel prompts on a shared agent
-        would RuntimeError/corrupt state; a shared runtime's ``invalidate``
-        would kill all siblings). The harness is shut down after use to release
-        the agent's event subscription (no leak).
+        PR5: the factory returns ``(harness, evidence_intake)``. The Extraction
+        extension (hooked on ``tool_result``) buffers fetched pages; the engine
+        sets the ContextVar before the prompt so the extension knows the
+        subtask's entity, then flushes the intake at sub-agent exit (drain point,
+        F-R30). The judge fills SOCM directly — the old direct-fill path is gone.
         """
         if self._subagent_factory is None:
             raise RuntimeError(
@@ -283,17 +286,44 @@ class CoverageEngine:
                 "(F-R28); the serial main-harness fallback is unsafe under max_parallel>1."
             )
         search_tools = [t for t in self._all_tools if is_search_tool(t.name)]
-        harness = await self._subagent_factory.build_ephemeral(tools=search_tools)
+        harness, intake = await self._subagent_factory.build_ephemeral(
+            tools=search_tools,
+            socm_store=self._socm_store,
+            session_id=self._session_id,
+            judge_model=self._judge_model,
+        )
         try:
             agent = harness.agent
             state = await self._socm_store.load(self._session_id)
-            await self._run_subagent_on(harness, agent, state, subtask)
+            # ContextVar: tell the Extraction extension which entity to extract for.
+            current_subtask.set(subtask)
+            await self._run_subagent_prompt(harness, agent, state, subtask)
+            # Drain the extraction buffer (judge fills SOCM) at sub-agent exit.
+            if intake is not None:
+                try:
+                    await intake.flush()
+                except Exception:  # noqa: BLE001
+                    _log.exception("extraction flush failed for subtask %s", subtask.get("question"))
         finally:
-            # Release the agent's event subscription (B3: avoid leak).
+            current_subtask.set(None)
             try:
                 await harness.shutdown()
             except Exception:  # noqa: BLE001
                 pass
+
+    async def _run_subagent_prompt(
+        self, harness: Any, agent: Any, state: SOCMState, subtask: dict[str, Any]
+    ) -> None:
+        """Run one sub-agent prompt. Exceptions leave cells empty (re-dispatchable)."""
+        agent.state.systemPrompt = _SEARCH_RUNTIME_PROMPT
+        prompt = _build_subagent_prompt(state, subtask)
+        try:
+            await harness.prompt(prompt)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            _log.exception("sub-agent prompt failed for subtask %s", subtask.get("question"))
+            return
 
     async def _run_subagent_on(
         self, harness: Any, agent: Any, state: SOCMState, subtask: dict[str, Any]

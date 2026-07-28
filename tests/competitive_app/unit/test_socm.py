@@ -491,8 +491,8 @@ async def test_coverage_engine_dispatch_parallel_runs_concurrently(tmp_path: Pat
             pass
 
     class _FakeFactory:
-        async def build_ephemeral(self, tools=None, system_prompt=""):
-            return _FakeHarness()
+        async def build_ephemeral(self, tools=None, system_prompt="", **kwargs):
+            return _FakeHarness(), None
 
     main_harness = _FakeHarness()  # has .agent; not used for prompt when factory set
     engine = CoverageEngine(
