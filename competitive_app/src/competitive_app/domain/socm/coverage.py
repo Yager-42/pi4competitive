@@ -23,6 +23,13 @@ from pydantic import BaseModel, Field
 # win outright. ADR 0010 D-S3.
 CONFLICT_CONFIDENCE_DELTA = 0.2
 
+# Confidence below which a FILLED cell is "weak" and eligible for re-search
+# (actionable_cells / satisfied_ratio, ADR 0010 D-S8 Tier-0/1 fix). A finding
+# must clear SEARCH_MIN_CONFIDENCE to be FILLED at all (extraction.py), so a
+# FILLED cell with confidence in [MIN_CONFIDENCE, WEAK_CONFIDENCE) is a
+# low-but-acceptable value worth corroborating.
+WEAK_CONFIDENCE = 0.7
+
 
 class CellStatus(str, Enum):
     """Four cell states (F-R26)."""
@@ -275,6 +282,62 @@ class CoverageMap(BaseModel):
     def filled_count(self) -> int:
         return sum(1 for c in self.cells.values() if c.status == CellStatus.FILLED)
 
+    def actionable_cells(self, max_attempts: int = 2) -> list[Cell]:
+        """Cells that should be re-dispatched (Tier-0/1 quality loop, ADR 0010 D-S8 fix).
+
+        A cell is actionable when it has NOT yet been searched enough times to give up:
+        - EMPTY: never searched (always actionable).
+        - UNKNOWN: searched but no value found, and attempts < max_attempts (retryable).
+        - FILLED with low confidence and attempts < max_attempts: weak value, re-search
+          for a stronger/corroborating source. ``attempts`` on a FILLED cell is bumped
+          by ``mark_unknown`` only, so a FILLED cell with attempts==0 that we want to
+          re-search is identified by low confidence — but we only re-search it if it has
+          been marked-at-least-once (attempts>0) to avoid infinite re-search of good cells.
+          In practice the engine bumps attempts via mark_unknown when a junk/low-conf
+          finding is rejected, so a FILLED cell only becomes actionable here after a prior
+          rejection cycle. CONFLICT cells are terminal (multi-source already considered).
+        """
+        actionable: list[Cell] = []
+        for c in self.cells.values():
+            if c.status == CellStatus.EMPTY:
+                actionable.append(c)
+            elif c.status == CellStatus.UNKNOWN and c.attempts < max_attempts:
+                actionable.append(c)
+            elif (
+                c.status == CellStatus.FILLED
+                and c.confidence < WEAK_CONFIDENCE
+                and 0 < c.attempts < max_attempts
+            ):
+                actionable.append(c)
+        return actionable
+
+    def satisfied_ratio(self, max_attempts: int = 2) -> float:
+        """Fraction of cells that are "done well enough" (Tier-0/1 termination condition).
+
+        A cell is satisfied when it is:
+        - FILLED with confidence >= WEAK_CONFIDENCE (strong value), OR
+        - CONFLICT (multi-source already arbitrated), OR
+        - terminal-given-up: UNKNOWN/FILLED[weak] with attempts >= max_attempts
+          (searched enough, no better source forthcoming — stop re-searching).
+
+        Only cells still in the actionable set (EMPTY / retryable-UNKNOWN / retryable-weak)
+        keep the ratio below 1.0. This replaces the old coverage_ratio() which counted any
+        non-EMPTY cell (including junk FILLED) as covered — the root cause of one-round exit.
+        """
+        total = len(self.cells)
+        if total == 0:
+            return 0.0
+        satisfied = 0
+        for c in self.cells.values():
+            if c.status == CellStatus.CONFLICT:
+                satisfied += 1
+            elif c.status == CellStatus.FILLED and c.confidence >= WEAK_CONFIDENCE:
+                satisfied += 1
+            elif c.status in {CellStatus.UNKNOWN, CellStatus.FILLED} and c.attempts >= max_attempts:
+                # terminal-given-up: searched enough, accept best-effort / no-source.
+                satisfied += 1
+        return satisfied / total
+
     def to_projection(self) -> dict[str, Any]:
         """Read-only snapshot for SQLite projection (F-R13 coverage sub-field)."""
         total = len(self.cells)
@@ -323,6 +386,7 @@ def _candidate_dominates(
 
 __all__ = [
     "CONFLICT_CONFIDENCE_DELTA",
+    "WEAK_CONFIDENCE",
     "Attribute",
     "AttributeType",
     "Cell",

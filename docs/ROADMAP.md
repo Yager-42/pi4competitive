@@ -2,9 +2,9 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.24` |
+| **roadmap_version** | `0.1.25` |
 | **status** | active |
-| **updated** | 2026-07-28 |
+| **updated** | 2026-07-29 |
 | **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
@@ -183,8 +183,8 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
 | P3.1 agent engine extensions | **done** | 2026-07-24 | feature v0.3.0（P3.2 delta）；plan v0.2.4 remains completed；Offline 124 passed；Live 24 passed |
 | P3.2 Pi extension capability enablement | **done** | 2026-07-26 | A+B+E；Offline 139 passed；full-stack Live warm-cache green；plan v0.1.2 |
-| P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.3.0）+ 三阶段研究 workflow（`research-workflow-v1` v0.2.0 frozen；SearchOS coverage 引擎复现落地；ADR 0010；SOCM + 并行 sub-agent + judge Extraction + Sensor；PR2-6 done；offline 218 passed + L1 live 真搜索 258s passed）；后续：steering/effort 档位/multi-table/skills |
-| 业务能力 v1 | **partial**（搜索 capability **done** + 研究闭环 v1 done / v2 in_progress） | 2026-07-28 | search packages + 三阶段研究 workflow v0.2.0 冻结（ADR 0010）；v2 引擎实现 PR2-6；完整 fact_report schema 仍 todo |
+| P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.3.0）+ 三阶段研究 workflow（`research-workflow-v1` v0.2.1 frozen；SearchOS coverage 引擎复现落地；ADR 0010 + Patch v0.2.1；SOCM + 并行 sub-agent + judge Extraction + Sensor；PR2-6 done；搜索质量第一步修复（junk 过滤 + actionable/satisfied 谓词 + 多源 + 结构化 queries）；offline 106+27 passed + L1 live + 三阶段vs六阶段对比实验两题三阶段均优）；后续：steering/effort 档位/multi-table/skills |
+| 业务能力 v1 | **partial**（搜索 capability **done** + 研究闭环 v1 done / v2 in_progress） | 2026-07-29 | search packages + 三阶段研究 workflow v0.2.1 冻结（ADR 0010 Patch v0.2.1）；v2 引擎实现 PR2-6 + 搜索质量修复；完整 fact_report schema 仍 todo |
 
 状态枚举：`todo` | `in_progress` | `done` | `blocked`。
 
@@ -229,3 +229,4 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.22 | 2026-07-26 | 六阶段研究 workflow 落地（feature `research-workflow-v1` frozen v0.1.1；替换占位 runner；24 决策；offline 35+124 passed）；`competitive-app-http-v1` 升 v0.2.0 |
 | 0.1.23 | 2026-07-26 | research-workflow-v1 plan **completed** v0.1.1：L1 live 真搜索验证（DeepSeek + tavily/anysearch/grok；165s；六阶段全 ok；报告非空）；修 5 个 live bug；全仓 offline 159 passed |
 | 0.1.24 | 2026-07-28 | **research-workflow-v1 v0.2.0 frozen（ADR 0010 / 契约 0.3.6）**：六阶段→三阶段（plan/search/write）+ SearchOS coverage 引擎复现（SOCM + 并行 sub-agent + Extraction + Sensor）；反转 F-R2/F-R3/F-R7/F-R10（局部）；`competitive-app-http-v1` 升 v0.3.0（投影 stages 6→3 + coverage）；PR1 文档冻结，实现 PR2-6 |
+| 0.1.25 | 2026-07-29 | **research-workflow-v1 v0.2.1 patch frozen（ADR 0010 Patch v0.2.1）**：搜索质量第一步修复——接通 `mark_unknown`（UNKNOWN 可达）+ junk/低置信过滤 + actionable/satisfied 谓词 + judge prompt 禁占位/多源抽取 + plan 结构化 queries + subtask 拆细；局部反转 D-S3/D-S6/D-S8"一轮单源"默认；三阶段vs六阶段对比实验两题三阶段均优（源权威性 87%/31% vs 47%/13%、0 junk）；不动 D*/G* 核心、不碰 packages/ai\|agent |

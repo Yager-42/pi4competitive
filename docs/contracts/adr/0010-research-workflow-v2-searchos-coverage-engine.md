@@ -141,7 +141,79 @@ Extraction 作为 extension 挂 `tool_result` 事件（`extensions/types.py` 已
 | mid-run steering | 体验加分项，非搜索能力核心，延后 |
 | effort 档位 | env 细粒度先行，档位后续 |
 
-## langgraph 映射附录（机械替换清单）
+## Patch v0.2.1 — 搜索质量第一步修复（局部反转 D-S3 / D-S6 / D-S8 的"一轮单源"默认）
+
+- **status:** accepted
+- **date:** 2026-07-29
+- **supersedes (局部):** D-S3 cell 四态语义、D-S6 judge prompt、D-S8 终止条件 1 的"覆盖率"口径
+- **does not supersede:** D-S1/D-S2/D-S4/D-S5/D-S7/D-S9、约束 2/3、D24/D25、F-R14/F-R16
+- **feature contract:** [`docs/features/research_workflow_v1.md`](../../features/research_workflow_v1.md) **v0.2.1**
+
+### 背景：v0.2.0 的"一轮单源"短路
+
+v0.2.0 落地后实测（2026-07-29 三阶段 vs 六阶段对比实验，题：小米17 vs iPhone17 中国大陆）暴露一条因果链：judge 对搜不到的 cell 塞占位值（`"Not specified"` / `"N/A"` / `"未知"`）→ cell 全转 `filled`（`unknown` 状态因 `mark_unknown` 未被调用而**不可达**）→ `empty_cells()` 返回空 → search loop 一轮即 `break`（`coverage_ratio()` 把 junk `filled` 也算 covered，ratio→1.0 ≥ 0.8）→ 每 cell 恰好 1 源 → `fill()` 的 candidates 仲裁路径不触发 → evidence graph 边是死结构。
+
+结果：三阶段被短路成"一轮 × 单源/cell × 填满即停"，在需要多权威源的硬件题上输给六阶段自由 collect（4 泛源 vs 六阶段 16 源）。这不是架构不行，是架构被饿死。
+
+### D-S3'（patch）— cell 四态语义修正
+
+`unknown` 状态在 v0.2.0 不可达（`mark_unknown` 零调用）；v0.2.1 接通：
+
+- **junk 占位过滤**：Extraction `_fill` 回调对 judge 返回的 value 做 `_is_junk_value` 判定（中英占位模式：`Not specified` / `N/A` / `未知` / `未公布` / `暂未公布` / `TBD` / `—` 等，归一化后精确匹配）。命中 → `coverage_map.mark_unknown(entity, attr)`（`attempts++`），**不 fill**。
+- **低置信过滤**：`confidence < SEARCH_MIN_CONFIDENCE`（默认 0.4）的 finding 同样走 `mark_unknown`，不 fill。
+- **actionable 谓词**：新增 `CoverageMap.actionable_cells(max_attempts)` = EMPTY ∪ UNKNOWN[attempts<N] ∪ FILLED[confidence<WEAK_CONFIDENCE 且 0<attempts<N]。CONFLICT 终态。N = `SEARCH_MAX_CELL_ATTEMPTS`（默认 2）。
+- **satisfied 谓词**：新增 `CoverageMap.satisfied_ratio(max_attempts)` = (强 filled[conf≥WEAK_CONFIDENCE] + conflict + 放弃 terminal[unknown/弱filled 且 attempts≥N]) / total。`WEAK_CONFIDENCE` 默认 0.7。
+- **D-S3 原文不变**：四态定义、`fill()` 仲裁规则、`CONFLICT_CONFIDENCE_DELTA=0.2` 均保留；仅接通 `unknown` + 加 actionable/satisfied 谓词。
+
+### D-S6'（patch）— judge prompt 强约束 + 多源抽取
+
+v0.2.0 judge prompt 允许占位值且每 attr 只抽 1 条；v0.2.1 收紧：
+
+- **禁占位**：prompt 显式 "Never return placeholder values ('Not specified'/'N/A'/'未知'/'未公布'/...); if a page does not state the value, OMIT that attribute."
+- **多源抽取**：prompt 改为 "one object PER (attribute, source) pair"——同一 attr 若多页面支撑，返回多条，触发 `fill()` 的 support/conflict 仲裁（candidates 路径终于可达）。
+- **置信度分级**：prompt 给 confidence 量级锚（官方 spec=0.9 / 权威评测=0.7 / 论坛聚合=0.4），配合 D-S3' 低置信过滤。
+- **D-S6 原文不变**：judge 独立模型、`JUDGE_MODEL` fallback、批量调（每实体一次）、裸 `completeSimple` 调用方式均保留。
+
+### D-S8'（patch）— 终止条件 1 口径修正
+
+v0.2.0 终止条件 1 用 `coverage_ratio()`（非 EMPTY 即算 covered，含 junk filled）→ 一轮早退；v0.2.1 改用 `satisfied_ratio()`：
+
+| 层 | v0.2.0 | v0.2.1 |
+|----|--------|--------|
+| 1. 覆盖率达标 | `coverage_ratio() ≥ 0.8`（junk filled 算 covered） | `satisfied_ratio() ≥ 0.8`（只算强 filled + conflict + 放弃 terminal） |
+| 2. 预算耗尽 | 不变 | 不变 |
+| 3. 无进展 | `filled_count` 不增 | `satisfied_ratio` 不增（口径对齐） |
+
+dispatch 对象从 `empty_cells()` 改为 `actionable_cells()`——弱值/junk 的 cell 被重派，第 2 个 candidate 进来触发仲裁。
+
+### D-S2a / D-S2b（新增）— query 策略 + subtask 拆细
+
+v0.2.0 sub-agent 拿裸 "填这些 cell" 泛 query，命中 aggregator 弱源；v0.2.1 补：
+
+- **D-S2a 结构化 queries**：plan 产物新增可选 `queries` 字段（`[{entity_id, queries[], source_hints[]}]`），plan prompt 要求每实体 3-5 个类型化 query（官方页/规格页/评测页/媒体页）+ source_hints。`coverage_engine._parse_plan_queries` 解析后注入 subtask，`_build_subagent_prompt` 把 queries + hints 喂给 sub-agent。
+- **D-S2b subtask 拆细**：`_build_subtasks` 从"一实体一 subtask"改为"按 `SEARCH_SUBTASK_CHUNK`（默认 3）切分"，让并行池能填满 `max_parallel`（v0.2.0 的 2 实体 → 2 sub-agent 并发被实体数卡死）。
+- **多源约束**：sub-agent prompt 显式 "for EACH target cell, fetch at least 2 independent sources from DIFFERENT domains"。
+
+### 不做（v0.2.1 边界）
+
+- **不上完整 Tier-1 重搜 loop 的质量模型**（弱 FILLED 主动再搜 + 完整 assess/adjust）——实验已证明第一步够用（两题三阶段搜索质量均显著优于六阶段：源权威性 87%/31% vs 47%/13%、0 junk、多源 cell 42/26）。
+- **不接 evidence graph 边**（`add_edge`/`get_conflicts` 仍死代码）——多源仲裁已由 `fill()` candidates 路径承担。
+- **不接 Frontier / StrategyMemory**（仍死代码）——subtask 仍用本地 list，无 assess/adjust 策略调整。
+- **不引入 explore_agent**——用 plan 结构化 queries（方案 A），不上完整 scouting。
+- **不改 D*/G* 核心、不改 14 路由、不改 packages/ai|agent**。
+
+### 实验证据（2026-07-29）
+
+| 组 | 架构 | 源 | 权威% | evidence | 多源cell | junk |
+|----|------|-----|-------|----------|---------|------|
+| three_t1 | 三阶段 v0.2.1 | 15 | 87% | 128 | 42 | 0 |
+| six_t1 | 六阶段 | 19 | 47% | 21 | — | — |
+| three_t2 | 三阶段 v0.2.1 | 29 | 31% | 113 | 26 | 0 |
+| six_t2 | 六阶段 | 23 | 13% | 24 | — | — |
+
+产物：`data/live_runs/comparison_v021/`（含 SOCM、session JSONL、对比报告）；live 验证 `data/live_runs/xiaomi17_vs_iphone17_cn_FIXED/`。
+
+
 
 | SearchOS（langgraph 栈） | 本仓替换 |
 |--------------------------|----------|

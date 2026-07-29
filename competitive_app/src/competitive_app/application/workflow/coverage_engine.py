@@ -40,6 +40,8 @@ DEFAULT_COVERAGE_THRESHOLD = 0.8
 DEFAULT_MAX_ITERATIONS = 10
 DEFAULT_MAX_STALLED_ITERATIONS = 3
 DEFAULT_MAX_PARALLEL = 4
+DEFAULT_MAX_CELL_ATTEMPTS = 2
+DEFAULT_SUBTASK_CHUNK = 3
 
 
 def _env_int(name: str, default: int) -> int:
@@ -83,6 +85,8 @@ class CoverageEngine:
         max_iterations: int | None = None,
         max_stalled_iterations: int | None = None,
         max_parallel: int | None = None,
+        max_cell_attempts: int | None = None,
+        subtask_chunk: int | None = None,
         pause_event: asyncio.Event | None = None,
         subagent_factory: Any = None,
         judge_model: dict[str, Any] | None = None,
@@ -103,6 +107,13 @@ class CoverageEngine:
             "SEARCH_MAX_STALLED_ITERATIONS", DEFAULT_MAX_STALLED_ITERATIONS
         )
         self._max_parallel = max_parallel or _env_int("SEARCH_MAX_PARALLEL", DEFAULT_MAX_PARALLEL)
+        # Tier-0/1: per-cell re-search budget (weak/junk → re-dispatch up to N times).
+        self._max_cell_attempts = max_cell_attempts or _env_int(
+            "SEARCH_MAX_CELL_ATTEMPTS", DEFAULT_MAX_CELL_ATTEMPTS
+        )
+        # Tier-2b: split each entity's actionable cells into chunks of this size so
+        # the parallel pool can fill max_parallel even with few entities.
+        self._subtask_chunk = subtask_chunk or _env_int("SEARCH_SUBTASK_CHUNK", DEFAULT_SUBTASK_CHUNK)
         # O6 test seam: if set, the engine pauses before the first search iteration.
         self._pause_event = pause_event
         # Factory for ephemeral sub-agent harnesses (PR4 parallel). If None,
@@ -120,6 +131,10 @@ class CoverageEngine:
         """
         schema = plan_output.get("coverage_schema") or {}
         intent = plan_output.get("plan") or ""
+        # Tier-2a: parse the plan's per-entity typed queries + authoritative source
+        # hints. Injected into each subtask so sub-agents use targeted queries instead
+        # of bare "fill these cells" prompts (root cause of hitting weak aggregator pages).
+        self._plan_queries = _parse_plan_queries(plan_output)
 
         # F-R16: do NOT overwrite an existing SOCM on resume. If a SOCM already
         # exists for this session (search was interrupted with partial progress),
@@ -147,12 +162,17 @@ class CoverageEngine:
 
             state = await self._socm_store.load(self._session_id)
             state.iteration = iteration
-            empties = state.coverage_map.empty_cells()
-            if not empties:
-                break  # nothing left to search
+            # Tier-0/1 (ADR 0010 D-S8 fix): dispatch the ACTIONABLE set, not just EMPTY
+            # cells. Actionable = EMPTY + retryable-UNKNOWN + retryable-weak-FILLED, so a
+            # cell that got a junk/low-confidence value (→ mark_unknown) or a weak fill
+            # gets re-searched instead of locking the loop into a one-round exit.
+            actionable = state.coverage_map.actionable_cells(self._max_cell_attempts)
+            if not actionable:
+                break  # nothing left worth searching
 
-            # Termination 1: coverage threshold met.
-            if state.coverage_map.coverage_ratio() >= self._coverage_threshold:
+            # Termination 1: satisfied-ratio threshold met (replaces coverage_ratio,
+            # which counted junk FILLED as covered and caused premature exit).
+            if state.coverage_map.satisfied_ratio(self._max_cell_attempts) >= self._coverage_threshold:
                 break
 
             # Termination 2: budget exhausted (checked before dispatching more).
@@ -160,19 +180,25 @@ class CoverageEngine:
                 _log.info("search stage: budget exhausted (%s), terminating", state.budget.exhausted_dim())
                 break
 
-            # Dispatch subtasks in PARALLEL (PR4): batch empty cells by entity,
-            # spawn up to max_parallel sub-agents, reap with FIRST_COMPLETED.
-            subtasks = _build_subtasks(empties, self._max_parallel)
-            filled_before = state.coverage_map.filled_count()
+            # Dispatch subtasks in PARALLEL (PR4): batch actionable cells by entity +
+            # chunk (Tier-2b), spawn up to max_parallel sub-agents, reap with FIRST_COMPLETED.
+            subtasks = _build_subtasks(actionable, self._max_parallel, self._subtask_chunk)
+            # Tier-2a: inject per-entity typed queries + source hints from the plan.
+            for st in subtasks:
+                qinfo = self._plan_queries.get(st.get("entity_id", ""))
+                if qinfo:
+                    st["queries"] = qinfo.get("queries") or []
+                    st["source_hints"] = qinfo.get("source_hints") or []
+            satisfied_before = state.coverage_map.satisfied_ratio(self._max_cell_attempts)
             await self._dispatch_parallel(state, subtasks)
 
-            # Re-load to see what got filled.
+            # Re-load to see what got satisfied.
             after = await self._socm_store.load(self._session_id)
             after.iteration = iteration
-            filled_after = after.coverage_map.filled_count()
+            satisfied_after = after.coverage_map.satisfied_ratio(self._max_cell_attempts)
 
-            # Termination 3: no progress.
-            if filled_after <= filled_before:
+            # Termination 3: no progress (satisfied-ratio stalled, not just filled-count).
+            if satisfied_after <= satisfied_before:
                 after.stalled_iterations = state.stalled_iterations + 1
                 await self._socm_store.save(self._session_id, after)
                 if after.stalled_iterations >= self._max_stalled:
@@ -334,6 +360,35 @@ class CoverageEngine:
 # ----------------------------------------------------------------- helpers
 
 
+def _parse_plan_queries(plan_output: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Extract per-entity typed queries + source hints from the plan (Tier-2a).
+
+    Plan schema (optional field, added in v0.2.1): ``queries`` is a list of
+    ``{"entity_id": "...", "queries": ["..."], "source_hints": ["..."]}``.
+    Returns a dict keyed by entity_id. Tolerant: missing/malformed → empty dict.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    raw = plan_output.get("queries")
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        eid = str(item.get("entity_id") or "").strip()
+        if not eid:
+            continue
+        queries = item.get("queries") or []
+        if not isinstance(queries, list):
+            queries = []
+        queries = [str(q) for q in queries if q]
+        hints = item.get("source_hints") or []
+        if not isinstance(hints, list):
+            hints = []
+        hints = [str(h) for h in hints if h]
+        out[eid] = {"queries": queries, "source_hints": hints}
+    return out
+
+
 def _coverage_map_from_schema(schema: dict[str, Any]) -> CoverageMap:
     """Build an empty CoverageMap from plan's coverage_schema (F-R26)."""
     table_id = schema.get("table_id") or "t_competitive"
@@ -370,42 +425,69 @@ def _coverage_map_from_schema(schema: dict[str, Any]) -> CoverageMap:
     return CoverageMap.from_schema(table_id=table_id, entities=entities, attributes=attributes)
 
 
-def _build_subtasks(empty_cells: list[Any], max_parallel: int) -> list[dict[str, Any]]:
-    """Batch empty cells by entity into up to max_parallel subtasks (PR4).
+def _build_subtasks(
+    cells: list[Any], max_parallel: int, chunk: int = 3
+) -> list[dict[str, Any]]:
+    """Batch actionable cells by entity + chunk into up to max_parallel subtasks (PR4 + Tier-2b).
 
-    Each subtask targets one entity's empty cells (so the sub-agent's fetch
-    results map cleanly to that entity). Returns at most max_parallel subtasks;
-    if there are more entities than slots, the highest-cell-count entities go
-    first (highest leverage). Remaining entities are deferred to the next
-    iteration (the loop re-evaluates empty_cells each round).
+    Tier-2b: each entity's cells are split into chunks of ``chunk`` cells, so a
+    single entity with many cells produces multiple subtasks and the parallel pool
+    can fill ``max_parallel`` even with few entities (the old one-subtask-per-entity
+    design capped parallelism at the entity count — e.g. 2 entities → 2 sub-agents).
+    Returns at most ``max_parallel`` subtasks, highest-leverage first; remaining
+    chunks are deferred to the next iteration (the loop re-evaluates each round).
     """
     by_entity: dict[str, list[str]] = {}
-    for cell in empty_cells:
+    for cell in cells:
         by_entity.setdefault(cell.entity_id, []).append(f"{cell.entity_id}.{cell.attribute_id}")
     # Sort entities by cell count desc (highest leverage first).
     ranked = sorted(by_entity.items(), key=lambda kv: len(kv[1]), reverse=True)
-    # One subtask per entity, up to max_parallel.
+    chunk = max(1, chunk)
     subtasks: list[dict[str, Any]] = []
-    for entity_id, cells in ranked[:max_parallel]:
-        subtasks.append(
-            {
-                "entity_id": entity_id,
-                "target_cells": cells,
-                "question": f"Fill coverage cells for {entity_id}: {', '.join(cells)}",
-            }
-        )
+    for entity_id, entity_cells in ranked:
+        # Split this entity's cells into chunks; each chunk is one subtask.
+        for i in range(0, len(entity_cells), chunk):
+            if len(subtasks) >= max_parallel:
+                return subtasks
+            cell_group = entity_cells[i : i + chunk]
+            subtasks.append(
+                {
+                    "entity_id": entity_id,
+                    "target_cells": cell_group,
+                    "question": f"Fill coverage cells for {entity_id}: {', '.join(cell_group)}",
+                }
+            )
     return subtasks
 
 
 def _build_subagent_prompt(state: SOCMState, subtask: dict[str, Any]) -> str:
     cells_desc = "\n".join(f"  - {c}" for c in subtask.get("target_cells", []))
+    # Tier-2a: inject the plan's suggested queries for this entity so the sub-agent
+    # uses typed queries (official spec page / review / media) instead of bare queries.
+    queries = subtask.get("queries") or []
+    queries_block = ""
+    if queries:
+        qlist = "\n".join(f"  - {q}" for q in queries)
+        queries_block = (
+            f"\nSuggested search queries for this entity (use these first, then refine):\n{qlist}\n"
+        )
+    source_hints = subtask.get("source_hints") or []
+    hints_block = ""
+    if source_hints:
+        hlist = ", ".join(source_hints)
+        hints_block = f"\nAuthoritative source hints: {hlist}\n"
     return (
         f"Research intent: {state.intent}\n\n"
         f"Subtask: {subtask.get('question')}\n"
-        f"Empty cells to fill (entity.attribute):\n{cells_desc}\n\n"
-        f"Use search tools to find evidence, then fetch relevant pages. "
+        f"Cells to fill (entity.attribute):\n{cells_desc}\n"
+        f"{queries_block}{hints_block}\n"
+        f"Use search tools (*_search) to find pages, then fetch them (*_fetch). "
+        f"MULTI-SOURCE REQUIREMENT: for EACH target cell, fetch at least 2 independent "
+        f"sources from DIFFERENT domains (e.g. official site + reputable review/media). "
+        f"Do NOT stop after a single source — corroborate. Prefer official spec pages "
+        f"and reputable tech media over aggregator/aggregator-wiki pages.\n\n"
         f"Return JSON: {{\"evidence\": [{{\"source\": \"<url>\", \"content\": \"<finding>\"}}]}}. "
-        f"If no evidence found, return {{\"evidence\": []}}."
+        f"If no evidence found for a cell, return {{\"evidence\": []}} — do NOT fabricate values."
     )
 
 

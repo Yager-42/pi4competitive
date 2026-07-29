@@ -79,7 +79,15 @@ class TaskService:
             session_id=session_id,
         )
         # Kick off the six-stage runner (F-R22).
-        self._registry.start_task(task_id, self, self._run_research(task_id, research_brief, session, session_id))
+        # Experiment harness: optional stop_after_stage from metadata (search-only runs).
+        stop_after_stage = _metadata_stop_after(metadata)
+        self._registry.start_task(
+            task_id,
+            self,
+            self._run_research(
+                task_id, research_brief, session, session_id, stop_after_stage=stop_after_stage
+            ),
+        )
         return {
             "task_id": task_id,
             "session_id": session_id,
@@ -203,6 +211,7 @@ class TaskService:
         session_id: str,
         *,
         start_stage: str | None = None,
+        stop_after_stage: str | None = None,
     ) -> None:
         # Build a per-task harness (F-R7: default model via factory).
         # Always create a fresh harness — resume must not reuse prior runtime state.
@@ -232,7 +241,7 @@ class TaskService:
             )
             self._runners[task_id] = (runner, abort_signal, agent)
             await self._store.update_task_status(task_id, "running")
-            await runner.run(start_stage=start_stage)
+            await runner.run(start_stage=start_stage, stop_after_stage=stop_after_stage)
         except asyncio.CancelledError:
             if agent is not None:
                 agent.abort()
@@ -327,6 +336,18 @@ def _extract_brief_from_prompt(text: str) -> ResearchBrief | None:
         return ResearchBrief.model_validate(data)
     except Exception:
         return None
+
+
+def _metadata_stop_after(metadata: dict[str, Any]) -> str | None:
+    """Read an optional ``stop_after_stage`` from task metadata (experiment harness).
+
+    Validates against STAGES so a bad value can't drive the runner into an
+    unknown stage. Returns None when absent/invalid (normal full-pipeline run).
+    """
+    raw = metadata.get("stop_after_stage") if isinstance(metadata, dict) else None
+    if not isinstance(raw, str) or not raw:
+        return None
+    return raw if raw in STAGES else None
 
 
 __all__ = ["TaskConflictError", "TaskNotFoundError", "TaskService"]

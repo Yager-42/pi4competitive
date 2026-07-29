@@ -509,3 +509,59 @@ async def test_coverage_engine_dispatch_parallel_runs_concurrently(tmp_path: Pat
     subtasks = [{"entity_id": f"e_{i}", "target_cells": [f"e_{i}.a"], "question": "q"} for i in range(4)]
     await engine._dispatch_parallel(SOCMState(), subtasks)
     assert max_in_flight >= 2, f"parallel dispatch did not run concurrently (max_in_flight={max_in_flight})"
+
+
+# --------------------------------------------- Tier-0/1 actionable + satisfied
+
+
+def _map_two_cells() -> CoverageMap:
+    return CoverageMap.from_schema(
+        table_id="t",
+        entities=[Entity(id="e_a", name="A", kind=EntityType.TARGET)],
+        attributes=[
+            Attribute(id="a_p", name="P", dimension="pricing", type=AttributeType.MONEY_USD),
+            Attribute(id="a_q", name="Q", dimension="specs", type=AttributeType.TEXT),
+        ],
+    )
+
+
+def test_actionable_includes_empty_and_retryable_unknown():
+    cm = _map_two_cells()
+    # one cell EMPTY, one UNKNOWN with attempts=1 (< max=2) → both actionable
+    cm.mark_unknown("e_a", "a_q")
+    assert cm.get_cell("e_a", "a_q").attempts == 1
+    actionable = cm.actionable_cells(max_attempts=2)
+    assert {c.attribute_id for c in actionable} == {"a_p", "a_q"}
+
+
+def test_actionable_excludes_exhausted_unknown():
+    cm = _map_two_cells()
+    cm.mark_unknown("e_a", "a_q")
+    cm.mark_unknown("e_a", "a_q")  # attempts=2 >= max → terminal-given-up
+    actionable = cm.actionable_cells(max_attempts=2)
+    assert {c.attribute_id for c in actionable} == {"a_p"}  # a_q exhausted, only a_p empty
+
+
+def test_satisfied_ratio_excludes_actionable_empty():
+    cm = _map_two_cells()
+    # both empty → 0 satisfied
+    assert cm.satisfied_ratio(max_attempts=2) == 0.0
+
+
+def test_satisfied_ratio_counts_strong_fill_and_exhausted_unknown():
+    cm = _map_two_cells()
+    cm.fill("e_a", "a_p", value="$10", source="url1", confidence=0.9)  # strong → satisfied
+    cm.mark_unknown("e_a", "a_q")
+    cm.mark_unknown("e_a", "a_q")  # attempts=2 → exhausted terminal → satisfied
+    assert cm.satisfied_ratio(max_attempts=2) == 1.0
+
+
+def test_satisfied_ratio_excludes_weak_unsearched_fill():
+    # A weak FILLED (conf<WEAK) with attempts=0 is NOT yet satisfied (could be re-searched
+    # once a junk/low-conf cycle bumps attempts). Here attempts stays 0 so it is not in the
+    # actionable set either → it is neither satisfied nor actionable (edge). The strong
+    # cell is satisfied; the weak-0-attempt cell is not satisfied.
+    cm = _map_two_cells()
+    cm.fill("e_a", "a_p", value="$10", source="url1", confidence=0.5)  # weak, attempts=0
+    # a_q empty
+    assert cm.satisfied_ratio(max_attempts=2) == 0.0  # nothing satisfied yet

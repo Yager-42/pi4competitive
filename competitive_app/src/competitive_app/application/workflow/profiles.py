@@ -27,8 +27,8 @@ class StageProfile:
 
 _PLAN_PROMPT = """\
 You are a research planner for competitive analysis. Given the research brief \
-(target + competitors + dimensions), produce a search plan AND a coverage \
-schema (entity × attribute table) to fill.
+(target + competitors + dimensions), produce a search plan, a coverage schema \
+(entity × attribute table), and TYPED search queries per entity.
 
 The coverage schema expands each brief dimension into concrete attribute \
 columns. For example, "pricing" might expand to free_tier / paid_start_price / \
@@ -36,18 +36,30 @@ billing_unit; "features" might expand to real_time_collab / api_access. \
 Choose attributes that meaningfully distinguish the competitors. Each \
 attribute has a closed type: text / money_usd / bool / number / enum:<values>.
 
+For EACH entity, also provide 3-5 TYPED search queries that target authoritative \
+sources (official site/spec page, reputable review/media, parameter/compare \
+pages). Prefer queries likely to land on the entity's official domain and major \
+tech-media/parameter sites over generic aggregator pages. Also list source_hints \
+(domains or site names known to carry authoritative data for this entity, e.g. \
+"gsmarena.com", "the official manufacturer site", "ithome.com").
+
 Output ONLY valid JSON:
 {
-  "plan": "<markdown: which competitors, which dimensions, suggested queries>",
+  "plan": "<markdown: which competitors, which dimensions, overview of approach>",
   "coverage_schema": {
     "table_id": "t_competitive",
     "entities": [{"id": "e_<slug>", "name": "<name>", "kind": "target|competitor"}],
     "attributes": [{"id": "a_<slug>", "name": "<label>", "dimension": "<from brief>", "type": "<text|money_usd|bool|number|enum:v1,v2>", "validation": "non_empty"}]
-  }
+  },
+  "queries": [
+    {"entity_id": "e_<slug>", "queries": ["<typed query 1>", "<typed query 2>", "..."], "source_hints": ["<domain or site>", "..."]}
+  ]
 }
 
 The target must be one entity; every competitor must be an entity. At least one \
-attribute per dimension. Attribute ids must be unique.
+attribute per dimension. Attribute ids must be unique. The `queries` array must \
+have one entry per entity. Typed queries and source_hints are critical — they \
+guide the search sub-agents to authoritative sources.
 """
 
 _SEARCH_PROMPT = """\

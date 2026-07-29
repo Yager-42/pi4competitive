@@ -81,11 +81,11 @@
 | **禁止** | 以旧仓 `backend/agent/**` 替代 `packages/ai|agent`；把旧仓范围当必须 1:1 复刻清单 |
 | 对照 | **Pi 父本** 仍只为 §1.2 `earendil-works/pi` **main**（ADR 0007） |
 
-### 1.4 SearchOS — P4 research-workflow v0.2.0 引擎架构参考
+### 1.4 SearchOS — P4 research-workflow v0.2.0 引擎架构参考（v0.2.1 patch）
 
 | 项 | 约定 |
 |----|------|
-| 角色 | **仅** `research-workflow-v1` v0.2.0 引擎架构参考（coverage map / SOCM / Extraction / Sensor 概念来源）；**不是** agent 内核规范源，**不是**代码同构对象 |
+| 角色 | **仅** `research-workflow-v1` v0.2.0 引擎架构参考（v0.2.1 patch：搜索质量修复，见 ADR 0010 Patch v0.2.1；coverage map / SOCM / Extraction / Sensor 概念来源）；**不是** agent 内核规范源，**不是**代码同构对象 |
 | 仓库名 | `SearchOS`（`antins-labs/SearchOS`） |
 | 远程 | https://github.com/antins-labs/SearchOS |
 | 本地约定 | 与 `pi4competitive` **并排** 检出 `SearchOS/` |
@@ -356,3 +356,4 @@ pi4competitive/
 | **0.3.4** | 2026-07-24 | **ADR 0008**：P3.1 agent engine extension 运行时；D5/D16/§5；feature `agent-engine-extensions-v1` frozen v0.2.0 |
 | **0.3.5** | 2026-07-26 | **ADR 0009**：新增 P3.2 Pi extension capability enablement；D5/D16/§5/术语更新；Reasonix policy 仍在 local package |
 | **0.3.6** | 2026-07-28 | **ADR 0010**：P4 research-workflow v0.2.0 — SearchOS coverage 引擎复现（三阶段 plan/search/write + SOCM + 并行 sub-agent + Extraction + Sensor）；反转 F-R2/F-R3/F-R7/F-R10（局部）；§1.4 SearchOS 参考身份；D24 澄清；feature `research-workflow-v1` v0.2.0 + `competitive-app-http-v1` v0.3.0 |
+| *(0.3.6 patch)* | 2026-07-29 | **ADR 0010 Patch v0.2.1**：research-workflow v0.2.0 → v0.2.1 搜索质量修复（接通 mark_unknown + junk/低置信过滤 + actionable/satisfied 谓词 + judge 禁占位/多源 + 结构化 queries + subtask 拆细）；局部反转 D-S3/D-S6/D-S8"一轮单源"默认；**不动 D*/G* 核心、不升 contract_version**（无架构决策变更，仅搜索行为补丁）；feature `research-workflow-v1` v0.2.1 |

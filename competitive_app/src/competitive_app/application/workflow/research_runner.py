@@ -65,11 +65,20 @@ class ResearchRunner:
         # which is only set inside harness.prompt and stale on resume).
         self._session_id = session_id or getattr(self.agent, "session_id", "") or ""
 
-    async def run(self, start_stage: str | None = None) -> str:
+    async def run(
+        self,
+        start_stage: str | None = None,
+        stop_after_stage: str | None = None,
+    ) -> str:
         """Run stages strictly in order. Returns final task status.
 
         ``start_stage`` (F-R16): if set, stages before it that are already ok
         are skipped. The start_stage itself and everything after runs.
+
+        ``stop_after_stage`` (experiment harness): if set, run stages up to and
+        INCLUDING this stage, then stop (subsequent stages stay pending). Used by
+        the three-vs-six comparison to measure search-only quality without the
+        cost of the write/analyze stages. Task is marked completed.
         """
         projection = await self._load_projection()
         start_index = STAGES.index(start_stage) if start_stage else 0
@@ -113,6 +122,14 @@ class ResearchRunner:
             projection = await self._load_projection()
             projection["stages"][name] = "ok"
             await self._save_projection(projection)
+            # Experiment harness: stop after the named stage (search/collect) without
+            # running downstream stages. Mark completed — the search stage is what we
+            # wanted to measure.
+            if stop_after_stage and name == stop_after_stage:
+                projection["current_stage"] = None
+                await self._save_projection(projection)
+                await self._set_status("completed")
+                return "completed"
 
         projection["current_stage"] = None
         await self._save_projection(projection)

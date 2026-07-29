@@ -154,12 +154,23 @@ class EvidenceIntake:
                 value = str(item.get("value") or "").strip()
                 if not value or attr not in empty_attrs:
                     continue
+                # A2: reject junk placeholder values — they mean "not found", not a real value.
+                # Route these to UNKNOWN (mark_unknown) instead of FILLED so the cell stays
+                # re-dispatchable and write renders it as "no reliable source".
+                if _is_junk_value(value):
+                    s.coverage_map.mark_unknown(entity_id, attr)
+                    continue
                 source = str(item.get("source") or "")
                 excerpt = str(item.get("source_excerpt") or "")[:200]
                 try:
                     confidence = float(item.get("confidence") or 0.5)
                 except (TypeError, ValueError):
                     confidence = 0.5
+                # A2: low-confidence findings don't earn a FILLED — mark UNKNOWN so the
+                # cell can be re-searched for a stronger source (Tier-0 judge fidelity).
+                if confidence < _min_confidence():
+                    s.coverage_map.mark_unknown(entity_id, attr)
+                    continue
                 node = EvidenceNode(
                     id=f"ev_{uuid4().hex[:8]}",
                     entity=entity_id,
@@ -233,11 +244,20 @@ def _build_judge_prompt(entity_id: str, empty_attrs: list[str], pages_blob: str)
         f"Entity: {entity_id}\n"
         f"Attributes to fill: {attrs}\n\n"
         f"Pages:\n{pages_blob}\n\n"
-        f"For each attribute you can fill from the pages, return a JSON array of objects:\n"
+        f"Return a JSON array of objects, one PER (attribute, source) pair — i.e. if the same "
+        f"attribute is supported by multiple pages/sources, return one object for EACH source:\n"
         f'[{{"attribute": "<attr_id>", "value": "<value>", "source": "<url>", '
         f'"source_excerpt": "<verbatim quote>", "confidence": <0-1>}}]\n\n'
-        f"Only fill attributes whose value is directly supported by the page text. "
-        f"If no attribute can be filled, return []. Output ONLY the JSON array."
+        f"STRICT RULES:\n"
+        f"- Only fill an attribute if a page EXPLICITLY states its value with a verbatim quote. "
+        f"If no page states the value, OMIT that attribute (do not include it in the array).\n"
+        f"- NEVER return placeholder values: 'Not specified', 'N/A', 'n/a', 'Unknown', '未知', "
+        f"'未公布', '暂未公布', 'TBD', '—', or any equivalent. If the page only implies or "
+        f"guesses the value, OMIT the attribute.\n"
+        f"- confidence reflects how directly + authoritatively the page supports the value "
+        f"(official spec page = 0.9; reputable review = 0.7; forum/aggregator = 0.4).\n"
+        f"- source_excerpt MUST be a verbatim substring of the page text supporting the value.\n"
+        f"If no attribute can be filled from the pages, return []. Output ONLY the JSON array."
     )
 
 
@@ -320,6 +340,76 @@ def _extract_source(event: Any, tool_name: str) -> str:
         if isinstance(url, str) and url:
             return url
     return f"{tool_name}:fetch"
+
+
+# Junk placeholder patterns: a "value" matching these means the page did NOT state the
+# value, so the cell should go UNKNOWN (re-searchable) rather than FILLED with garbage.
+# ADR 0010 D-S6 fidelity fix (Tier-0): prevents "Not specified" / "N/A" poisoning cells.
+_JUNK_PATTERNS = (
+    "not specified",
+    "not mentioned",
+    "not available",
+    "not stated",
+    "not found",
+    "not provided",
+    "not yet",
+    "no data",
+    "no info",
+    "no information",
+    "n/a",
+    "n a",
+    "na",
+    "unknown",
+    "unspecified",
+    "tbd",
+    "tba",
+    "pending",
+    "placeholder",
+    "see above",
+    "未知",
+    "未公布",
+    "未提及",
+    "未提供",
+    "未明确",
+    "暂未",
+    "暂无",
+    "暂未公布",
+    "待定",
+    "不详",
+    "无数据",
+    "尚无",
+    "未见",
+)
+
+
+def _is_junk_value(value: str) -> bool:
+    """True if `value` is a placeholder meaning "page didn't state it" (Tier-0).
+
+    Normalized: lowercase, collapse whitespace, strip punctuation/dashes/quotes.
+    A bare dash/underscore/dot or a pure number-free token like "N/A" matches.
+    """
+    import re
+
+    norm = re.sub(r"[\s\-—–_\"'.,:;()]+", " ", value).strip().lower()
+    if not norm:
+        return True
+    # Pure dash / dot / underscore / slash filler.
+    if norm in {"-", "—", "–", "_", ".", "/", ":"}:
+        return True
+    return norm in _JUNK_PATTERNS
+
+
+def _min_confidence() -> float:
+    """SEARCH_MIN_CONFIDENCE env (default 0.4) — findings below this go UNKNOWN."""
+    import os
+
+    raw = os.environ.get("SEARCH_MIN_CONFIDENCE")
+    if not raw:
+        return 0.4
+    try:
+        return float(raw)
+    except ValueError:
+        return 0.4
 
 
 __all__ = [

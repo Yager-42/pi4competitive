@@ -2,9 +2,9 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.2.0` |
+| **feature_contract_version** | `0.2.1` |
 | **status** | **frozen** |
-| **updated** | 2026-07-28 |
+| **updated** | 2026-07-29 |
 | **feature_id** | `research-workflow-v1` |
 | **roadmap_stage** | **P4** `competitive_app` —— 三阶段研究 workflow（SearchOS coverage 引擎复现；替换 v0.1.1 六阶段） |
 | **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6**（§3.2 / D8 / G1 / G2 / D24 + ADR 0010） |
@@ -326,9 +326,9 @@ resume 时：重开 JSONL session（恢复对话）+ 读 `search_state.json`（�
 
 | 项 | 值 |
 |----|-----|
-| 冻结版本 | `0.2.0` |
-| 冻结日期 | 2026-07-28 |
-| grill | 31 决策收敛（§8 F-R1..F-R31；v0.1.1 的 F-R1..F-R24 + v0.2.0 的 F-R25..F-R31） |
+| 冻结版本 | `0.2.1` |
+| 冻结日期 | 2026-07-29（v0.2.1 patch；v0.2.0 frozen 2026-07-28） |
+| grill | 31 决策收敛（§8 F-R1..F-R31；v0.1.1 的 F-R1..F-R24 + v0.2.0 的 F-R25..F-R31）+ v0.2.1 补丁（D-S3'/D-S6'/D-S8'/D-S2a/D-S2b，见 ADR 0010 Patch v0.2.1） |
 | 验收 | §6 Offline O1–O15 + Live L1–L2 |
 | 架构影响 | **升 `ARCHITECTURE_CONTRACT` v0.3.5 → v0.3.6**（ADR 0010） |
 | Roadmap | 见 `docs/ROADMAP.md` §5（业务能力 v2 研究闭环落地） |
@@ -341,3 +341,4 @@ resume 时：重开 JSONL session（恢复对话）+ 读 `search_state.json`（�
 | 0.1.0 | 2026-07-26 | 草案：六阶段研究 workflow |
 | 0.1.1 | 2026-07-26 | **grill frozen**：24 决策；六阶段同构 + 统一一次 prompt + 顺序门禁 + 产物进 JSONL + 简化 ResearchBrief + 单模型 + per-stage 工具 + resume 接着跑 + 替换占位 runner |
 | 0.2.0 | 2026-07-28 | **grill frozen（ADR 0010）**：六阶段→三阶段（plan/search/write）；复现 SearchOS coverage 引擎（SOCM + 并行 sub-agent + Extraction + Sensor）；反转 F-R2/F-R3/F-R7/F-R10（局部）；新增 F-R25..F-R31；升架构契约 v0.3.6；`competitive-app-http-v1` 升 v0.3.0 |
+| 0.2.1 | 2026-07-29 | **patch frozen（ADR 0010 Patch v0.2.1）**：搜索质量第一步修复——接通 `mark_unknown`（UNKNOWN 状态可达）+ junk/低置信过滤（`_is_junk_value` / `SEARCH_MIN_CONFIDENCE`）+ actionable/satisfied 谓词（`SEARCH_MAX_CELL_ATTEMPTS` / `WEAK_CONFIDENCE`）+ judge prompt 强约束禁占位 + 多源抽取 + plan 结构化 `queries`/`source_hints`（D-S2a）+ subtask 按 `SEARCH_SUBTASK_CHUNK` 拆细（D-S2b）；局部反转 D-S3/D-S6/D-S8 的"一轮单源"默认；对比实验验证两题三阶段搜索质量均显著优于六阶段（源权威性 87%/31% vs 47%/13%、0 junk）；不动 D*/G* 核心、不碰 packages/ai\|agent |
