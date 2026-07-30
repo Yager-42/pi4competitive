@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.27` |
+| **roadmap_version** | `0.1.31` |
 | **status** | active |
 | **updated** | 2026-07-30 |
 | **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6** |
@@ -27,6 +27,7 @@
 | **agent engine extensions** | **done** | feature **v0.3.0**（P3.1 completed baseline + P3.2 delta）；计划 **v0.2.4 completed** |
 | **P3.2 Pi extension capability enablement** | **done** | feature **v0.1.0 frozen**；extension runtime delta **v0.3.0 frozen**；plan [`P3_2_pi_extension_capability_enablement.md`](plans/P3_2_pi_extension_capability_enablement.md) **v0.1.2 completed**；ADR 0009 |
 | **capability 里具体有哪些搜抓包** | **frozen** + 实现计划 | 搜索 feature 契约；计划 [`docs/plans/P4_search_capability_packages.md`](plans/P4_search_capability_packages.md) |
+| **workflow Skill 自进化** | **implemented / verified** | feature **frozen v0.2.1**；plan [`P4_workflow_skill_self_evolution.md`](plans/P4_workflow_skill_self_evolution.md) **v0.1.2 completed**；O1–O16、S1–S4、真实 provider L1–L4 green |
 
 ---
 
@@ -163,6 +164,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 2 | 本期已冻结能力：**三搜索 package + 五 AgentTool + Offline/Live 验收**（feature 契约 §4 / §10） |
 | 3 | 业务 policy 只进 `competitive_app` + `capability_packages/*`，不进 `packages/ai|agent`；P3.2 仅允许 ADR 0009 的 provider-neutral bridge / upstream parity |
 | 4 | 旧仓 = **能力参考**（非 1:1 复刻）：[`xj120/competitive-agent`](https://github.com/xj120/competitive-agent)；本地与本仓并排 `competitive-agent/`；契约 D12 / ADR 0007 / §1.3 |
+| 5 | workflow Skill 自进化：feature **frozen v0.2.1** + plan [`P4_workflow_skill_self_evolution.md`](plans/P4_workflow_skill_self_evolution.md) **completed v0.1.2**；实现与验证已完成，后续变更须新建 feature/plan，不从未冻结 backlog 推断 |
 
 **本期已冻结（search capability v1）：**
 
@@ -170,7 +172,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 2. Tools：`tavily_search` / `tavily_fetch` / `anysearch_search` / `anysearch_fetch` / `grok_search`  
 3. 统一 `search_result.v1` / `fetch_result.v1` + Agent 可见 toolResult（feature 契约 §10）  
 
-**仍未冻结（后续 grill）：** 研究阶段 workflow 骨架、任务 API 全貌、完整报告 schema。  
+**仍未冻结：** 完整 fact_report schema，以及其余未单独冻结的 P4 业务能力。workflow Skill 自进化已冻结、实现并完成验证。
 
 ---
 
@@ -185,6 +187,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P3.2 Pi extension capability enablement | **done** | 2026-07-26 | A+B+E；Offline 139 passed；full-stack Live warm-cache green；plan v0.1.2 |
 | P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.3.2：20 路由 = 14 + reports×2 + SSE + trace + refine + feedback；报告列表+全文 + SSE 11 事件 + trace span + 章节批注深化 + 修正率闭环）+ 三阶段研究 workflow（`research-workflow-v1` v0.2.2 frozen；write sections + trace span；SearchOS coverage 引擎；ADR 0010 + Patch；SOCM + 并行 sub-agent + judge；搜索质量修复；offline 132 passed + live）；后续：证据库/订阅/仪表盘/澄清问卷 |
 | 业务能力 v1 | **partial**（搜索 capability **done** + 研究闭环 v1 done / v2 in_progress） | 2026-07-29 | search packages + 三阶段研究 workflow v0.2.1 冻结（ADR 0010 Patch v0.2.1）；v2 引擎实现 PR2-6 + 搜索质量修复；完整 fact_report schema 仍 todo |
+| P4 workflow Skill 自进化 | **done** | 2026-07-30 | App-owned Workflow Skill Overlay；Poirot frozen SHA；transplant-first；G0–F5 / O1–O16 / S1–S4 / 真实 provider L1–L4 全部完成；自动 CAPTURED、task-driven FIX、GitRatchet rollback 已接线；不改架构契约 |
 
 状态枚举：`todo` | `in_progress` | `done` | `blocked`。
 
@@ -232,3 +235,9 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.25 | 2026-07-29 | **research-workflow-v1 v0.2.1 patch frozen（ADR 0010 Patch v0.2.1）**：搜索质量第一步修复——接通 `mark_unknown`（UNKNOWN 可达）+ junk/低置信过滤 + actionable/satisfied 谓词 + judge prompt 禁占位/多源抽取 + plan 结构化 queries + subtask 拆细；局部反转 D-S3/D-S6/D-S8"一轮单源"默认；三阶段vs六阶段对比实验两题三阶段均优（源权威性 87%/31% vs 47%/13%、0 junk）；不动 D*/G* 核心、不碰 packages/ai\|agent |
 | 0.1.26 | 2026-07-29 | **competitive-app-http-v1 v0.3.1 frozen（对齐 VerdaAI 第一批）**：新增 3 路由（`GET /reports` 卡片列表 + `GET /reports/{task_id}` 结构化全文 + `GET /tasks/{id}/stream` SSE 流式 11 事件）；report_id 复用 task_id；卡片字段 runner 完成时落 projection；全文实时组装（JSONL+SOCM）；SSE state_snapshot + 15s heartbeat + 断连任务继续；emit_event 透传链；created_at 空串 bug 修复；14 路由不破坏、不动 D*/G*；offline 117 passed |
 | 0.1.27 | 2026-07-30 | **http v0.3.2 + research-workflow v0.2.2 frozen（对齐 VerdaAI 第二批）**：新增 3 路由（`GET /tasks/{id}/trace` span 列表 + `POST /reports/{id}/refine` 章节重写 + `POST /reports/{id}/feedback` 修正率）；write 产物加 `sections`（后端从 report 切）；trace span 记录（LLM 调用包夹 emit span → SQLite `task_spans`，轻量无全文，不推 SSE）；refine append stage_output（守 D24）；feedback `report_feedback` 表（修正率不进 projection）；TaskService 加 models 参数；17 路由不破坏、不动 D*/G*；offline 132 passed |
+| 0.1.28 | 2026-07-30 | 新增 `workflow-skill-self-evolution-v1` v0.1.0-draft：记录 App-owned Workflow Skill Overlay；核心要求为在现有架构内 copy-first 移植 Poirot Skill L1/L2/L3（module map + 最小 host glue + MIT attribution），只进化 workflow 未固定策略；G1–G29 待 grilling；未 frozen、无 plan、禁止实现；不动架构契约 v0.3.6 |
+| 0.1.29 | 2026-07-30 | `workflow-skill-self-evolution-v1` 升 v0.2.0-draft：完成 G1–G29 grilling；冻结 Poirot SHA 与 transplant-first 边界，四 scope/版本固定、FIX+CAPTURED、Poirot eval/自动 promotion/effective-rate rollback、原表+companion tables、capability active manifest、删除/并发/预算/安全边界均 resolved；明确不自行增加 benchmark、DERIVED、manual capture、prompt-injection 防护或 crash recovery；待最终冻结审阅，无 plan，禁止实现；架构契约仍 v0.3.6 |
+| 0.1.30 | 2026-07-30 | 用户确认冻结 `workflow-skill-self-evolution-v1` v0.2.0：G1–G29、Poirot frozen SHA、transplant-first module map、FIX/CAPTURED、四 scope、数据/文件/晋升/回滚/删除/并发/预算/安全边界正式生效；架构契约保持 v0.3.6；实现计划待建，尚未开始实现 |
+| 0.1.31 | 2026-07-30 | 建立 [`P4_workflow_skill_self_evolution.md`](plans/P4_workflow_skill_self_evolution.md) v0.1.0 active：逐文件 COPY/ADAPT/REWRITE/OMIT/NEW-HOST module map；A foundation→B 四 scope 注入硬门→C Eval→D Evolution→E lifecycle→F verification；O1–O16 + S1–S4 + L1–L2；feature 做无语义 patch 至 v0.2.1，校正 learned Skill 文件树；implementation not started，架构契约仍 v0.3.6 |
+| 0.1.32 | 2026-07-30 | P4 workflow Skill 自进化实现完成：feature v0.2.1 implementation verified；plan v0.1.0 completed；O1–O16、S1–S4、L1–L2 green；packages/ai|agent 与架构契约未改 |
+| 0.1.33 | 2026-07-30 | 补齐真实运行时链路：feedback→refine→CAPTURED、completed task→FIX cycle、四 scope live binding、cycle 内 GitRatchet rollback；L1–L4 green；架构契约与 packages/ai|agent 未改 |

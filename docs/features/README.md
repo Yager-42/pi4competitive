@@ -10,8 +10,9 @@
 | [`reasonix_prefix_cache_v1.md`](reasonix_prefix_cache_v1.md) | `reasonix-prefix-cache-v1` | **frozen** v0.1.0 | [`P3_2_pi_extension_capability_enablement.md`](../plans/P3_2_pi_extension_capability_enablement.md) **completed v0.1.2**；ADR 0009 |
 | [`competitive_app_http_v1.md`](competitive_app_http_v1.md) | `competitive-app-http-v1` | **frozen** v0.3.0 | [`P4_competitive_app_http.md`](../plans/P4_competitive_app_http.md) **completed**；14 路由；task 行为由 research-workflow-v1 v0.2.0 提供 |
 | [`research_workflow_v1.md`](research_workflow_v1.md) | `research-workflow-v1` | **frozen** v0.2.0 | [`P4_research_workflow_v2.md`](../plans/P4_research_workflow_v2.md) 随 PR2 起补；三阶段研究 workflow（SearchOS coverage 引擎；ADR 0010）；v1 plan `P4_research_workflow.md` completed v0.1.1（历史保留） |
+| [`workflow_skill_self_evolution_v1.md`](workflow_skill_self_evolution_v1.md) | `workflow-skill-self-evolution-v1` | **frozen** v0.2.1；G1–G29 resolved；implementation verified；真实 provider L1–L4 green | [`P4_workflow_skill_self_evolution.md`](../plans/P4_workflow_skill_self_evolution.md) **v0.1.2 completed**；Poirot transplant-first |
 
-> 状态板与 changelog 见 [`docs/ROADMAP.md`](../ROADMAP.md)（roadmap v0.1.24 / 架构契约 v0.3.6）。本目录只索引 feature 边界契约。
+> 状态板与 changelog 见 [`docs/ROADMAP.md`](../ROADMAP.md)（roadmap v0.1.33 / 架构契约 v0.3.6）。本目录只索引 feature 边界契约。
 
 ## 约定
 
