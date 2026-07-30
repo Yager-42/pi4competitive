@@ -349,6 +349,31 @@ class CoverageMap(BaseModel):
             "ratio": round(self.coverage_ratio(), 4),
         }
 
+    def to_projection_with_states(self) -> dict[str, Any]:
+        """v0.3.1: four-state breakdown for GET /reports/{id} full report.
+
+        Includes unknown/conflict counts (to_projection only has filled/total).
+        The report page renders the four-state distribution as a pi4 differentiator.
+        """
+        total = len(self.cells)
+        filled = 0
+        unknown = 0
+        conflict = 0
+        for c in self.cells.values():
+            if c.status == CellStatus.FILLED:
+                filled += 1
+            elif c.status == CellStatus.UNKNOWN:
+                unknown += 1
+            elif c.status == CellStatus.CONFLICT:
+                conflict += 1
+        return {
+            "filled": filled,
+            "total": total,
+            "unknown": unknown,
+            "conflict": conflict,
+            "ratio": round(self.coverage_ratio(), 4),
+        }
+
 
 def _normalize_value(value: str) -> str:
     """Normalize a value for same/different comparison (case + whitespace)."""

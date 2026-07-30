@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ....wiring import AppConfig, ApplicationState, build_application_state, load_config_from_env
 from .routes_health import router as health_router
+from .routes_reports import router as reports_router
 from .routes_sessions import router as sessions_router
 from .routes_tasks import router as tasks_router
 
@@ -49,6 +50,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     )
     app.include_router(sessions_router)
     app.include_router(tasks_router)
+    app.include_router(reports_router)
     app.include_router(health_router)
 
     @app.get("/")

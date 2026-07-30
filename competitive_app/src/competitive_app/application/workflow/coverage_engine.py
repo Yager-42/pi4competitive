@@ -35,6 +35,12 @@ from .profiles import is_search_tool
 
 _log = logging.getLogger(__name__)
 
+
+async def _noop_emit(_event_type: str, _data: dict[str, Any]) -> None:
+    """v0.3.1 SSE: default emit sink (no-op when SSE isn't wired)."""
+    return None
+
+
 # Defaults (env-overridable in wiring; engine takes resolved values).
 DEFAULT_COVERAGE_THRESHOLD = 0.8
 DEFAULT_MAX_ITERATIONS = 10
@@ -90,6 +96,7 @@ class CoverageEngine:
         pause_event: asyncio.Event | None = None,
         subagent_factory: Any = None,
         judge_model: dict[str, Any] | None = None,
+        emit_event: Any = None,
     ) -> None:
         self._socm_store = socm_store
         self._session_id = session_id
@@ -122,6 +129,9 @@ class CoverageEngine:
         self._subagent_factory = subagent_factory
         # PR5 judge model for Extraction (F-R29; None → EvidenceIntake falls back).
         self._judge_model = judge_model
+        # v0.3.1 SSE: business-event callback (iteration/subagent/coverage_update/evidence).
+        # Default noop. Injected by ResearchRunner (which gets it from task_service).
+        self._emit_event = emit_event or _noop_emit
 
     async def run(self, plan_output: dict[str, Any]) -> dict[str, Any]:
         """Run the search loop. Returns the search stage output (evidence + coverage).
@@ -189,6 +199,11 @@ class CoverageEngine:
                 if qinfo:
                     st["queries"] = qinfo.get("queries") or []
                     st["source_hints"] = qinfo.get("source_hints") or []
+            await self._emit_event(
+                "iteration_start",
+                {"iteration": iteration, "actionable_count": len(actionable),
+                 "subtasks": len(subtasks), "task_id": self._task_id},
+            )
             satisfied_before = state.coverage_map.satisfied_ratio(self._max_cell_attempts)
             await self._dispatch_parallel(state, subtasks)
 
@@ -196,6 +211,12 @@ class CoverageEngine:
             after = await self._socm_store.load(self._session_id)
             after.iteration = iteration
             satisfied_after = after.coverage_map.satisfied_ratio(self._max_cell_attempts)
+            # v0.3.1 SSE: coverage_update after each iteration's dispatch round.
+            await self._emit_event(
+                "coverage_update",
+                {"iteration": iteration, **after.coverage_map.to_projection_with_states(),
+                 "task_id": self._task_id},
+            )
 
             # Termination 3: no progress (satisfied-ratio stalled, not just filled-count).
             if satisfied_after <= satisfied_before:
@@ -248,6 +269,11 @@ class CoverageEngine:
 
         async def _spawn_one(subtask: dict[str, Any]) -> str:
             label = f"sub_{uuid4().hex[:8]}"
+            await self._emit_event(
+                "subagent_start",
+                {"entity": subtask.get("entity_id", ""), "cells": subtask.get("target_cells", []),
+                 "label": label, "task_id": self._task_id},
+            )
             task = asyncio.create_task(
                 self._run_subagent_ephemeral(subtask), name=f"search:{label}"
             )
@@ -313,6 +339,7 @@ class CoverageEngine:
             socm_store=self._socm_store,
             session_id=self._session_id,
             judge_model=self._judge_model,
+            emit_event=self._emit_event,
         )
         try:
             agent = harness.agent
@@ -326,6 +353,12 @@ class CoverageEngine:
                     await intake.flush()
                 except Exception:  # noqa: BLE001
                     _log.exception("extraction flush failed for subtask %s", subtask.get("question"))
+            # v0.3.1 SSE: subagent_end after flush (evidence already in SOCM).
+            await self._emit_event(
+                "subagent_end",
+                {"entity": subtask.get("entity_id", ""),
+                 "cells": subtask.get("target_cells", []), "task_id": self._task_id},
+            )
         finally:
             current_subtask.set(None)
             try:

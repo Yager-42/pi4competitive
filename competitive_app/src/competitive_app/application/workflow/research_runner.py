@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from ...domain.research_brief import ResearchBrief
 from ...domain.stage import (
@@ -47,6 +47,7 @@ class ResearchRunner:
         session_id: str | None = None,
         subagent_factory: Any = None,
         judge_model: dict[str, Any] | None = None,
+        emit_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         self.task_id = task_id
         self.harness = harness
@@ -61,6 +62,9 @@ class ResearchRunner:
         self._coverage_engine = coverage_engine
         self._subagent_factory = subagent_factory
         self._judge_model = judge_model
+        # v0.3.1 SSE: business-event callback (default noop). Injected by task_service
+        # as a closure pushing to a per-task asyncio.Queue. None → no SSE, no overhead.
+        self._emit_event = emit_event or _noop_emit
         # Explicit session_id for SOCM path (don't rely on agent.session_id,
         # which is only set inside harness.prompt and stale on resume).
         self._session_id = session_id or getattr(self.agent, "session_id", "") or ""
@@ -86,6 +90,8 @@ class ResearchRunner:
         for index, name in enumerate(STAGES):
             if self.abort_signal.is_set():
                 await self._set_status("aborted")
+                await self._emit_event("error", {"task_id": self.task_id, "status": "aborted",
+                                                 "message": "aborted by signal"})
                 return "aborted"
             if index < start_index:
                 if projection["stages"].get(name) == "ok":
@@ -101,6 +107,7 @@ class ResearchRunner:
             projection["current_stage"] = name
             projection["stages"][name] = "running"
             await self._save_projection(projection)
+            await self._emit_event("stage_start", {"stage": name, "task_id": self.task_id})
             try:
                 result = await self._run_stage(name, projection)
             except asyncio.CancelledError:
@@ -108,13 +115,21 @@ class ResearchRunner:
                 projection["stages"][name] = "failed"
                 await self._save_projection(projection)
                 await self._set_status("aborted")
+                await self._emit_event("error", {"task_id": self.task_id, "status": "aborted",
+                                                 "stage": name, "message": "cancelled"})
                 raise
             except Exception as exc:  # noqa: BLE001
                 result = StageResult(stage=name, ok=False, output={}, error=f"{type(exc).__name__}: {exc}")
             if not result.ok:
                 projection["stages"][name] = "failed"
                 await self._save_projection(projection)
+                await self._emit_event(
+                    "stage_end", {"stage": name, "ok": False, "task_id": self.task_id,
+                                  "error": result.error}
+                )
                 await self._set_status("failed")
+                await self._emit_event("error", {"task_id": self.task_id, "status": "failed",
+                                                 "stage": name, "message": result.error or ""})
                 return "failed"
             # Re-load projection: the search stage's CoverageEngine writes
             # `coverage` directly to the store; merge it into our in-memory copy
@@ -122,18 +137,28 @@ class ResearchRunner:
             projection = await self._load_projection()
             projection["stages"][name] = "ok"
             await self._save_projection(projection)
+            await self._emit_event("stage_end", {"stage": name, "ok": True, "task_id": self.task_id})
+            # write stage done → report ready (report_id = task_id, v0.3.1-A decision 1).
+            if name == "write":
+                await self._emit_event(
+                    "report_ready", {"report_id": self.task_id, "task_id": self.task_id}
+                )
             # Experiment harness: stop after the named stage (search/collect) without
             # running downstream stages. Mark completed — the search stage is what we
             # wanted to measure.
             if stop_after_stage and name == stop_after_stage:
                 projection["current_stage"] = None
+                await self._fill_report_card_fields(projection)
                 await self._save_projection(projection)
                 await self._set_status("completed")
+                await self._emit_event("done", {"task_id": self.task_id, "status": "completed"})
                 return "completed"
 
         projection["current_stage"] = None
+        await self._fill_report_card_fields(projection)
         await self._save_projection(projection)
         await self._set_status("completed")
+        await self._emit_event("done", {"task_id": self.task_id, "status": "completed"})
         return "completed"
 
     async def _run_stage(self, name: str, projection: dict[str, Any]) -> StageResult:
@@ -184,6 +209,7 @@ class ResearchRunner:
             abort_signal=self.abort_signal,
             subagent_factory=self._subagent_factory,
             judge_model=self._judge_model,
+            emit_event=self._emit_event,
         )
         search_output = await engine.run(plan_output)
         # Validate + persist the search stage output (F-R10/F-R4).
@@ -244,8 +270,52 @@ class ResearchRunner:
             for name in STAGES:
                 merged["stages"][name] = existing.get("stages", {}).get(name, "pending")
             merged["coverage"] = existing.get("coverage", merged["coverage"])
+            # v0.3.1 report card fields — merge so resume doesn't lose them.
+            merged["report_title"] = existing.get("report_title", merged["report_title"])
+            merged["brands"] = existing.get("brands", merged["brands"])
+            merged["evidence_count"] = existing.get("evidence_count", merged["evidence_count"])
+            merged["claim_count"] = existing.get("claim_count", merged["claim_count"])
             return merged
         return empty_projection()
+
+    async def _fill_report_card_fields(self, projection: dict[str, Any]) -> dict[str, Any]:
+        """v0.3.1: populate report card fields on task completion.
+
+        - report_title: first `# ...` line of the write stage markdown, fallback to
+          the brief display title. None when write didn't run (stop_after=search).
+        - brands: [brief.target.name] + brief.competitors, de-duped preserving order.
+        - evidence_count: SOCM evidence_graph node count (judge-extracted findings).
+        - claim_count: SOCM coverage_map filled cell count (settled claims).
+
+        Tolerant: any step may fail (no write output, no SOCM) — fields stay at
+        their empty_projection defaults rather than raising.
+        """
+        # brands — from the brief, always available.
+        brands = list(
+            dict.fromkeys(
+                [self.research_brief.target.name] + list(self.research_brief.competitors)
+            )
+        )
+        projection["brands"] = brands
+
+        # evidence_count / claim_count — from SOCM (search SoT).
+        try:
+            socm = await self.socm_store.load(self._session_id)
+            projection["evidence_count"] = socm.evidence_graph.node_count()
+            projection["claim_count"] = socm.coverage_map.filled_count()
+        except Exception:  # noqa: BLE001
+            pass  # keep defaults (0)
+
+        # report_title — from write stage markdown first `# ` line, fallback query.
+        try:
+            prior = await collect_prior_outputs(self.session, ("write",))
+            write_out = prior.get("write") or {}
+            markdown = write_out.get("report") or ""
+            title = _extract_report_title(markdown)
+            projection["report_title"] = title or self.research_brief.target.name
+        except Exception:  # noqa: BLE001
+            projection["report_title"] = self.research_brief.target.name
+        return projection
 
     async def _save_projection(self, projection: dict[str, Any]) -> None:
         await self.store.update_task_status(
@@ -291,6 +361,26 @@ def _try_parse_json(text: str) -> Any:
             except Exception:
                 return None
         return None
+
+
+def _extract_report_title(markdown: str) -> str:
+    """v0.3.1: pull the report title from the write stage markdown.
+
+    Takes the first `# ...` heading line, strips the leading `#`/spaces. Returns
+    "" when no heading is found (caller falls back to the brief display title).
+    """
+    if not markdown:
+        return ""
+    for line in markdown.lstrip().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            return stripped.lstrip("#").strip()
+    return ""
+
+
+async def _noop_emit(_event_type: str, _data: dict[str, Any]) -> None:
+    """v0.3.1 SSE: default emit sink (no-op when SSE isn't wired)."""
+    return None
 
 
 __all__ = ["ResearchRunner"]

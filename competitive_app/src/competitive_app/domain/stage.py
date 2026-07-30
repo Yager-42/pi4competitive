@@ -77,11 +77,20 @@ def validate_stage_output(stage: str, output: dict[str, Any]) -> StageResult:
 
 
 def empty_projection() -> dict[str, Any]:
-    """Initial projection for a task (F-R13). v0.2.0: 3 stages + coverage."""
+    """Initial projection for a task (F-R13). v0.2.0: 3 stages + coverage.
+
+    v0.3.1: report card fields (report_title/brands/evidence_count/claim_count)
+    filled by the runner when the task completes — used by GET /reports cards.
+    """
     return {
         "current_stage": None,
         "stages": {name: "pending" for name in STAGES},
         "coverage": {"filled": 0, "total": 0, "pending_cells": 0},
+        # v0.3.1 report card fields (populated on task completion).
+        "report_title": None,
+        "brands": [],
+        "evidence_count": 0,
+        "claim_count": 0,
     }
 
 

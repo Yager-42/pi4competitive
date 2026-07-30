@@ -82,6 +82,7 @@ class TaskProjectionStore:
     ) -> None:
         await self.init()
         assert self._db is not None
+        now = _now_iso()
         async with self._write_lock:
             await self._db.execute(
                 "insert into tasks(task_id, session_id, query, status, created_at, "
@@ -91,8 +92,8 @@ class TaskProjectionStore:
                     session_id,
                     query,
                     status,
-                    projection.get("created_at", ""),
-                    projection.get("updated_at", ""),
+                    now,  # v0.3.1 fix: real timestamp (was "" via projection.get)
+                    now,
                     json.dumps(metadata, ensure_ascii=False),
                     json.dumps(projection, ensure_ascii=False),
                 ),
@@ -116,6 +117,22 @@ class TaskProjectionStore:
         async with self._db.execute(
             "select task_id, session_id, query, status, created_at, updated_at, "
             "metadata_json, projection_json from tasks order by created_at"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_task(r) for r in rows]
+
+    async def list_completed_reports(self) -> list[dict[str, Any]]:
+        """v0.3.1: completed tasks only, newest first (for GET /reports cards).
+
+        Uses the idx_tasks_status(status, created_at) index. Unfiltered list_tasks()
+        is unchanged (GET /tasks still returns all tasks).
+        """
+        await self.init()
+        assert self._db is not None
+        async with self._db.execute(
+            "select task_id, session_id, query, status, created_at, updated_at, "
+            "metadata_json, projection_json from tasks where status = 'completed' "
+            "order by created_at desc"
         ) as cur:
             rows = await cur.fetchall()
         return [_row_to_task(r) for r in rows]

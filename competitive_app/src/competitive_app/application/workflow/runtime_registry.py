@@ -28,6 +28,9 @@ class RuntimeRegistry:
         self._queued: dict[str, list[asyncio.Task[Any]]] = {}
         # task_id → active workflow runner
         self._tasks: dict[str, _ActiveTask] = {}
+        # v0.3.1 SSE: task_id → event queue (pre-registered on create_task so
+        # an early SSE connection doesn't miss events before the runner emits).
+        self._streams: dict[str, asyncio.Queue[Any]] = {}
 
     # ---------------------------------------------------------------- harnesses
 
@@ -97,12 +100,34 @@ class RuntimeRegistry:
             current = self._tasks.get(task_id)
             if current is not None and current.task is completed:
                 self._tasks.pop(task_id, None)
+            # v0.3.1 SSE: drop the event queue once the task is done. SSE clients
+            # that reconnect after completion read the terminal state from the
+            # store (state_snapshot), not from this queue.
+            self._streams.pop(task_id, None)
             if not completed.cancelled():
                 # Surface exceptions so asyncio doesn't warn; callers handle via DB.
                 completed.exception()
 
         task.add_done_callback(_forget)
         return task
+
+    # --------------------------------------------------- v0.3.1 SSE streams
+
+    def register_stream(self, task_id: str) -> asyncio.Queue[Any]:
+        """Pre-register an event queue for a task (before the runner emits).
+
+        Called by task_service on create_task/resume_task so an SSE client
+        connecting during pending→running doesn't miss early events.
+        """
+        q: asyncio.Queue[Any] = asyncio.Queue()
+        self._streams[task_id] = q
+        return q
+
+    def get_stream(self, task_id: str) -> asyncio.Queue[Any] | None:
+        return self._streams.get(task_id)
+
+    def unregister_stream(self, task_id: str) -> None:
+        self._streams.pop(task_id, None)
 
     async def abort_task(self, task_id: str, reason: str = "api_abort") -> bool:
         active = self._tasks.get(task_id)
@@ -131,6 +156,7 @@ class RuntimeRegistry:
         self._harnesses.clear()
         self._locks.clear()
         self._queued.clear()
+        self._streams.clear()
 
 
 __all__ = ["RuntimeRegistry"]

@@ -1,4 +1,4 @@
-"""Contract O3 — 14 routes registered under /api/v2 (feature F-A2)."""
+"""Contract O3 — routes registered under /api/v2 (feature F-A2 / v0.3.1)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,12 +18,15 @@ EXPECTED_PATHS = {
     "/api/v2/tasks/{task_id}/abort",
     "/api/v2/tasks/{task_id}/report",
     "/api/v2/tasks/{task_id}/sessions",
+    "/api/v2/reports",  # v0.3.1
+    "/api/v2/reports/{task_id}",  # v0.3.1
+    "/api/v2/tasks/{task_id}/stream",  # v0.3.1 SSE
     "/api/v2/health",
 }
 
 
 @pytest.mark.asyncio
-async def test_14_routes_registered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_routes_registered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("USE_FAUX", "1")
     monkeypatch.setenv("SESSIONS_ROOT", str(tmp_path / "sessions"))
     monkeypatch.setenv("APP_DB", str(tmp_path / "app.db"))
@@ -45,9 +48,9 @@ async def test_14_routes_registered(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert not missing, f"missing routes: {missing}"
     assert not extra_api, f"unexpected routes: {extra_api}"
 
-    # 14 routes = sum of methods across the 12 distinct /api/v2 paths.
+    # v0.3.0: 14 routes (12 paths). v0.3.1: +2 reports +1 stream = 17 routes.
     route_count = 0
     for path, methods in schema["paths"].items():
         if path.startswith("/api/v2/"):
             route_count += len(methods)
-    assert route_count == 14, f"expected 14 routes, got {route_count}"
+    assert route_count == 17, f"expected 17 routes, got {route_count}"

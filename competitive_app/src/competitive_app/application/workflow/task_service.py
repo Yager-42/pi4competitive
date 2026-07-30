@@ -81,6 +81,9 @@ class TaskService:
         # Kick off the six-stage runner (F-R22).
         # Experiment harness: optional stop_after_stage from metadata (search-only runs).
         stop_after_stage = _metadata_stop_after(metadata)
+        # v0.3.1 SSE: pre-register the event queue before starting the runner so an
+        # early SSE connection doesn't miss the first events.
+        self._registry.register_stream(task_id)
         self._registry.start_task(
             task_id,
             self,
@@ -125,6 +128,7 @@ class TaskService:
         if research_brief is None:
             raise TaskConflictError(f"task {task_id} brief not recoverable")
         session = await self._open_session(session_id)
+        self._registry.register_stream(task_id)  # v0.3.1 SSE: pre-register queue
         self._registry.start_task(
             task_id, self, self._run_research(task_id, research_brief, session, session_id, start_stage=start_stage)
         )
@@ -181,6 +185,79 @@ class TaskService:
             "report": report,
         }
 
+    # ------------------------------------------------------- v0.3.1 reports
+
+    async def list_reports(self) -> dict[str, Any]:
+        """GET /reports — completed-task cards (newest first).
+
+        Cards read purely from SQLite projection (no file IO). Card fields
+        (report_title/brands/evidence_count/claim_count) are populated by the
+        runner on task completion.
+        """
+        tasks = await self._store.list_completed_reports()
+        return {"reports": [self._task_to_report_card(t) for t in tasks]}
+
+    async def get_report_full(self, task_id: str) -> dict[str, Any]:
+        """GET /reports/{task_id} — structured full report (real-time assembly).
+
+        Reads write markdown from JSONL + coverage/sources from SOCM. No extra
+        storage, no stale (always reads the search SoT). Returns not-ready when
+        the task isn't completed or has no write output.
+        """
+        task = await self._store.get_task(task_id)
+        if task is None:
+            raise TaskNotFoundError(task_id)
+        proj = task.get("projection") or {}
+        # Not ready: task not completed, or no write output yet.
+        if task["status"] != "completed" or not proj.get("report_title"):
+            return {
+                "ok": False,
+                "message": "report not ready",
+                "report_id": task_id,
+                "status": task["status"],
+            }
+        session_id = task.get("session_id")
+        markdown = ""
+        if session_id:
+            session = await self._open_session(session_id)
+            from .stage_outputs import get_stage_output
+
+            write_out = await get_stage_output(session, "write")
+            markdown = (write_out or {}).get("report") or ""
+        # Coverage four-state + sources from SOCM.
+        coverage = {"filled": 0, "total": 0, "unknown": 0, "conflict": 0, "ratio": 0.0}
+        sources: list[str] = []
+        if session_id and self._socm_store is not None:
+            socm = await self._socm_store.load(session_id)
+            coverage = socm.coverage_map.to_projection_with_states()
+            sources = sorted({n.source for n in socm.evidence_graph.nodes if n.source})
+        return {
+            "ok": True,
+            "report_id": task_id,
+            "title": proj.get("report_title") or task.get("query", ""),
+            "markdown": markdown,
+            "coverage": coverage,
+            "evidence_count": proj.get("evidence_count", 0),
+            "sources": sources,
+            "created_at": task.get("created_at", ""),
+        }
+
+    @staticmethod
+    def _task_to_report_card(task: dict[str, Any]) -> dict[str, Any]:
+        """Project a completed-task row to a GET /reports card (lightweight)."""
+        proj = task.get("projection") or {}
+        coverage = proj.get("coverage") or {}
+        return {
+            "report_id": task["task_id"],
+            "title": proj.get("report_title") or task.get("query", ""),
+            "brands": proj.get("brands", []),
+            "evidence_count": proj.get("evidence_count", 0),
+            "claim_count": proj.get("claim_count", 0),
+            "coverage_ratio": coverage.get("ratio", 0),
+            "status": task["status"],
+            "created_at": task.get("created_at", ""),
+        }
+
     async def get_task_sessions(self, task_id: str) -> dict[str, Any]:
         task = await self._store.get_task(task_id)
         if task is None:
@@ -202,6 +279,21 @@ class TaskService:
         return {"task_id": task_id, "sessions": sessions}
 
     # ------------------------------------------------------------- runner glue
+
+    def _make_emit(self, task_id: str) -> Any:
+        """v0.3.1 SSE: build the emit closure for a task's runner.
+
+        The closure pushes events onto the task's pre-registered queue (if any
+        SSE client is connected) — a no-op when the queue was already reaped
+        (task done) or no client ever connected.
+        """
+
+        async def emit(event_type: str, data: dict[str, Any]) -> None:
+            q = self._registry.get_stream(task_id)
+            if q is not None:
+                q.put_nowait({"type": event_type, "data": data})
+
+        return emit
 
     async def _run_research(
         self,
@@ -238,6 +330,7 @@ class TaskService:
                 session_id=session_id,
                 subagent_factory=self._harness_factory,
                 judge_model=self._judge_model,
+                emit_event=self._make_emit(task_id),
             )
             self._runners[task_id] = (runner, abort_signal, agent)
             await self._store.update_task_status(task_id, "running")

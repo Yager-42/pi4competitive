@@ -29,6 +29,12 @@ from ...domain.socm.coverage import CellStatus
 
 _log = logging.getLogger(__name__)
 
+
+async def _noop_emit(_event_type: str, _data: dict[str, Any]) -> None:
+    """v0.3.1 SSE: default emit sink (no-op when SSE isn't wired)."""
+    return None
+
+
 # ContextVar: the coverage engine sets this before a sub-agent prompt so the
 # Extraction extension knows which entity + empty cells to extract for.
 # Mirrors SearchOS set_current_table / _current_task_var (ADR 0010 D-S7).
@@ -97,12 +103,16 @@ class EvidenceIntake:
         models: Any,
         judge_model: dict[str, Any] | None,
         max_input_chars: int = DEFAULT_JUDGE_MAX_INPUT_CHARS,
+        emit_event: Any = None,
     ) -> None:
         self._socm_store = socm_store
         self._session_id = session_id
         self._models = models
         self._judge_model = judge_model
         self._max_input_chars = max_input_chars
+        # v0.3.1 SSE: per-evidence event emit (None → noop). Injected via
+        # build_ephemeral from CoverageEngine (which gets it from ResearchRunner).
+        self._emit_event = emit_event or _noop_emit
         # entity_id -> list of (page_text, source_url) observations buffered.
         self._buffer: dict[str, list[tuple[str, str]]] = {}
 
@@ -146,6 +156,7 @@ class EvidenceIntake:
             return 0
 
         added = 0
+        emitted: list[dict[str, Any]] = []  # v0.3.1 SSE: collect evidence to emit after RMW
 
         def _fill(s: SOCMState) -> SOCMState:
             nonlocal added
@@ -187,9 +198,18 @@ class EvidenceIntake:
                         source_excerpt=excerpt, confidence=confidence,
                     )
                     added += 1
+                    # v0.3.1 SSE: collect for emit after the RMW completes (can't await
+                    # inside the synchronous atomic_update callback).
+                    emitted.append({
+                        "entity": entity_id, "attribute": attr, "value": value,
+                        "source": source, "confidence": confidence,
+                    })
             return s
 
         await self._socm_store.atomic_update(self._session_id, _fill)
+        # v0.3.1 SSE: emit each evidence event (streamed, one per finding).
+        for ev in emitted:
+            await self._emit_event("evidence", ev)
         return added
 
     async def _call_judge(

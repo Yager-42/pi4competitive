@@ -2,9 +2,9 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.3.0` |
+| **feature_contract_version** | `0.3.1` |
 | **status** | **frozen** |
-| **updated** | 2026-07-28 |
+| **updated** | 2026-07-29 |
 | **feature_id** | `competitive-app-http-v1` |
 | **roadmap_stage** | **P4** `competitive_app` —— 应用骨架 + HTTP 接口边界（task 行为由 research-workflow-v1 v0.2.0 三阶段提供） |
 | **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6**（§3.2 / §6.3 / §7 / D8 / G1 / G2 / D24 / D25 + ADR 0010） |
@@ -87,7 +87,9 @@
 | 🟢 搬壳 + 真跑 | tasks（8） | **搬壳** | 入参 ResearchBrief；三阶段 runner（research-workflow-v1 v0.2.0） |
 | 🔴 不搬 | 旧仓 research 前置（2）+ session/events（1）+ task/events（1）+ 7 组运营（28） | **不搬** | grill 砍 / 未规划 |
 
-### 3.2 接口清单（locked）—— 共 14 路由，前缀 `/api/v2`
+### 3.2 接口清单（locked）—— 共 17 路由，前缀 `/api/v2`
+
+> v0.3.0 = 14 路由。v0.3.1 +3：C 组 reports ×2 + D 组 SSE ×1（不破坏 v0.3.0 路由）。
 
 **B 组 — Agent 会话（5，🟢 真实）**
 
@@ -111,6 +113,19 @@
 | `DELETE /tasks/{id}` | 删除 | 删 SQLite + **连带删关联 session**（JSONL + SOCM + 索引） |
 | `GET /tasks/{id}/report` | 报告 | write 产物（`{task_id, status, stage:"write", report}`） |
 | `GET /tasks/{id}/sessions` | 子 session 列表 | 单元素（task 1:1 建 session） |
+
+**C 组 — 报告列表 + 全文（2，🟢 v0.3.1 新增）**
+
+| 方法 路径 | 作用 | 策略 |
+|----------|------|------|
+| `GET /reports` | 报告卡片列表 | SQLite `WHERE status='completed' ORDER BY created_at DESC`；纯读 projection（无文件 IO）；卡片字段 `report_id(=task_id)/title/brands/evidence_count/claim_count/coverage_ratio/status/created_at`（runner 完成时落 projection） |
+| `GET /reports/{task_id}` | 结构化全文 | 实时组装：JSONL write markdown + SOCM coverage 四态 + sources 去重；未完成 → `{ok:false, message:"report not ready", status}` 200；不存在 → 404；success → `{ok:true, report_id, title, markdown, coverage{filled,total,unknown,conflict,ratio}, evidence_count, sources[], created_at}` |
+
+**D 组 — SSE 流式（1，🟢 v0.3.1 新增）**
+
+| 方法 路径 | 作用 | 策略 |
+|----------|------|------|
+| `GET /tasks/{id}/stream` | 任务事件流（`text/event-stream`） | 连接先推 `state_snapshot`；已结束推 snapshot + `done`/`error` 关闭；运行中消费 per-task Queue 直到终态；15s heartbeat；断连只停推送（任务继续）；不存在 404。11 事件类型见 §4.6 |
 
 **Health（1，🟢）**
 
@@ -196,6 +211,30 @@ class WorkflowTaskRequest(BaseModel):  # extra="forbid"
   ```
 - App SQLite 路径 = `data/app.db`（`data/` gitignored）；
 - 不复用 `CAPABILITY_PACKAGES_ENABLED` env（search feature §4.3）。
+
+---
+
+### 4.6 SSE 事件契约（v0.3.1 locked）—— `GET /tasks/{id}/stream`
+
+`text/event-stream`，每帧 `event: <type>\ndata: <json>\n\n`。响应头 `Cache-Control: no-cache` / `Connection: keep-alive` / `X-Accel-Buffering: no`。空队列 15s 推 `: heartbeat\n\n`（注释，客户端忽略）。共 11 种业务事件：
+
+| event type | 触发点 | data |
+|------------|--------|------|
+| `state_snapshot` | 连接建立时（任何状态）首推一次 | `{task_id, status, current_stage, stages, coverage, iteration, evidence_count}`（从 projection + SOCM 实时读） |
+| `stage_start` | runner 每阶段开始 | `{stage, task_id}` |
+| `stage_end` | runner 每阶段结束 | `{stage, ok, task_id, error?}` |
+| `iteration_start` | CoverageEngine 每轮迭代 | `{iteration, actionable_count, subtasks, task_id}` |
+| `subagent_start` | dispatch 派发 sub-agent | `{entity, cells, label, task_id}` |
+| `subagent_end` | sub-agent flush 退出 | `{entity, cells, task_id}` |
+| `evidence` | judge 抽出 evidence 进 SOCM（逐条） | `{entity, attribute, value, source, confidence}` |
+| `coverage_update` | 每轮 dispatch 后 coverage 变化 | `{iteration, filled, total, unknown, conflict, ratio, task_id}` |
+| `report_ready` | write 阶段完成 | `{report_id(=task_id), task_id}` |
+| `done` | 任务完成 | `{task_id, status:"completed"}` |
+| `error` | 任务失败/中止 | `{task_id, status, message, stage?}` |
+
+**断连语义**：客户端断连只停 SSE 推送，后台任务继续跑完（SOCM/JSONL 照常落盘）。重连首推 `state_snapshot`（当前状态），不重放历史事件。已结束任务连接：snapshot + `done`/`error` 后关闭。
+
+**事件总线**：runner/engine 注入式 `emit_event(type, data)` callback（默认 noop），逐层透传 task_service → ResearchRunner → CoverageEngine → EvidenceIntake。task_service 在 create_task/resume_task 时预建 per-task `asyncio.Queue` 注册进 RuntimeRegistry（避免 pending 期丢早期事件），任务 done 后清理。
 
 ---
 
@@ -356,9 +395,9 @@ adapter/in/fastapi  →  application/workflow  →  domain
 
 | 项 | 值 |
 |----|-----|
-| 冻结版本 | `0.3.0` |
-| 冻结日期 | 2026-07-28 |
-| grill | 25 决策点收敛（§8 F-A1…F-A25）；v0.2.0 由 research-workflow-v1 修订 F-A9/F-A15/F-A16/F-A17 |
+| 冻结版本 | `0.3.1` |
+| 冻结日期 | 2026-07-29（v0.3.1 patch；v0.3.0 frozen 2026-07-28） |
+| grill | 25 决策点收敛（§8 F-A1…F-A25）；v0.2.0 由 research-workflow-v1 修订 F-A9/F-A15/F-A16/F-A17；v0.3.1 新增 18 决策（reports + SSE，见 §4.6 + §3.2 C/D 组） |
 | 验收 | §6 Offline O1–O12 + Live L1–L2 |
 | 架构影响 | 无；不升 `ARCHITECTURE_CONTRACT` |
 | Roadmap | 见 `docs/ROADMAP.md` §5（P4 → in_progress） |
@@ -374,3 +413,4 @@ adapter/in/fastapi  →  application/workflow  →  domain
 | 0.1.3 | 2026-07-25 | 路由数勘误：tasks 实为 8 个（POST/GET list/GET one/resume/abort/DELETE/report/sessions），总数 13→**14**（O3 / F-A2 同步） |
 | 0.2.0 | 2026-07-26 | **research-workflow-v1 落地**：task runner 从占位换成六阶段 `ResearchRunner`；修订 F-A9（白名单加 search 包）/ F-A15（ResearchBrief 简化模型替代粗定义 dict）/ F-A16（六阶段 runner 替代占位）/ F-A17（task 建 session 1:1 替代 null）；O6/O7 更新为真实行为；占位测试已替换 |
 | 0.3.0 | 2026-07-28 | **research-workflow-v1 v0.2.0 落地（ADR 0010）**：task runner 六阶段→三阶段（plan/search/write + SearchOS coverage 引擎）；投影 `stages` 6→3 key + `coverage` 子字段；修订 F-A16（三阶段 runner）/ F-A17（SOCM 落 search_state.json）；DELETE 连带删 SOCM；O6/O7 更新 |
+| 0.3.1 | 2026-07-29 | **报告列表 + SSE 流式（对齐 VerdaAI 第一批）**：新增 3 路由（`GET /reports` 卡片列表 + `GET /reports/{task_id}` 结构化全文 + `GET /tasks/{id}/stream` SSE）；report_id 复用 task_id；卡片字段（report_title/brands/evidence_count/claim_count）runner 完成时落 projection；全文实时组装（JSONL markdown + SOCM 四态 + sources）；SSE 11 事件 + state_snapshot + 15s heartbeat + 断连任务继续；emit_event 透传链（task_service→runner→engine→EvidenceIntake）；created_at 空串 bug 修复；不动 14 路由、不动 D*/G* 核心 |
