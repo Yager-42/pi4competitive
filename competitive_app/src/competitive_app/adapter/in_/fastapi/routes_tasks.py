@@ -12,8 +12,12 @@ import json
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
-from ....application.workflow.task_service import TaskConflictError, TaskNotFoundError
-from .dto import WorkflowTaskRequest
+from ....application.workflow.task_service import (
+    TaskConflictError,
+    TaskInputError,
+    TaskNotFoundError,
+)
+from .dto import ClarifyRequest, WorkflowTaskRequest
 
 router = APIRouter(prefix="/api/v2", tags=["tasks"])
 
@@ -27,10 +31,32 @@ def _state(request: Request):
 @router.post("/tasks", status_code=status.HTTP_202_ACCEPTED)
 async def create_task(body: WorkflowTaskRequest, request: Request) -> dict:
     state = _state(request)
-    return await state.task_service.create_task(
-        research_brief=body.research_brief,
-        metadata=body.metadata,
-    )
+    try:
+        return await state.task_service.create_task(
+            research_brief=body.research_brief,
+            query=body.query,
+            metadata=body.metadata,
+        )
+    except TaskInputError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+
+@router.post("/tasks/{task_id}/clarify", status_code=status.HTTP_202_ACCEPTED)
+async def submit_clarify(task_id: str, body: ClarifyRequest, request: Request) -> dict:
+    """v0.3.3: submit clarify answers → derive brief → start research."""
+    state = _state(request)
+    try:
+        return await state.task_service.submit_clarify(
+            task_id, [a.model_dump() for a in body.answers]
+        )
+    except TaskNotFoundError as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"task not found: {exc}"
+        ) from exc
+    except TaskConflictError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.get("/tasks")

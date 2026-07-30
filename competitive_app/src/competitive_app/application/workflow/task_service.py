@@ -27,6 +27,9 @@ class TaskConflictError(Exception):
     """Raised when a task is already running (→ 409)."""
 
 
+class TaskInputError(Exception):
+    """Raised when task creation input is invalid (→ 422)."""
+
 class TaskService:
     def __init__(
         self,
@@ -68,12 +71,113 @@ class TaskService:
     async def create_task(
         self,
         *,
+        research_brief: ResearchBrief | None = None,
+        query: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        skip_clarify: bool = False,
+    ) -> dict[str, Any]:
+        """POST /tasks — create a research task.
+
+        v0.3.3: overloaded. Caller supplies exactly one of:
+          - ``research_brief``: structured brief → run immediately (legacy path).
+          - ``query``: free-form query → clarify flow (awaiting_clarify) unless
+            ``skip_clarify`` (subscription run path: derive brief, run directly).
+        """
+        metadata = dict(metadata or {})
+        if research_brief is not None and query is not None:
+            raise TaskInputError("provide exactly one of research_brief or query")
+        if research_brief is None and not (query and query.strip()):
+            raise TaskInputError("provide research_brief or query")
+
+        # Legacy / structured path — byte-identical to pre-v0.3.3 behavior.
+        if research_brief is not None:
+            return await self._start_research_task(research_brief, metadata)
+
+        # Query path.
+        query = (query or "").strip()
+        if skip_clarify:
+            # Subscription run: derive brief from query directly (no human Q&A).
+            discovered = await self._safe_discover(query)
+            brief = await self._derive_brief(query, [], discovered, [])
+            return await self._start_research_task(brief, metadata)
+
+        # Clarify path: discover scope + ask 2-4 questions.
+        result = await self._safe_discover_with_questions(query)
+        if result is None:
+            # Q3-A degrade: discovery failed entirely → skip clarify, run directly.
+            discovered = {"subject": query, "domain": "", "competitors": []}
+            brief = await self._derive_brief(query, [], discovered, [])
+            return await self._start_research_task(brief, metadata)
+        # Awaiting clarify — create the task row WITHOUT a session (deferred to
+        # submit_clarify so an abandoned query leaves no orphan session, F-R14).
+        task_id = uuid.uuid4().hex
+        clarify = {
+            "query": query,
+            "status": "awaiting",
+            "discovered": {
+                "subject": result["subject"], "domain": result["domain"],
+                "competitors": result["competitors"],
+            },
+            "questions": result["questions"],
+        }
+        metadata["clarify"] = clarify
+        await self._store.create_task(
+            task_id=task_id,
+            query=query[:120],
+            status="awaiting_clarify",
+            metadata=metadata,
+            projection=empty_projection(),
+            session_id=None,
+        )
+        return {
+            "task_id": task_id,
+            "session_id": None,
+            "status": "awaiting_clarify",
+            "query": query[:120],
+            "questions": result["questions"],
+        }
+
+    async def submit_clarify(self, task_id: str, answers: list[dict[str, Any]]) -> dict[str, Any]:
+        """POST /tasks/{task_id}/clarify — derive brief from answers + start research.
+
+        Resolves an ``awaiting_clarify`` task: reads the stored query/questions/
+        discovered scope, derives a ResearchBrief via a 2nd LLM call, creates the
+        session (F-R14 1:1, deferred to this moment), and starts the runner.
+        """
+        task = await self._store.get_task(task_id)
+        if task is None:
+            raise TaskNotFoundError(task_id)
+        if task["status"] != "awaiting_clarify":
+            raise TaskConflictError(f"task {task_id} is not awaiting clarify")
+        metadata = task.get("metadata") or {}
+        clarify = metadata.get("clarify") or {}
+        query = clarify.get("query") or task.get("query") or ""
+        discovered = clarify.get("discovered") or {"subject": query, "domain": "", "competitors": []}
+        questions = clarify.get("questions") or []
+        brief = await self._derive_brief(query, questions, discovered, answers)
+        # Record answers + derived brief into metadata, then start research.
+        metadata.setdefault("clarify", {})
+        metadata["clarify"]["answers"] = answers
+        metadata["clarify"]["brief"] = brief.model_dump(mode="json")
+        metadata["clarify"]["status"] = "resolved"
+        await self._store.update_task_metadata(task_id, metadata)
+        return await self._start_research_task(brief, metadata, task_id=task_id)
+
+    async def _start_research_task(
+        self,
         research_brief: ResearchBrief,
         metadata: dict[str, Any],
+        *,
+        task_id: str | None = None,
     ) -> dict[str, Any]:
-        task_id = uuid.uuid4().hex
+        """Create the session + task row + kick off the runner (F-R14/F-R22).
+
+        Shared by the research_brief path, the skip_clarify (subscription) path,
+        and submit_clarify. F-R14 (1:1 task↔session) holds at the moment research
+        actually starts.
+        """
+        task_id = task_id or uuid.uuid4().hex
         query = _display_title(research_brief)
-        # F-R14: create the session immediately (1:1 task↔session).
         session = await self._repo.create({"cwd": self._sessions_cwd})
         meta = await session.get_metadata()
         session_id = meta["id"]
@@ -84,20 +188,24 @@ class TaskService:
             model="",  # default model (F-R7); resolved inside harness
             system_prompt="",
         )
-        projection = empty_projection()
-        await self._store.create_task(
-            task_id=task_id,
-            query=query,
-            status="pending",
-            metadata=metadata,
-            projection=projection,
-            session_id=session_id,
-        )
-        # Kick off the six-stage runner (F-R22).
-        # Experiment harness: optional stop_after_stage from metadata (search-only runs).
         stop_after_stage = _metadata_stop_after(metadata)
-        # v0.3.1 SSE: pre-register the event queue before starting the runner so an
-        # early SSE connection doesn't miss the first events.
+        # Reuse the existing task row (awaiting_clarify → pending) or create one.
+        existing = await self._store.get_task(task_id)
+        if existing is None:
+            await self._store.create_task(
+                task_id=task_id,
+                query=query,
+                status="pending",
+                metadata=metadata,
+                projection=empty_projection(),
+                session_id=session_id,
+            )
+        else:
+            await self._store.update_task_status(
+                task_id, "pending", projection=empty_projection(), session_id=session_id
+            )
+            await self._store.update_task_metadata(task_id, metadata)
+        # v0.3.1 SSE: pre-register the event queue before starting the runner.
         self._registry.register_stream(task_id)
         self._registry.start_task(
             task_id,
@@ -336,6 +444,187 @@ class TaskService:
         await self._store.save_feedback(task_id, edited_blocks, total_blocks, data)
         rate = (edited_blocks / total_blocks) if total_blocks else 0.0
         return {"ok": True, "report_id": task_id, "revision_rate": round(rate, 4)}
+
+    # ----------------------------------------------------- v0.3.3 clarify (LLM)
+
+    async def _safe_discover(self, query: str) -> dict[str, Any]:
+        """Discover scope (subject/domain/competitors) only; tolerate failure."""
+        result = await self._safe_discover_with_questions(query)
+        if result is None:
+            return {"subject": query, "domain": "", "competitors": []}
+        return {
+            "subject": result["subject"], "domain": result["domain"],
+            "competitors": result["competitors"],
+        }
+
+    async def _safe_discover_with_questions(self, query: str) -> dict[str, Any] | None:
+        """One LLM call: discover scope, then assemble 3 hardcoded questions.
+
+        Returns None on total failure (LLM unavailable) → caller degrades to
+        skip-clarify (Q3-A). On success returns {subject, domain, competitors,
+        questions}. competitors-empty still yields focus+market questions (Q7).
+        """
+        if self._models is None or self._judge_model is None:
+            return None
+        # English + single-user-message prompt (mirrors the judge prompt style that
+        # produces clean JSON from the reasoning main model; Chinese system+user
+        # prompts made the model emit prose instead of JSON).
+        prompt = (
+            "You are a competitive-intelligence research director doing pre-research scope "
+            "discovery. Given a one-line user research request, identify: (1) the true research "
+            "subject (product/company/category full name); (2) its sub-domain/sector; (3) as many "
+            "real direct competitors as possible (8-12, must be real searchable products/companies, "
+            "ordered by popularity descending, do NOT include the subject itself).\n\n"
+            f"User request: {query}\n\n"
+            'Return ONLY a JSON object: {"subject": "<subject>", "domain": "<domain>", '
+            '"competitors": ["<comp1>", "<comp2>", ...]}. '
+            "Output ONLY the JSON object, no explanation, no markdown."
+        )
+        context = {"messages": [{"role": "user", "content": prompt}]}
+        try:
+            message = await self._models.completeSimple(self._judge_model, context)
+        except Exception:  # noqa: BLE001
+            return None
+        if message is None:
+            return None
+        text = _extract_assistant_text_for_refine(message)
+        parsed = _try_parse_json(text)
+        if not isinstance(parsed, dict) or not (parsed.get("subject") or parsed.get("competitors")):
+            return None
+        subject = str(parsed.get("subject") or query).strip()
+        domain = str(parsed.get("domain") or "").strip()
+        comps = [str(c).strip() for c in (parsed.get("competitors") or [])
+                 if str(c).strip() and str(c).strip() != subject]
+        seen: set[str] = set()
+        comps = [c for c in comps if not (c.lower() in seen or seen.add(c.lower()))][:12]
+        questions = _build_clarify_questions(subject, comps)
+        return {"subject": subject, "domain": domain, "competitors": comps, "questions": questions}
+
+    async def _derive_brief(
+        self,
+        query: str,
+        questions: list[dict[str, Any]],
+        discovered: dict[str, Any],
+        answers: list[dict[str, Any]],
+    ) -> ResearchBrief:
+        """2nd LLM call: derive a ResearchBrief from query + scope + answers.
+
+        Hard-constrains competitors>=1 (Q4). Falls back to a minimal brief on
+        any failure (LLM unavailable / bad JSON) so the task never stalls.
+        """
+        subject = discovered.get("subject") or query
+        domain = discovered.get("domain") or ""
+        discovered_comps = discovered.get("competitors") or []
+        answers_blob = _format_clarify_answers(questions, answers)
+        if self._models is not None and self._judge_model is not None:
+            prompt = (
+                "You are a competitive-intelligence research director. Derive a structured "
+                "ResearchBrief from the user's original request, the auto-discovered research "
+                "subject/domain/candidate competitors, and the user's answers to a clarify "
+                "questionnaire.\n"
+                "Rules: target.name = the discovered subject; competitors MUST have at least 1 "
+                "(use the user's selected ones if any, else pick 1-3 from the candidates by "
+                "popularity, else recommend mainstream rivals for the domain); dimensions = the "
+                "user's selected dimensions, else default to [\"功能对比\", \"定价策略\"]; goal = expand "
+                "into one clear research objective sentence.\n\n"
+                f"Original request: {query}\n"
+                f"Subject: {subject}\n"
+                f"Domain: {domain}\n"
+                f"Candidate competitors: {', '.join(discovered_comps) or '(none)'}\n"
+                f"User answers:\n{answers_blob or '(none)'}\n\n"
+                'Return ONLY a JSON object: {"target": {"name": "", "category": ""}, '
+                '"goal": "", "competitors": [""], "dimensions": [""]}. '
+                "Output ONLY the JSON object, no explanation, no markdown."
+            )
+            context = {"messages": [{"role": "user", "content": prompt}]}
+            try:
+                message = await self._models.completeSimple(self._judge_model, context)
+                text = _extract_assistant_text_for_refine(message)
+                parsed = _try_parse_json(text)
+                if isinstance(parsed, dict):
+                    brief = ResearchBrief.model_validate({
+                        "target": {
+                            "name": str((parsed.get("target") or {}).get("name") or subject)[:120],
+                            "category": str((parsed.get("target") or {}).get("category") or domain),
+                        },
+                        "goal": str(parsed.get("goal") or query),
+                        "competitors": _coerce_competitors(parsed.get("competitors"), discovered_comps),
+                        "dimensions": _coerce_dimensions(parsed.get("dimensions")),
+                    })
+                    return brief
+            except Exception:  # noqa: BLE001
+                pass  # fall through to minimal brief
+        # Fallback minimal brief (Q3-A / Q4): never stall the task.
+        return ResearchBrief(
+            target={"name": subject[:120], "category": domain},
+            goal=query,
+            competitors=_coerce_competitors(None, discovered_comps) or ["(待补充)"],
+            dimensions=["功能对比", "定价策略"],
+        )
+
+    # ----------------------------------------------- v0.3.3 evidence lib + dashboard
+
+    async def list_evidences(
+        self,
+        *,
+        brand: str | None = None,
+        source_type: str | None = None,
+        min_confidence: float = 0.0,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        """GET /evidences — global evidence library (cross-task, from projection)."""
+        items = await self._store.query_evidences(
+            brand=brand, source_type=source_type,
+            min_confidence=min_confidence, limit=limit,
+        )
+        facets = await self._store.evidence_facets()
+        return {"items": items, "facets": facets}
+
+    async def get_dashboard(self) -> dict[str, Any]:
+        """GET /dashboard — global aggregation (pure SQL, no SOCM reads)."""
+        return await self._store.dashboard_stats()
+
+    # ------------------------------------------------- v0.3.3 subscriptions
+
+    async def create_subscription(
+        self, query: str, brands: list[str], interval_hours: int
+    ) -> dict[str, Any]:
+        sub_id = f"sub_{uuid.uuid4().hex[:8]}"
+        return await self._store.create_subscription(sub_id, query, brands, interval_hours)
+
+    async def list_subscriptions(self) -> dict[str, Any]:
+        return {"subscriptions": await self._store.list_subscriptions()}
+
+    async def delete_subscription(self, sub_id: str) -> dict[str, Any]:
+        ok = await self._store.delete_subscription(sub_id)
+        if not ok:
+            raise TaskNotFoundError(sub_id)
+        return {"ok": True, "sub_id": sub_id}
+
+    async def run_subscription(self, sub_id: str) -> dict[str, Any]:
+        """POST /subscriptions/{sub_id}/run — trigger a re-run (no scheduler).
+
+        Derives a brief from the stored query without clarify (skip_clarify=True),
+        starts the research, and records the run. Async: returns the task_id
+        immediately; caller polls /tasks/{id}/stream or /tasks/{id}.
+        """
+        import asyncio
+
+        sub = await self._store.get_subscription(sub_id)
+        if sub is None:
+            raise TaskNotFoundError(sub_id)
+        # create_task is async and starts the runner via the registry; await it
+        # so the task row exists before we mark the subscription run.
+        result = await self.create_task(
+            query=sub["query"],
+            metadata={"subscription_id": sub_id, "brands": sub.get("brands", [])},
+            skip_clarify=True,
+        )
+        task_id = result["task_id"]
+        await self._store.mark_subscription_run(sub_id, task_id)
+        # Yield control so the just-started background runner can proceed.
+        await asyncio.sleep(0)
+        return {"ok": True, "sub_id": sub_id, "task_id": task_id, "status": "pending"}
 
     async def _filter_evidence_for_section(
         self, session_id: str, title: str
@@ -730,4 +1019,83 @@ def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-__all__ = ["TaskConflictError", "TaskNotFoundError", "TaskService"]
+# ----------------------------------------------------------- v0.3.3 clarify
+
+_FOCUS_OPTIONS = ["功能对比", "定价策略", "用户口碑", "市场份额", "技术架构", "SWOT", "商业模式", "舆情趋势"]
+_MARKET_OPTIONS = ["中国大陆", "全球", "北美", "东南亚", "欧洲", "不限"]
+
+
+def _build_clarify_questions(subject: str, competitors: list[str]) -> list[dict[str, Any]]:
+    """Hardcoded 3-question template (Q7), VerdaAI-style {id,question,type,options,hint?}.
+
+    `competitors` is conditional: emitted only when discovery found candidates.
+    """
+    questions: list[dict[str, Any]] = []
+    if competitors:
+        questions.append({
+            "id": "competitors",
+            "question": f"为「{subject}」自动发现了以下候选竞品，请勾选你希望重点对比的对象（可多选）：",
+            "type": "multi",
+            "options": competitors[:12],
+            "hint": "勾选后我们会确保每个竞品都被充分调研；如有遗漏可在下方补充。",
+        })
+    questions.append({
+        "id": "focus",
+        "question": "本次调研最看重哪些维度？（可多选）",
+        "type": "multi",
+        "options": list(_FOCUS_OPTIONS),
+    })
+    questions.append({
+        "id": "market",
+        "question": "希望聚焦的目标市场或地区？",
+        "type": "single",
+        "options": list(_MARKET_OPTIONS),
+    })
+    return questions
+
+
+def _format_clarify_answers(
+    questions: list[dict[str, Any]], answers: list[dict[str, Any]]
+) -> str:
+    """Flatten answers (str | list[str]) to a text blob for the derive-brief LLM."""
+    by_id = {a.get("id"): a.get("value") for a in answers if isinstance(a, dict)}
+    lines: list[str] = []
+    for q in questions:
+        qid = q.get("id")
+        if qid not in by_id:
+            continue
+        val = by_id[qid]
+        if isinstance(val, list):
+            val = "、".join(str(v) for v in val if v)
+        label = q.get("question", qid).split("（")[0]
+        lines.append(f"- {label}：{val}")
+    return "\n".join(lines)
+
+
+def _coerce_competitors(raw: Any, discovered: list[str]) -> list[str]:
+    """Ensure competitors is a non-empty list of non-empty strings (Q4)."""
+    if isinstance(raw, list):
+        comps = [str(c).strip() for c in raw if str(c).strip()]
+        if comps:
+            return comps
+    if discovered:
+        return discovered[:3]
+    return []
+
+
+def _coerce_dimensions(raw: Any) -> list[str]:
+    if isinstance(raw, list):
+        dims = [str(d).strip() for d in raw if str(d).strip()]
+        if dims:
+            return dims
+    return ["功能对比", "定价策略"]
+
+
+def _try_parse_json(text: str) -> Any:
+    """Tolerant JSON parse (re-export shape from research_runner)."""
+    from .research_runner import _try_parse_json as _parse
+
+    return _parse(text)
+
+
+__all__ = ["TaskConflictError", "TaskInputError", "TaskNotFoundError", "TaskService"]

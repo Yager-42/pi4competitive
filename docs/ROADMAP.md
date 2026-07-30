@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.31` |
+| **roadmap_version** | `0.1.34` |
 | **status** | active |
 | **updated** | 2026-07-30 |
 | **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6** |
@@ -185,7 +185,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
 | P3.1 agent engine extensions | **done** | 2026-07-24 | feature v0.3.0（P3.2 delta）；plan v0.2.4 remains completed；Offline 124 passed；Live 24 passed |
 | P3.2 Pi extension capability enablement | **done** | 2026-07-26 | A+B+E；Offline 139 passed；full-stack Live warm-cache green；plan v0.1.2 |
-| P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.3.2：20 路由 = 14 + reports×2 + SSE + trace + refine + feedback；报告列表+全文 + SSE 11 事件 + trace span + 章节批注深化 + 修正率闭环）+ 三阶段研究 workflow（`research-workflow-v1` v0.2.2 frozen；write sections + trace span；SearchOS coverage 引擎；ADR 0010 + Patch；SOCM + 并行 sub-agent + judge；搜索质量修复；offline 132 passed + live）；后续：证据库/订阅/仪表盘/澄清问卷 |
+| P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.3.3：27 路由 = 20 + clarify + evidences + dashboard + subscriptions×4；报告列表+全文 + SSE 11 事件 + trace span + 章节批注深化 + 修正率闭环 + 澄清问卷 + 全局证据库 + 仪表盘 + 订阅监控）+ 三阶段研究 workflow（`research-workflow-v1` v0.2.3 frozen；evidence 物化投影 + clarify brief 推导；SearchOS coverage 引擎；ADR 0010 + Patch；SOCM + 并行 sub-agent + judge；搜索质量修复；offline 153 passed + live）；后续：报告版本 diff/真监控、llm-ping/meta |
 | 业务能力 v1 | **partial**（搜索 capability **done** + 研究闭环 v1 done / v2 in_progress） | 2026-07-29 | search packages + 三阶段研究 workflow v0.2.1 冻结（ADR 0010 Patch v0.2.1）；v2 引擎实现 PR2-6 + 搜索质量修复；完整 fact_report schema 仍 todo |
 | P4 workflow Skill 自进化 | **done** | 2026-07-30 | App-owned Workflow Skill Overlay；Poirot frozen SHA；transplant-first；G0–F5 / O1–O16 / S1–S4 / 真实 provider L1–L4 全部完成；自动 CAPTURED、task-driven FIX、GitRatchet rollback 已接线；不改架构契约 |
 
@@ -241,3 +241,4 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.31 | 2026-07-30 | 建立 [`P4_workflow_skill_self_evolution.md`](plans/P4_workflow_skill_self_evolution.md) v0.1.0 active：逐文件 COPY/ADAPT/REWRITE/OMIT/NEW-HOST module map；A foundation→B 四 scope 注入硬门→C Eval→D Evolution→E lifecycle→F verification；O1–O16 + S1–S4 + L1–L2；feature 做无语义 patch 至 v0.2.1，校正 learned Skill 文件树；implementation not started，架构契约仍 v0.3.6 |
 | 0.1.32 | 2026-07-30 | P4 workflow Skill 自进化实现完成：feature v0.2.1 implementation verified；plan v0.1.0 completed；O1–O16、S1–S4、L1–L2 green；packages/ai|agent 与架构契约未改 |
 | 0.1.33 | 2026-07-30 | 补齐真实运行时链路：feedback→refine→CAPTURED、completed task→FIX cycle、四 scope live binding、cycle 内 GitRatchet rollback；L1–L4 green；架构契约与 packages/ai|agent 未改 |
+| 0.1.34 | 2026-07-30 | **http v0.3.3 + research-workflow v0.2.3 frozen（对齐 VerdaAI 第三批 + 澄清问卷）**：新增 7 路由（`POST /tasks/{id}/clarify` + `GET /evidences` + `GET /dashboard` + `POST/GET/DELETE /subscriptions` + `POST /subscriptions/{id}/run`）；`POST /tasks` 重载二选一（research_brief 向后兼容 / query→awaiting_clarify，session 延迟建）；clarify 融合 VerdaAI（LLM 发现竞品+硬编码模板 3 问 + 第 2 LLM 推 brief，强制 competitors≥1，失败退化直跑）；evidence 全量物化投影（SQLite `evidences` 表，从 SOCM 扁平化 ACTIVE 节点，先删后插，cascade delete 同事务）；dashboard 纯 SQL 聚合（去伪指标，fact_accuracy=高置信 evidence 占比，token_total 来自 span）；订阅轻量（纯配置+手动 run，无定时器，skip_clarify 直跑）；新表 IF NOT EXISTS 升级；20 路由不破坏、不动 D*/G*、不碰 packages；offline 153 passed

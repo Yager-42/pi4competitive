@@ -24,6 +24,12 @@ EXPECTED_PATHS = {
     "/api/v2/tasks/{task_id}/trace",  # v0.3.2
     "/api/v2/reports/{task_id}/refine",  # v0.3.2
     "/api/v2/reports/{task_id}/feedback",  # v0.3.2
+    "/api/v2/tasks/{task_id}/clarify",  # v0.3.3
+    "/api/v2/evidences",  # v0.3.3
+    "/api/v2/dashboard",  # v0.3.3
+    "/api/v2/subscriptions",  # v0.3.3
+    "/api/v2/subscriptions/{sub_id}",  # v0.3.3
+    "/api/v2/subscriptions/{sub_id}/run",  # v0.3.3
     "/api/v2/health",
 }
 
@@ -51,9 +57,10 @@ async def test_routes_registered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert not missing, f"missing routes: {missing}"
     assert not extra_api, f"unexpected routes: {extra_api}"
 
-    # v0.3.0: 14 routes. v0.3.1: +2 reports +1 stream = 17. v0.3.2: +1 trace +1 refine +1 feedback = 20.
+    # v0.3.0: 14. v0.3.1: +3 (reports×2, stream) = 17. v0.3.2: +3 (trace, refine, feedback) = 20.
+    # v0.3.3: +7 (clarify, evidences, dashboard, subscriptions×4) = 27.
     route_count = 0
     for path, methods in schema["paths"].items():
         if path.startswith("/api/v2/"):
             route_count += len(methods)
-    assert route_count == 20, f"expected 20 routes, got {route_count}"
+    assert route_count == 27, f"expected 27 routes, got {route_count}"

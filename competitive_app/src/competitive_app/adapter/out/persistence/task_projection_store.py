@@ -179,6 +179,39 @@ CREATE TABLE IF NOT EXISTS skill_evidence_refs (
     ref TEXT NOT NULL,
     PRIMARY KEY(observation_id, kind, ref)
 );
+
+-- v0.3.3 全局证据溯源库:任务完成时从 SOCM evidence_graph 扁平化入库,
+-- 释放 pi4 evidence 结构化优势(entity/attribute 可检索);SQLite 是投影,
+-- SOCM JSON 仍是搜索 SoT(D-S4)。先删后插保证 resume 一致。
+create table if not exists evidences (
+    evidence_id      text primary key,
+    task_id          text not null,
+    entity           text,
+    attribute        text,
+    value            text,
+    finding          text,
+    source_url       text,
+    source_type      text,
+    domain           text,
+    brand            text,
+    confidence       real default 0,
+    captured_at      text
+);
+create index if not exists idx_evidences_brand on evidences(brand);
+create index if not exists idx_evidences_type on evidences(source_type);
+create index if not exists idx_evidences_task on evidences(task_id);
+
+-- v0.3.3 订阅监控:保存的查询 + 手动重跑 + 运行历史(对齐 VerdaAI,无定时器)。
+create table if not exists subscriptions (
+    sub_id           text primary key,
+    query            text not null,
+    brands_json      text,
+    interval_hours   integer default 24,
+    created_at       text not null,
+    last_run_at      text,
+    last_task_id     text,
+    run_count        integer default 0
+);
 """
 
 
@@ -303,6 +336,17 @@ class TaskProjectionStore:
             await self._db.commit()
             return cur.rowcount > 0
 
+    async def update_task_metadata(self, task_id: str, metadata: dict[str, Any]) -> None:
+        """v0.3.3: update a task's metadata_json (clarify answers/brief, etc.)."""
+        await self.init()
+        assert self._db is not None
+        async with self._write_lock:
+            await self._db.execute(
+                "update tasks set metadata_json = ?, updated_at = ? where task_id = ?",
+                (json.dumps(metadata, ensure_ascii=False), _now_iso(), task_id),
+            )
+            await self._db.commit()
+
     async def delete_task(self, task_id: str) -> str | None:
         """Delete a task; return its session_id if it had one (for cascade delete)."""
         await self.init()
@@ -314,6 +358,11 @@ class TaskProjectionStore:
                 row = await cur.fetchone()
             session_id = row[0] if row else None
             await self._db.execute("delete from tasks where task_id = ?", (task_id,))
+            # v0.3.3: cascade delete this task's projected evidences (same txn).
+            await self._db.execute("delete from evidences where task_id = ?", (task_id,))
+            # v0.3.2: cascade delete this task's trace spans + feedback too.
+            await self._db.execute("delete from task_spans where task_id = ?", (task_id,))
+            await self._db.execute("delete from report_feedback where report_id = ?", (task_id,))
             await self._db.commit()
             return session_id
 
@@ -457,6 +506,222 @@ class TaskProjectionStore:
             "revision_rate": (row[1] / row[2]) if row[2] else 0.0,
         }
 
+    # ----------------------------------------------- v0.3.3 global evidence lib
+
+    async def index_evidences(
+        self, task_id: str, nodes: list[Any], task_created_at: str
+    ) -> None:
+        """Flatten a task's SOCM evidence nodes into the global evidences table.
+
+        v0.3.3: called from the runner completion hook. SQLite is a projection —
+        SOCM JSON remains the search SoT (D-S4). Delete-then-insert per task so a
+        resume re-run (fewer/different nodes) stays consistent. Only ACTIVE nodes
+        are indexed; rejected/superseded are dropped.
+        """
+        await self.init()
+        assert self._db is not None
+        rows: list[tuple[Any, ...]] = []
+        for n in nodes:
+            status = _node_status(n)
+            if status != "active":
+                continue
+            source = _node_source(n)
+            source_type, domain = _classify_source(source)
+            rows.append(
+                (
+                    str(_node_id(n)) or f"ev_{uuid.uuid4().hex[:12]}",
+                    task_id,
+                    _node_field(n, "entity"),
+                    _node_field(n, "attribute"),
+                    _node_field(n, "value"),
+                    _node_field(n, "finding"),
+                    source,
+                    source_type,
+                    domain,
+                    _node_field(n, "entity"),  # brand == entity (competitor name)
+                    float(_node_field(n, "confidence") or 0),
+                    task_created_at or _now_iso(),
+                )
+            )
+        async with self._write_lock:
+            await self._db.execute("delete from evidences where task_id = ?", (task_id,))
+            if rows:
+                await self._db.executemany(
+                    "insert or replace into evidences(evidence_id, task_id, entity, attribute, "
+                    "value, finding, source_url, source_type, domain, brand, confidence, "
+                    "captured_at) values(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    rows,
+                )
+            await self._db.commit()
+
+    async def query_evidences(
+        self,
+        *,
+        brand: str | None = None,
+        source_type: str | None = None,
+        min_confidence: float = 0.0,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Query the global evidence lib with optional filters (v0.3.3)."""
+        await self.init()
+        assert self._db is not None
+        sql = (
+            "select evidence_id, task_id, entity, attribute, value, finding, "
+            "source_url, source_type, domain, brand, confidence, captured_at "
+            "from evidences where confidence >= ?"
+        )
+        params: list[Any] = [min_confidence]
+        if brand:
+            sql += " and brand = ?"
+            params.append(brand)
+        if source_type:
+            sql += " and source_type = ?"
+            params.append(source_type)
+        sql += " order by confidence desc, captured_at desc limit ?"
+        params.append(limit)
+        async with self._db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [
+            {
+                "evidence_id": r[0], "task_id": r[1], "entity": r[2], "attribute": r[3],
+                "value": r[4], "finding": r[5], "source_url": r[6], "source_type": r[7],
+                "domain": r[8], "brand": r[9], "confidence": r[10], "captured_at": r[11],
+            }
+            for r in rows
+        ]
+
+    async def evidence_facets(self) -> dict[str, Any]:
+        """Aggregation facets for the evidence lib: total / by_type / by_brand."""
+        await self.init()
+        assert self._db is not None
+        async with self._db.execute("select count(*) n from evidences") as cur:
+            total = (await cur.fetchone())[0]
+        async with self._db.execute(
+            "select source_type, count(*) n from evidences group by source_type"
+        ) as cur:
+            by_type = {r[0]: r[1] for r in await cur.fetchall()}
+        async with self._db.execute(
+            "select brand, count(*) n from evidences where brand != '' "
+            "group by brand order by n desc limit 12"
+        ) as cur:
+            by_brand = {r[0]: r[1] for r in await cur.fetchall()}
+        return {"total": total, "by_type": by_type, "by_brand": by_brand}
+
+    # ----------------------------------------------------- v0.3.3 dashboard
+
+    async def dashboard_stats(self) -> dict[str, Any]:
+        """Pure-SQL global aggregation over tasks/evidences/task_spans (v0.3.3).
+
+        No SOCM JSON reads — fast. Returns 0s on empty DB (divide-by-zero guarded).
+        """
+        await self.init()
+        assert self._db is not None
+
+        async def _scalar(sql: str, params: tuple = ()) -> Any:
+            async with self._db.execute(sql, params) as cur:  # type: ignore[union-attr]
+                row = await cur.fetchone()
+            return row[0] if row else 0
+
+        reports = await _scalar("select count(*) from tasks where status = 'completed'")
+        tasks_total = await _scalar("select count(*) from tasks")
+        evidence_total = await _scalar("select count(*) from evidences")
+        high_conf_total = await _scalar("select count(*) from evidences where confidence >= 0.7")
+        claim_total = await _scalar(
+            "select coalesce(sum(cast(json_extract(projection_json, "
+            "'$.claim_count') as integer)),0) from tasks where status = 'completed'"
+        )
+        token_total = await _scalar(
+            "select coalesce(sum(prompt_tokens + completion_tokens),0) from task_spans"
+        )
+        avg_coverage = await _scalar(
+            "select coalesce(avg(cast(json_extract(projection_json, "
+            "'$.coverage.ratio') as real)),0) from tasks where status = 'completed'"
+        )
+        # tasks_by_status
+        async with self._db.execute(  # type: ignore[union-attr]
+            "select status, count(*) n from tasks group by status"
+        ) as cur:
+            by_status = {r[0]: r[1] for r in await cur.fetchall()}
+
+        facets = await self.evidence_facets()
+        return {
+            "reports": reports,
+            "tasks_total": tasks_total,
+            "tasks_by_status": by_status,
+            "evidence_total": evidence_total,
+            "claim_total": int(claim_total or 0),
+            "high_conf_total": high_conf_total,
+            "avg_evidence_per_report": round(evidence_total / reports, 1) if reports else 0,
+            "avg_coverage": round(float(avg_coverage or 0), 4),
+            "fact_accuracy": (
+                round(high_conf_total / evidence_total * 100, 1) if evidence_total else 0
+            ),
+            "token_total": int(token_total or 0),
+            "brand_distribution": facets["by_brand"],
+            "source_type_distribution": facets["by_type"],
+        }
+
+    # --------------------------------------------------- v0.3.3 subscriptions
+
+    async def create_subscription(
+        self, sub_id: str, query: str, brands: list[str], interval_hours: int
+    ) -> dict[str, Any]:
+        await self.init()
+        assert self._db is not None
+        now = _now_iso()
+        async with self._write_lock:
+            await self._db.execute(
+                "insert into subscriptions(sub_id, query, brands_json, interval_hours, "
+                "created_at, last_run_at, last_task_id, run_count) "
+                "values(?,?,?,?,?,NULL,NULL,0)",
+                (sub_id, query, json.dumps(brands, ensure_ascii=False), int(interval_hours), now),
+            )
+            await self._db.commit()
+        return await self.get_subscription(sub_id) or {"sub_id": sub_id}
+
+    async def get_subscription(self, sub_id: str) -> dict[str, Any] | None:
+        await self.init()
+        assert self._db is not None
+        async with self._db.execute(
+            "select sub_id, query, brands_json, interval_hours, created_at, "
+            "last_run_at, last_task_id, run_count from subscriptions where sub_id = ?",
+            (sub_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return None if row is None else _row_to_subscription(row)
+
+    async def list_subscriptions(self) -> list[dict[str, Any]]:
+        await self.init()
+        assert self._db is not None
+        async with self._db.execute(
+            "select sub_id, query, brands_json, interval_hours, created_at, "
+            "last_run_at, last_task_id, run_count from subscriptions order by created_at desc"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_subscription(r) for r in rows]
+
+    async def delete_subscription(self, sub_id: str) -> bool:
+        await self.init()
+        assert self._db is not None
+        async with self._write_lock:
+            cur = await self._db.execute(
+                "delete from subscriptions where sub_id = ?", (sub_id,)
+            )
+            await self._db.commit()
+            return cur.rowcount > 0
+
+    async def mark_subscription_run(self, sub_id: str, task_id: str) -> None:
+        """Record that a subscription run was triggered (v0.3.3)."""
+        await self.init()
+        assert self._db is not None
+        async with self._write_lock:
+            await self._db.execute(
+                "update subscriptions set last_run_at = ?, last_task_id = ?, "
+                "run_count = run_count + 1 where sub_id = ?",
+                (_now_iso(), task_id, sub_id),
+            )
+            await self._db.commit()
+
 
 def _row_to_task(row: Any) -> dict[str, Any]:
     return {
@@ -469,6 +734,64 @@ def _row_to_task(row: Any) -> dict[str, Any]:
         "metadata": json.loads(row[6]),
         "projection": json.loads(row[7]),
     }
+
+
+def _row_to_subscription(row: Any) -> dict[str, Any]:
+    return {
+        "sub_id": row[0],
+        "query": row[1],
+        "brands": json.loads(row[2]) if row[2] else [],
+        "interval_hours": row[3],
+        "created_at": row[4],
+        "last_run_at": row[5],
+        "last_task_id": row[6],
+        "run_count": row[7],
+    }
+
+
+def _node_id(n: Any) -> str:
+    return getattr(n, "id", "") or (n.get("id") if isinstance(n, dict) else "") or ""
+
+
+def _node_field(n: Any, name: str) -> str:
+    if isinstance(n, dict):
+        v = n.get(name, "")
+    else:
+        v = getattr(n, name, "")
+    return "" if v is None else str(v)
+
+
+def _node_status(n: Any) -> str:
+    if isinstance(n, dict):
+        s = n.get("status", "")
+    else:
+        s = getattr(n, "status", "")
+    # Normalize Enum to its value (str(Enum) includes the class name on 3.11+).
+    if hasattr(s, "value"):
+        return str(s.value)
+    return str(s) if s else ""
+
+
+def _node_source(n: Any) -> str:
+    return _node_field(n, "source")
+
+
+def _classify_source(source: str) -> tuple[str, str]:
+    """Derive (source_type, domain) from a node.source string.
+
+    URL → ("web", host); known tool name → ("search_tool", ""); else ("other", "").
+    """
+    if source.startswith("http://") or source.startswith("https://"):
+        try:
+            from urllib.parse import urlparse
+
+            host = urlparse(source).hostname or ""
+            return ("web", host)
+        except Exception:  # noqa: BLE001
+            return ("web", "")
+    if source and ("_search" in source or "_fetch" in source or source.endswith("_tool")):
+        return ("search_tool", "")
+    return ("other", "")
 
 
 def _now_iso() -> str:

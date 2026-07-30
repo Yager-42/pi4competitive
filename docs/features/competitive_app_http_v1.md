@@ -2,9 +2,9 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.3.2` |
+| **feature_contract_version** | `0.3.3` |
 | **status** | **frozen** |
-| **updated** | 2026-07-29 |
+| **updated** | 2026-07-30 |
 | **feature_id** | `competitive-app-http-v1` |
 | **roadmap_stage** | **P4** `competitive_app` —— 应用骨架 + HTTP 接口边界（task 行为由 research-workflow-v1 v0.2.0 三阶段提供） |
 | **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6**（§3.2 / §6.3 / §7 / D8 / G1 / G2 / D24 / D25 + ADR 0010） |
@@ -87,9 +87,9 @@
 | 🟢 搬壳 + 真跑 | tasks（8） | **搬壳** | 入参 ResearchBrief；三阶段 runner（research-workflow-v1 v0.2.0） |
 | 🔴 不搬 | 旧仓 research 前置（2）+ session/events（1）+ task/events（1）+ 7 组运营（28） | **不搬** | grill 砍 / 未规划 |
 
-### 3.2 接口清单（locked）—— 共 20 路由，前缀 `/api/v2`
+### 3.2 接口清单（locked）—— 共 27 路由，前缀 `/api/v2`
 
-> v0.3.0 = 14 路由。v0.3.1 +3（reports×2 + SSE×1）。v0.3.2 +3（trace + refine + feedback）。不破坏 v0.3.0 路由。
+> v0.3.0 = 14 路由。v0.3.1 +3（reports×2 + SSE×1）。v0.3.2 +3（trace + refine + feedback）。v0.3.3 +7（clarify + evidences + dashboard + subscriptions×4）。不破坏 v0.3.0 路由。
 
 **B 组 — Agent 会话（5，🟢 真实）**
 
@@ -105,7 +105,7 @@
 
 | 方法 路径 | 作用 | 策略 |
 |----------|------|------|
-| `POST /tasks` | 建研究任务（research_brief + metadata） | 三阶段 runner；202；**固定返回 status=pending**；建 session（1:1） |
+| `POST /tasks` | 建研究任务（**二选一**：`research_brief` 或 `query`，v0.3.3 重载） | `research_brief` 路径：三阶段 runner，202，status=pending，建 session（1:1，逐字节向后兼容）；`query` 路径：1 次 LLM 发现竞品 + 硬编码模板 3 问 → status=`awaiting_clarify`（不建 session，延迟到 clarify 完成）；两者都给/都不给 → 422 |
 | `GET /tasks` | 列任务 | SQLite 投影 |
 | `GET /tasks/{id}` | 单任务 | SQLite 投影（stages 3 key + coverage） |
 | `POST /tasks/{id}/resume` | 恢复 | completed → 返回 completed；非终态 → 从第一个非 ok stage 继续 + 恢复 SOCM |
@@ -134,6 +134,28 @@
 | 方法 路径 | 作用 | 策略 |
 |----------|------|------|
 | `GET /tasks/{task_id}/trace` | 调用级 span 列表 | SQLite `task_spans` 按 seq（调用顺序）；span = `{span_id, task_id, seq, kind(plan/subagent/judge/write), stage, entity?, model, prompt_tokens, completion_tokens, latency_ms, ts}`；轻量（无 prompt/response 全文，D24 已存 JSONL）；不存在 → 404 |
+
+**F 组 — 澄清问卷（1，🟢 v0.3.3 新增）**
+
+| 方法 路径 | 作用 | 策略 |
+|----------|------|------|
+| `POST /tasks/{task_id}/clarify` | 提交澄清答案 → 推 brief → 启动研究 | body `{answers:[{id, value:str\|list[str]}]}`；校验 task.status==`awaiting_clarify`（否则 409）；第 2 次 LLM 从 query+discovered+answers 推 `ResearchBrief`（强制 competitors≥1，失败 fallback 最小 brief）；建 session + 启动 runner；answers+brief 落 `metadata.clarify`（status=resolved）；`{task_id, session_id, status:"pending"}`；不存在 → 404 |
+
+**G 组 — 证据库 + 仪表盘（2，🟢 v0.3.3 新增）**
+
+| 方法 路径 | 作用 | 策略 |
+|----------|------|------|
+| `GET /evidences` | 全局证据溯源库（跨任务） | query 参数 `brand?/source_type?/min_confidence?(0-1)/limit?(1-1000,默认200)`；SQLite `evidences` 表（任务完成时从 SOCM 扁平化 ACTIVE 节点入表，`brand=entity`/`source_type` 三态 web\|search_tool\|other）；`{items:[{evidence_id,task_id,entity,attribute,value,finding,source_url,source_type,domain,brand,confidence,captured_at}], facets:{total,by_type,by_brand}}`；纯 SQL 不读 SOCM |
+| `GET /dashboard` | 全局聚合仪表盘 | 纯 SQL 聚合 tasks/evidences/task_spans：`{reports, tasks_total, tasks_by_status{completed/failed/aborted/running/pending/awaiting_clarify}, evidence_total, claim_total, high_conf_total, avg_evidence_per_report, avg_coverage, fact_accuracy(高置信 evidence 占比,阈值 WEAK_CONFIDENCE=0.7), token_total(SUM task_spans tokens), brand_distribution, source_type_distribution}`；空库全 0（除零兜底）；不读 SOCM |
+
+**H 组 — 订阅监控（4，🟢 v0.3.3 新增）**
+
+| 方法 路径 | 作用 | 策略 |
+|----------|------|------|
+| `POST /subscriptions` | 建订阅（保存查询） | body `{query, brands?[], interval_hours?(默认24)}`；存 `subscriptions` 表（不调度）；201；`{sub_id, query, brands, interval_hours, created_at, last_run_at:null, last_task_id:null, run_count:0}` |
+| `GET /subscriptions` | 订阅列表 | `ORDER BY created_at DESC`；`{subscriptions:[...]}` |
+| `DELETE /subscriptions/{sub_id}` | 删订阅 | `{ok:true, sub_id}`；不存在 → 404 |
+| `POST /subscriptions/{sub_id}/run` | 手动触发重跑 | 读订阅 query → `create_task(query, skip_clarify=True)`（无澄清直跑：discover+derive brief）→ `mark_subscription_run` 记 last_run_at/last_task_id/run_count+1 → `{ok:true, sub_id, task_id, status:"pending"}`；异步返回 task_id，调用方轮询 `/tasks/{id}/stream`；不存在 → 404。**无定时器**（定期靠外部 cron） |
 
 **Health（1，🟢）**
 
@@ -403,8 +425,8 @@ adapter/in/fastapi  →  application/workflow  →  domain
 
 | 项 | 值 |
 |----|-----|
-| 冻结版本 | `0.3.2` |
-| 冻结日期 | 2026-07-30（v0.3.2 patch；v0.3.1 frozen 2026-07-29） |
+| 冻结版本 | `0.3.3` |
+| 冻结日期 | 2026-07-30（v0.3.3 patch；v0.3.2 frozen 2026-07-30） |
 | grill | 25 决策点收敛（§8 F-A1…F-A25）；v0.2.0 由 research-workflow-v1 修订 F-A9/F-A15/F-A16/F-A17；v0.3.1 新增 18 决策（reports + SSE，见 §4.6 + §3.2 C/D 组） |
 | 验收 | §6 Offline O1–O12 + Live L1–L2 |
 | 架构影响 | 无；不升 `ARCHITECTURE_CONTRACT` |
@@ -423,3 +445,4 @@ adapter/in/fastapi  →  application/workflow  →  domain
 | 0.3.0 | 2026-07-28 | **research-workflow-v1 v0.2.0 落地（ADR 0010）**：task runner 六阶段→三阶段（plan/search/write + SearchOS coverage 引擎）；投影 `stages` 6→3 key + `coverage` 子字段；修订 F-A16（三阶段 runner）/ F-A17（SOCM 落 search_state.json）；DELETE 连带删 SOCM；O6/O7 更新 |
 | 0.3.1 | 2026-07-29 | **报告列表 + SSE 流式（对齐 VerdaAI 第一批）**：新增 3 路由（`GET /reports` 卡片列表 + `GET /reports/{task_id}` 结构化全文 + `GET /tasks/{id}/stream` SSE）；report_id 复用 task_id；卡片字段（report_title/brands/evidence_count/claim_count）runner 完成时落 projection；全文实时组装（JSONL markdown + SOCM 四态 + sources）；SSE 11 事件 + state_snapshot + 15s heartbeat + 断连任务继续；emit_event 透传链（task_service→runner→engine→EvidenceIntake）；created_at 空串 bug 修复；不动 14 路由、不动 D*/G* 核心 |
 | 0.3.2 | 2026-07-30 | **Trace + Refine + Feedback（对齐 VerdaAI 第二批）**：新增 3 路由（`GET /tasks/{id}/trace` span 列表 + `POST /reports/{id}/refine` 章节重写 + `POST /reports/{id}/feedback` 修正率）；write 产物加 `sections`（后端从 report 按 `##` 切，配合 research-workflow-v1 v0.2.2）；span 记录（LLM 调用包夹 emit span → SQLite `task_spans`，轻量无全文，不推 SSE）；refine append "refine" stage_output（守 D24，reader 优先 refine）；feedback 存 `report_feedback` 表（修正率不进 projection）；TaskService 加 models 参数（refine 用 completeSimple）；全文 DTO 加 sections；不动 17 路由、不动 D*/G* 核心 |
+| 0.3.3 | 2026-07-30 | **证据库 + 仪表盘 + 订阅监控 + 澄清问卷（对齐 VerdaAI 第三批）**：新增 7 路由（`POST /tasks/{id}/clarify` + `GET /evidences` + `GET /dashboard` + `POST/GET/DELETE /subscriptions` + `POST /subscriptions/{id}/run`）；`POST /tasks` 重载二选一（`research_brief` 路径逐字节向后兼容 / `query` 路径产 `awaiting_clarify`，session 延迟到 clarify 完成才建）；clarify 融合 VerdaAI（1 次 LLM 发现竞品 + 硬编码模板 3 问：competitors 条件性/focus/market；第 2 次 LLM 推 brief，强制 competitors≥1，失败 fallback，生问题失败退化直跑）；evidence 全量物化投影（SQLite `evidences` 表，任务完成从 SOCM 扁平化 ACTIVE 节点，先删后插，cascade delete 同事务，配合 research-workflow-v1 v0.2.3）；dashboard 纯 SQL 聚合（tasks/evidences/task_spans，去 VerdaAI 伪业务指标，fact_accuracy=高置信 evidence 占比，token_total 来自 batch2 span）；订阅轻量对齐 VerdaAI（纯配置 + 手动 run，无定时器，run 走 skip_clarify 直跑路径）；新表 IF NOT EXISTS 幂等升级；不动 20 路由行为、不动 D*/G* 核心、不碰 packages/ai\|agent |
