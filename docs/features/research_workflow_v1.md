@@ -2,9 +2,9 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.2.2` |
+| **feature_contract_version** | `0.2.3` |
 | **status** | **frozen** |
-| **updated** | 2026-07-29 |
+| **updated** | 2026-07-30 |
 | **feature_id** | `research-workflow-v1` |
 | **roadmap_stage** | **P4** `competitive_app` —— 三阶段研究 workflow（SearchOS coverage 引擎复现；替换 v0.1.1 六阶段） |
 | **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6**（§3.2 / D8 / G1 / G2 / D24 + ADR 0010） |
@@ -326,9 +326,9 @@ resume 时：重开 JSONL session（恢复对话）+ 读 `search_state.json`（�
 
 | 项 | 值 |
 |----|-----|
-| 冻结版本 | `0.2.2` |
-| 冻结日期 | 2026-07-30（v0.2.2 patch；v0.2.1 frozen 2026-07-29） |
-| grill | 31 决策收敛（§8 F-R1..F-R31；v0.1.1 的 F-R1..F-R24 + v0.2.0 的 F-R25..F-R31）+ v0.2.1 补丁（D-S3'/D-S6'/D-S8'/D-S2a/D-S2b，见 ADR 0010 Patch v0.2.1）+ v0.2.2 补丁（write sections + trace span，见 §9.1） |
+| 冻结版本 | `0.2.3` |
+| 冻结日期 | 2026-07-30（v0.2.3 patch；v0.2.2 frozen 2026-07-30） |
+| grill | 31 决策收敛（§8 F-R1..F-R31；v0.1.1 的 F-R1..F-R24 + v0.2.0 的 F-R25..F-R31）+ v0.2.1 补丁（D-S3'/D-S6'/D-S8'/D-S2a/D-S2b，见 ADR 0010 Patch v0.2.1）+ v0.2.2 补丁（write sections + trace span，见 §9.1）+ v0.2.3 补丁（evidence 物化投影 + clarify brief 推导，见 §9.1） |
 | 验收 | §6 Offline O1–O15 + Live L1–L2 |
 | 架构影响 | **升 `ARCHITECTURE_CONTRACT` v0.3.5 → v0.3.6**（ADR 0010） |
 | Roadmap | 见 `docs/ROADMAP.md` §5（业务能力 v2 研究闭环落地） |
@@ -343,3 +343,4 @@ resume 时：重开 JSONL session（恢复对话）+ 读 `search_state.json`（�
 | 0.2.0 | 2026-07-28 | **grill frozen（ADR 0010）**：六阶段→三阶段（plan/search/write）；复现 SearchOS coverage 引擎（SOCM + 并行 sub-agent + Extraction + Sensor）；反转 F-R2/F-R3/F-R7/F-R10（局部）；新增 F-R25..F-R31；升架构契约 v0.3.6；`competitive-app-http-v1` 升 v0.3.0 |
 | 0.2.1 | 2026-07-29 | **patch frozen（ADR 0010 Patch v0.2.1）**：搜索质量第一步修复——接通 `mark_unknown`（UNKNOWN 状态可达）+ junk/低置信过滤（`_is_junk_value` / `SEARCH_MIN_CONFIDENCE`）+ actionable/satisfied 谓词（`SEARCH_MAX_CELL_ATTEMPTS` / `WEAK_CONFIDENCE`）+ judge prompt 强约束禁占位 + 多源抽取 + plan 结构化 `queries`/`source_hints`（D-S2a）+ subtask 按 `SEARCH_SUBTASK_CHUNK` 拆细（D-S2b）；局部反转 D-S3/D-S6/D-S8 的"一轮单源"默认；对比实验验证两题三阶段搜索质量均显著优于六阶段（源权威性 87%/31% vs 47%/13%、0 junk）；不动 D*/G* 核心、不碰 packages/ai\|agent |
 | 0.2.2 | 2026-07-30 | **patch frozen（对齐 VerdaAI 第二批）**：write 产物加 `sections` 字段（后端从 report 按 `##` 切，refine 支持；report 保留向后兼容）+ trace span 记录（plan/subagent/judge/write LLM 调用包夹 emit span → SQLite `task_spans`；轻量：token/latency，无 prompt/response 全文；span 不推 SSE）+ refine stage_output type（append，守 D24；reader 优先 refine 回落 write）；配合 `competitive-app-http-v1` v0.3.2（trace/refine/feedback 接口）；不动 D*/G* 核心、不碰 packages/ai\|agent |
+| 0.2.3 | 2026-07-30 | **patch frozen（对齐 VerdaAI 第三批 + 澄清问卷）**：evidence 全量物化投影——任务完成时从 SOCM `evidence_graph.nodes` 扁平化 ACTIVE 节点入 SQLite `evidences` 表（D-S4 投影语义扩展：coverage 计数→evidence 明细；先删后插保 resume 一致；cascade delete 同事务；`brand=entity`/`source_type` 三态派生）；clarify brief 推导——`POST /tasks {query}` 经 1 次 LLM 发现竞品 + 硬编码模板 3 问（融合 VerdaAI：LLM 只发现竞品、问题模板硬编码稳定不漂移）→ `POST /tasks/{id}/clarify` 第 2 次 LLM 推 `ResearchBrief`（强制 competitors≥1，失败 fallback 最小 brief，生问题失败退化直跑）；session 延迟到 clarify 完成才建（F-R14 在启动那一刻成立）；clarify 产物落 `metadata_json`（不建 session、不加表）；配合 `competitive-app-http-v1` v0.3.3（clarify/evidences/dashboard/subscriptions 接口）；不动 D*/G* 核心、不碰 packages/ai\|agent |

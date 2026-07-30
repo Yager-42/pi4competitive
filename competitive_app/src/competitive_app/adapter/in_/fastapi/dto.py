@@ -31,12 +31,46 @@ class PromptRequest(BaseModel):
 
 
 class WorkflowTaskRequest(BaseModel):
-    """``POST /tasks`` body (research-workflow-v1 F-A15 v0.2.0)."""
+    """``POST /tasks`` body (research-workflow-v1 F-A15 v0.2.0).
+
+    v0.3.3: overloaded — caller supplies exactly one of:
+      - ``research_brief``: structured brief (legacy path, byte-identical behavior)
+      - ``query``: free-form natural-language query → clarify flow
+    The "exactly one" rule is enforced in the service (clearer error messages).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    research_brief: ResearchBrief
+    research_brief: ResearchBrief | None = None
+    query: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClarifyAnswer(BaseModel):
+    """One answer to a clarify question (v0.3.3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    value: str | list[str] = ""
+
+
+class ClarifyRequest(BaseModel):
+    """``POST /tasks/{task_id}/clarify`` body (v0.3.3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    answers: list[ClarifyAnswer] = Field(default_factory=list)
+
+
+class SubscriptionRequest(BaseModel):
+    """``POST /subscriptions`` body (v0.3.3)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1)
+    brands: list[str] = Field(default_factory=list)
+    interval_hours: int = Field(default=24, ge=1)
 
 
 class RefineRequest(BaseModel):
@@ -59,9 +93,12 @@ class FeedbackRequest(BaseModel):
 
 
 __all__ = [
+    "ClarifyAnswer",
+    "ClarifyRequest",
     "FeedbackRequest",
     "PromptRequest",
     "RefineRequest",
     "SessionCreateRequest",
+    "SubscriptionRequest",
     "WorkflowTaskRequest",
 ]

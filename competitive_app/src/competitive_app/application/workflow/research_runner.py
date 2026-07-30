@@ -322,6 +322,14 @@ class ResearchRunner:
             socm = await self.socm_store.load(self._session_id)
             projection["evidence_count"] = socm.evidence_graph.node_count()
             projection["claim_count"] = socm.coverage_map.filled_count()
+            # v0.3.3: flatten ACTIVE evidence into the global evidences table
+            # (projection; SOCM JSON stays the search SoT, D-S4). Reuses the same
+            # socm load — no extra IO. Fails soft: indexing must never break completion.
+            task = await self.store.get_task(self.task_id)
+            created_at = (task or {}).get("created_at", "")
+            await self.store.index_evidences(
+                self.task_id, socm.evidence_graph.nodes, created_at
+            )
         except Exception:  # noqa: BLE001
             pass  # keep defaults (0)
 
