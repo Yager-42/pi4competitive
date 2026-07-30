@@ -13,7 +13,7 @@
 | **path** | `docs/features/research_workflow_v1.md` |
 | **参考源（引擎架构）** | [`antins-labs/SearchOS`](https://github.com/antins-labs/SearchOS) —— `research-workflow-v1` v0.2.0 引擎架构参考（coverage map / SOCM / Extraction / Sensor 概念来源；**非**代码父本，**非** 1:1 复刻；**禁** langgraph/langchain/deepagents；ADR 0010 D-S1） |
 | **参考源（业务形状）** | 旧仓 [`xj120/competitive-agent`](https://github.com/xj120/competitive-agent) **`rr-refactor`** `backend/workflows/competitive/`（D12/ADR 0007；ResearchBrief 结构参考） |
-| **关系** | 落地后同步升级 [`competitive-app-http-v1`](competitive_app_http_v1.md) → **v0.3.0**（投影 `stages` 6→3 + `coverage` 子字段） |
+| **关系** | 落地后同步升级 [`competitive-app-http-v1`](competitive_app_http_v1.md) → **v0.3.3**（三阶段投影 + evidence/clarify/dashboard/subscription HTTP 增量） |
 
 ---
 

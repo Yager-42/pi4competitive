@@ -6,7 +6,7 @@
 | **status** | **frozen** |
 | **updated** | 2026-07-30 |
 | **feature_id** | `competitive-app-http-v1` |
-| **roadmap_stage** | **P4** `competitive_app` —— 应用骨架 + HTTP 接口边界（task 行为由 research-workflow-v1 v0.2.0 三阶段提供） |
+| **roadmap_stage** | **P4** `competitive_app` —— 应用骨架 + HTTP 接口边界（task 行为由 research-workflow-v1 v0.2.3 三阶段提供） |
 | **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6**（§3.2 / §6.3 / §7 / D8 / G1 / G2 / D24 / D25 + ADR 0010） |
 | **roadmap** | [`ROADMAP.md`](../ROADMAP.md) §2 P4 / §4 业务能力引入 |
 | **plan** | [`docs/plans/P4_competitive_app_http.md`](../plans/P4_competitive_app_http.md) |

@@ -10,7 +10,7 @@
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P4** `competitive_app` |
 | **contract** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6** |
 | **feature** | [`docs/features/workflow_skill_self_evolution_v1.md`](../features/workflow_skill_self_evolution_v1.md) **v0.2.1 frozen** — `workflow-skill-self-evolution-v1`（G1–G29） |
-| **depends_on** | `research-workflow-v1` v0.2.2；P3 local capability loader；P3.1 extension runtime；现有 `data/app.db`/JSONL/SOCM |
+| **depends_on** | `research-workflow-v1` v0.2.3；P3 local capability loader；P3.1 extension runtime；现有 `data/app.db`/JSONL/SOCM |
 | **upstream** | [`HezaoHezao/poirot`](https://github.com/HezaoHezao/poirot/tree/86bf279ad90c180f0ba696755620dd7d6661465e) frozen SHA `86bf279ad90c180f0ba696755620dd7d6661465e` |
 | **target** | `competitive_app` + `capability_packages/learned_skills`；`packages/ai|agent` **零业务改动** |
 | **tests** | `tests/competitive_app/{contract,unit,integration,integration/live}/` |
