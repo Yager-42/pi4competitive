@@ -49,6 +49,8 @@ class ResearchRunner:
         subagent_factory: Any = None,
         judge_model: dict[str, Any] | None = None,
         emit_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
+        skill_snapshot: Any = None,
+        skill_composer: Any = None,
     ) -> None:
         self.task_id = task_id
         self.harness = harness
@@ -63,12 +65,11 @@ class ResearchRunner:
         self._coverage_engine = coverage_engine
         self._subagent_factory = subagent_factory
         self._judge_model = judge_model
-        # v0.3.1 SSE: business-event callback (default noop). Injected by task_service
-        # as a closure pushing to a per-task asyncio.Queue. None → no SSE, no overhead.
         self._emit_event = emit_event or _noop_emit
-        # Explicit session_id for SOCM path (don't rely on agent.session_id,
-        # which is only set inside harness.prompt and stale on resume).
         self._session_id = session_id or getattr(self.agent, "session_id", "") or ""
+        self._skill_snapshot = skill_snapshot
+        self._skill_composer = skill_composer
+        self._stage_skills: dict[str, list[Any]] = {}
 
     async def run(
         self,
@@ -172,8 +173,12 @@ class ResearchRunner:
         # plan / write: per-stage tool filter (F-R8) + single agent.prompt.
         self.agent.state.tools = self._select_tools(profile)
         prior = await collect_prior_outputs(self.session, STAGE_DEPENDENCIES[name])
+        if self._skill_snapshot is not None and name in {"plan", "write"}:
+            description = self.research_brief.model_dump_json()
+            self._stage_skills[name] = await self._skill_snapshot.ensure_scope(
+                self.task_id, name, description
+            )
         prompt = self._build_prompt(name, profile, prior)
-        # v0.2.2 trace: wrap the LLM call in a span (token/latency).
         t0 = time.monotonic()
         await self.harness.prompt(prompt)
         latency_ms = int((time.monotonic() - t0) * 1000)
@@ -201,23 +206,25 @@ class ResearchRunner:
         return result
 
     async def _run_search_stage(self, profile: StageProfile) -> StageResult:
-        """Run the search stage via CoverageEngine (F-R31)."""
+        """Run search via CoverageEngine, binding search + extraction once."""
         prior = await collect_prior_outputs(self.session, STAGE_DEPENDENCIES["search"])
         plan_output = prior.get("plan") or {}
         if not plan_output:
             return StageResult(stage="search", ok=False, output={}, error="missing plan output")
-        # Validate plan's coverage_schema (F-R26): ≥1 entity × ≥1 attribute.
         schema = plan_output.get("coverage_schema") or {}
         entities = schema.get("entities") or []
         attributes = schema.get("attributes") or []
         if not entities or not attributes:
-            return StageResult(
-                stage="search",
-                ok=False,
-                output={},
-                error="plan output missing coverage_schema with ≥1 entity × ≥1 attribute",
+            return StageResult(stage="search", ok=False, output={},
+                               error="plan output missing coverage_schema with ≥1 entity × ≥1 attribute")
+        description = json.dumps(plan_output, ensure_ascii=False)
+        if self._skill_snapshot is not None:
+            self._stage_skills["search"] = await self._skill_snapshot.ensure_scope(
+                self.task_id, "search", description
             )
-
+            self._stage_skills["extraction"] = await self._skill_snapshot.ensure_scope(
+                self.task_id, "extraction", description
+            )
         engine = self._coverage_engine or CoverageEngine(
             socm_store=self.socm_store,
             session_id=self._session_id,
@@ -229,9 +236,11 @@ class ResearchRunner:
             subagent_factory=self._subagent_factory,
             judge_model=self._judge_model,
             emit_event=self._emit_event,
+            search_skills=self._stage_skills.get("search", []),
+            extraction_skills=self._stage_skills.get("extraction", []),
+            skill_composer=self._skill_composer,
         )
         search_output = await engine.run(plan_output)
-        # Validate + persist the search stage output (F-R10/F-R4).
         result = validate_stage_output("search", search_output)
         if result.ok:
             await append_stage_output(self.session, "search", search_output)
@@ -246,14 +255,17 @@ class ResearchRunner:
         return [t for t in self.all_tools if t.name in wanted]
 
     def _build_prompt(self, name: str, profile: StageProfile, prior: dict[str, Any]) -> str:
-        self.agent.state.systemPrompt = profile.system_prompt
+        skills = self._stage_skills.get(name, [])
+        base = profile.system_prompt
+        if self._skill_composer is not None:
+            self.agent.state.systemPrompt = self._skill_composer.compose(base, skills, name)
+        else:
+            self.agent.state.systemPrompt = base
         brief = self.research_brief.model_dump(mode="json")
-        parts: list[str] = []
-        parts.append(f"Research brief: {json.dumps(brief, ensure_ascii=False)}")
+        parts: list[str] = [f"Research brief: {json.dumps(brief, ensure_ascii=False)}"]
         for stage_name, output in prior.items():
             parts.append(f"Prior stage '{stage_name}' output: {json.dumps(output, ensure_ascii=False)}")
         if name == "write":
-            # write needs the SOCM coverage snapshot, not just prior stage text.
             parts.append(
                 "(The coverage map snapshot with filled/unknown/conflict cells is provided "
                 "as a custom_message stage_output from the search stage; render it as a "

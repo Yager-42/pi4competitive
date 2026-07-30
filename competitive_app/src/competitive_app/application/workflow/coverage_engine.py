@@ -99,6 +99,9 @@ class CoverageEngine:
         subagent_factory: Any = None,
         judge_model: dict[str, Any] | None = None,
         emit_event: Any = None,
+        search_skills: list[Any] | None = None,
+        extraction_skills: list[Any] | None = None,
+        skill_composer: Any = None,
     ) -> None:
         self._socm_store = socm_store
         self._session_id = session_id
@@ -127,13 +130,13 @@ class CoverageEngine:
         self._pause_event = pause_event
         # Factory for ephemeral sub-agent harnesses (PR4 parallel). If None,
         # the engine falls back to running sub-agents serially on the main
-        # harness (PR3 behavior — used when a factory isn't wired).
+        # Factory for ephemeral parallel sub-agents.
         self._subagent_factory = subagent_factory
-        # PR5 judge model for Extraction (F-R29; None → EvidenceIntake falls back).
         self._judge_model = judge_model
-        # v0.3.1 SSE: business-event callback (iteration/subagent/coverage_update/evidence).
-        # Default noop. Injected by ResearchRunner (which gets it from task_service).
         self._emit_event = emit_event or _noop_emit
+        self._search_skills = list(search_skills or [])[:3]
+        self._extraction_skills = list(extraction_skills or [])[:3]
+        self._skill_composer = skill_composer
 
     async def run(self, plan_output: dict[str, Any]) -> dict[str, Any]:
         """Run the search loop. Returns the search stage output (evidence + coverage).
@@ -343,6 +346,8 @@ class CoverageEngine:
             judge_model=self._judge_model,
             emit_event=self._emit_event,
             task_id=self._task_id,
+            skills=self._search_skills,
+            extraction_skills=self._extraction_skills,
         )
         try:
             agent = harness.agent
@@ -372,8 +377,11 @@ class CoverageEngine:
     async def _run_subagent_prompt(
         self, harness: Any, agent: Any, state: SOCMState, subtask: dict[str, Any]
     ) -> None:
-        """Run one sub-agent prompt. Exceptions leave cells empty (re-dispatchable)."""
-        agent.state.systemPrompt = _SEARCH_RUNTIME_PROMPT
+        base_prompt = _SEARCH_RUNTIME_PROMPT
+        if self._skill_composer is not None:
+            agent.state.systemPrompt = self._skill_composer.compose(base_prompt, self._search_skills, "search")
+        else:
+            agent.state.systemPrompt = base_prompt
         prompt = _build_subagent_prompt(state, subtask)
         entity_id = subtask.get("entity_id", "")
         t0 = time.monotonic()

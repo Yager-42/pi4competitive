@@ -9,6 +9,7 @@ status/progress + coverage projection go to SQLite.
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from typing import Any
 
@@ -39,6 +40,13 @@ class TaskService:
         socm_store: Any = None,
         judge_model: dict[str, Any] | None = None,
         models: Any = None,
+        skill_snapshot: Any = None,
+        skill_composer: Any = None,
+        skill_store: Any = None,
+        skill_judgment_analyzer: Any = None,
+        task_quality_judge: Any = None,
+        evolution_cycle_runner: Any = None,
+        post_task_observer: Any = None,
     ) -> None:
         self._store = store
         self._repo = repo
@@ -48,11 +56,15 @@ class TaskService:
         self._sessions_cwd = sessions_cwd
         self._socm_store = socm_store
         self._judge_model = judge_model
-        # v0.3.2 refine: models for completeSimple (section rewrite, like judge).
         self._models = models
-        # task_id → (runner, abort_signal, agent) for abort/resume.
+        self._skill_snapshot = skill_snapshot
+        self._skill_composer = skill_composer
+        self._skill_store = skill_store
+        self._skill_judgment_analyzer = skill_judgment_analyzer
+        self._task_quality_judge = task_quality_judge
+        self._post_task_observer = post_task_observer
+        self._evolution_cycle_runner = evolution_cycle_runner
         self._runners: dict[str, tuple[ResearchRunner, asyncio.Event, Any]] = {}
-
     async def create_task(
         self,
         *,
@@ -161,6 +173,11 @@ class TaskService:
         if self._registry.task_active(task_id):
             await self._registry.abort_task(task_id, "delete")
         session_id = await self._store.delete_task(task_id)
+        if self._skill_store is not None:
+            try:
+                await self._skill_store.delete_task_references(task_id)
+            except Exception:
+                pass
         if session_id:
             await self._cascade_delete_session(session_id)
         self._runners.pop(task_id, None)
@@ -306,6 +323,7 @@ class TaskService:
             {"section_id": section_id, "report": new_report, "sections": new_sections,
              "refined_at": _now_iso()},
         )
+        await self._run_refinement_observation(task_id, section_id, annotations)
         return {"ok": True, "section_id": section_id, "report_id": task_id}
 
     async def add_feedback(
@@ -463,20 +481,24 @@ class TaskService:
             runner = ResearchRunner(
                 task_id=task_id,
                 harness=harness,
-                session=session,
                 store=self._store,
                 socm_store=self._socm_store,
                 research_brief=research_brief,
                 all_tools=self._capability_tools,
                 abort_signal=abort_signal,
+                session=session,
                 session_id=session_id,
                 subagent_factory=self._harness_factory,
                 judge_model=self._judge_model,
                 emit_event=self._make_emit(task_id),
+                skill_snapshot=self._skill_snapshot,
+                skill_composer=self._skill_composer,
             )
             self._runners[task_id] = (runner, abort_signal, agent)
-            await self._store.update_task_status(task_id, "running")
-            await runner.run(start_stage=start_stage, stop_after_stage=stop_after_stage)
+            result_status = await runner.run(start_stage=start_stage, stop_after_stage=stop_after_stage)
+            await self._post_task_eval(task_id, result_status, runner)
+            if self._evolution_cycle_runner is not None and result_status in {"completed", "failed"}:
+                await self._evolution_cycle_runner.run_cycle()
         except asyncio.CancelledError:
             if agent is not None:
                 agent.abort()
@@ -486,7 +508,68 @@ class TaskService:
             await self._store.update_task_status(task_id, "failed")
         finally:
             self._runners.pop(task_id, None)
+    async def _run_refinement_observation(self, task_id: str, section_id: str, annotations: list[str]) -> None:
+        """Turn a successful feedback-driven refine into an evidence-gated capture.
 
+        The refine operation is the demonstrated solution; feedback is the
+        concrete problem evidence. Only a successful completed task is eligible,
+        and all exceptions remain observational so reporting never fails.
+        """
+        if self._post_task_observer is None or not annotations:
+            return
+        try:
+            task = await self._store.get_task(task_id)
+            if task is None or task.get("status") != "completed":
+                return
+            feedback = await self._store.get_feedback(task_id)
+            if not feedback:
+                return
+            note = " ".join(str(item).strip() for item in annotations if str(item).strip())[:240]
+            if not note:
+                return
+            context = await self._post_task_observer.observe(
+                task_id=task_id,
+                status="completed",
+                scope="write",
+                problem_signature=f"write.refine.{section_id}: {note}",
+                solution=f"Successfully refined write section {section_id} using stored research evidence.",
+                transferability="Evidence-grounded write-section refinement is reusable across workflow tasks.",
+                evidence_refs=[
+                    {"kind": "feedback", "ref": task_id},
+                    {"kind": "refine", "ref": f"{task_id}:{section_id}"},
+                ],
+                suggested_name="write-refinement",
+                solution_demonstrated=True,
+            )
+            if context is not None and self._evolution_cycle_runner is not None:
+                record = await self._evolution_cycle_runner.run_context(context)
+                if record is not None:
+                    await self._post_task_observer.mark_consumed(context.observation_id)
+        except Exception:
+            return
+
+    async def _post_task_eval(self, task_id: str, status: str, runner: ResearchRunner) -> None:
+        if status not in {"completed", "failed"} or self._skill_snapshot is None:
+            return
+        if self._skill_judgment_analyzer is None and self._task_quality_judge is None:
+            return
+        try:
+            bindings = await self._skill_snapshot.all_bindings(task_id)
+            injected = [
+                {"skill_id": record.skill_id, "name": record.name, "description": record.description}
+                for records in bindings.values() for record in records
+            ]
+            messages = getattr(runner.agent.state, "messages", [])
+            summary = json.dumps(messages, ensure_ascii=False, default=str)
+            if self._skill_judgment_analyzer is not None and injected:
+                await self._skill_judgment_analyzer.analyze_execution(
+                    task_id, [], summary, injected, task_completed=status == "completed"
+                )
+            if self._task_quality_judge is not None:
+                await self._task_quality_judge.judge_task(task_id, summary, summary[-20000:])
+        except Exception:
+            # Post-task metrics are observational and cannot fail the workflow.
+            return
     def _first_non_ok_stage(self, projection: Any) -> str | None:
         if not isinstance(projection, dict):
             return None

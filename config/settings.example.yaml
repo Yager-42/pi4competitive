@@ -24,3 +24,10 @@ sessions:
   cwd: competitive_app        # pinned; all app sessions land in data/sessions/--competitive_app--/
 app_db: data/app.db           # SQLite projection + session index (data/ gitignored)
 prompt_lock_timeout: 30       # per-session prompt queue timeout (seconds) → 409 on expiry
+
+# Workflow Skill overlay/evolution (feature v0.2.1); all flags default false.
+workflow_skill:
+  enabled: false
+  root: capability_packages/learned_skills
+  evolve_enabled: false
+  eval_enabled: false

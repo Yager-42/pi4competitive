@@ -27,6 +27,25 @@ from earendil_works.pi_agent.harness.env.python_env import LocalFileSystem
 from earendil_works.pi_agent.package_manager import load_capability_packages
 
 from .adapter.out.persistence.socm_store import SocmStore
+from .adapter.out.persistence.learned_skill_store import SQLiteSkillStore
+from .adapter.out.persistence.workflow_skill_store import WorkflowSkillStore
+from .application.evolution.config import SkillConfig, load_skill_config
+from .application.evolution.selector import SkillSelector
+from .application.evolution.skill_version_snapshot import SkillVersionSnapshot
+from .application.evolution.stage_skill_composer import StageSkillComposer
+from .application.evolution.adapters.pi_llm import PiLlmAdapter
+from .application.evolution.cycle_runner import EvolutionCycleRunner
+from .application.evolution.eval.analyzers.skill_judgment_analyzer import SkillJudgmentAnalyzer
+from .application.evolution.eval.analyzers.task_quality_judge import TaskQualityJudge
+from .application.evolution.eval.programmatic_bridge import ProgrammaticEvalBridge
+from .application.evolution.eval.registry import RegistryEvalBridge, build_default_registry
+from .application.evolution.evolution_manager import EvolutionManager
+from .application.evolution.focus.ive_focuser import IVEFocuser
+from .application.evolution.gates.score_delta_gate import ScoreDeltaGate
+from .application.evolution.gates.git_ratchet import GitRatchet
+from .application.evolution.post_task_observer import PostTaskObserver
+from .application.evolution.skill_files import SkillFiles
+from .application.evolution.triggers.metric_monitor import MetricMonitorTrigger
 from .adapter.out.persistence.task_projection_store import TaskProjectionStore
 from .application.workflow.runtime_registry import RuntimeRegistry
 from .application.workflow.session_service import (
@@ -44,34 +63,43 @@ class AppConfig:
     app_db: str = "data/app.db"
     capability_packages_enabled: list[str] = field(
         default_factory=lambda: [
-            "echo_example",
-            "search_tavily",
-            "search_anysearch",
-            "search_grok",
-            "reasonix_prefix_cache",
+            "echo_example", "search_tavily", "search_anysearch", "search_grok", "reasonix_prefix_cache"
         ]
     )
     prompt_lock_timeout: float = 30.0
     default_model: str = ""
-    # When True, build a faux provider/models for offline tests instead of openai.
     use_faux: bool = False
+    workflow_skill: SkillConfig = field(default_factory=load_skill_config)
 
 
 @dataclass
 class ApplicationState:
     config: AppConfig
-    models: Any  # ModelsImpl
+    models: Any
     repo: JsonlSessionRepo
     store: TaskProjectionStore
     socm_store: SocmStore
     registry: RuntimeRegistry
     session_service: SessionService
     task_service: TaskService
+    skill_store: SQLiteSkillStore | None = None
+    workflow_skill_store: WorkflowSkillStore | None = None
+    skill_selector: SkillSelector | None = None
+    skill_snapshot: SkillVersionSnapshot | None = None
+    skill_composer: StageSkillComposer | None = None
+    skill_files: SkillFiles | None = None
+    post_task_observer: PostTaskObserver | None = None
+    evolution_manager: EvolutionManager | None = None
+    evolution_cycle_runner: EvolutionCycleRunner | None = None
     capability_report: Any | None = None
     capability_diagnostics: list[Any] = field(default_factory=list)
 
     async def shutdown(self) -> None:
         await self.registry.shutdown()
+        if self.skill_store is not None:
+            await self.skill_store.close()
+        if self.workflow_skill_store is not None:
+            await self.workflow_skill_store.close()
         await self.store.close()
 
 
@@ -163,6 +191,8 @@ class _HarnessFactory(HarnessFactory):
         judge_model: dict[str, Any] | None = None,
         emit_event: Any = None,
         task_id: str = "",
+        skills: list[Any] | None = None,
+        extraction_skills: list[Any] | None = None,
     ) -> tuple[AgentHarness, Any]:
         """Build an in-memory AgentHarness for an ephemeral sub-agent (F-R28).
 
@@ -205,9 +235,10 @@ class _HarnessFactory(HarnessFactory):
                 judge_model=judge_model,
                 emit_event=emit_event,
                 task_id=task_id,
+                extraction_skills=extraction_skills or [],
             )
             factory = make_extraction_extension_factory(intake)
-            runtime = create_extension_runtime()  # fresh per harness — no sharing
+            runtime = create_extension_runtime()
             extension = await load_extension_from_factory(factory, "ephemeral", runtime, "<extraction>")
             result = LoadExtensionsResult(extensions=[extension], errors=[], runtime=runtime)
             attach_extension_runtime(harness.agent, result, "ephemeral")
@@ -247,6 +278,33 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
     app_db_path.parent.mkdir(parents=True, exist_ok=True)
     store = TaskProjectionStore(str(app_db_path))
     await store.init()
+    # Workflow Skill operational state shares the existing app.db. These stores
+    # bootstrap companion tables even while feature flags are disabled.
+    skill_store = SQLiteSkillStore(str(app_db_path))
+    await skill_store.init()
+    workflow_skill_store = WorkflowSkillStore(str(app_db_path))
+    await workflow_skill_store.init()
+    skill_selector = SkillSelector(
+        skill_store,
+        max_skills=config.workflow_skill.max_inject,
+        quality_threshold=config.workflow_skill.quality_threshold,
+        min_selections=config.workflow_skill.min_selections,
+    )
+    skill_snapshot = SkillVersionSnapshot(
+        selector=skill_selector, skill_store=skill_store, binding_store=workflow_skill_store
+    )
+    skill_composer = StageSkillComposer()
+    skill_files = SkillFiles(config.workflow_skill.root_dir, skill_store, workflow_skill_store)
+    post_task_observer = PostTaskObserver(observation_store=workflow_skill_store, skill_store=skill_store)
+    evolution_manager = None
+    evolution_cycle_runner = None
+    judgment_analyzer = None
+    quality_judge = None
+    if config.workflow_skill.enabled:
+        try:
+            await skill_store.discover([Path(config.workflow_skill.root_dir) / "skills"])
+        except FileNotFoundError:
+            pass
 
     # --- SOCM store (search state of truth, F-R27/D-S4) --------------------
     socm_store = SocmStore(sessions_root)
@@ -283,6 +341,37 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         judge_model = model_resolver.resolve(judge_model_id) if judge_model_id else model_resolver.resolve(None)
     except KeyError:
         judge_model = model_resolver.resolve(None)
+    if config.workflow_skill.enabled and config.workflow_skill.eval_config.enabled:
+        try:
+            llm_adapter = PiLlmAdapter(models, judge_model)
+            judgment_analyzer = SkillJudgmentAnalyzer(llm_adapter, skill_store)
+            quality_judge = TaskQualityJudge(llm_adapter, skill_store)
+        except Exception:
+            judgment_analyzer = None
+            quality_judge = None
+    if config.workflow_skill.evolve_enabled:
+        llm_adapter = PiLlmAdapter(models, judge_model)
+        trigger = MetricMonitorTrigger(
+            threshold=config.workflow_skill.evolve_threshold,
+            min_selections=config.workflow_skill.evolve_min_selections,
+            cooldown_turns=config.workflow_skill.evolve_cooldown_turns,
+            llm=None,
+        )
+        from .application.evolution.mutators.llm_mutator import LLMMutator
+        focuser = IVEFocuser(llm_adapter)
+        mutator = LLMMutator(config.workflow_skill.root_dir,
+                             max_changed_lines=config.workflow_skill.evolve_mutate_budget,
+                             max_steps=config.workflow_skill.evolve_max_steps,
+                             llm=llm_adapter)
+        bridge = (RegistryEvalBridge(build_default_registry())
+                  if config.workflow_skill.eval_config.enabled else ProgrammaticEvalBridge())
+        evolution_manager = EvolutionManager(
+            skill_store, [trigger], focuser, mutator, bridge, ScoreDeltaGate(0.0),
+            llm=llm_adapter, skill_files=skill_files, scope_store=workflow_skill_store,
+        )
+        evolution_cycle_runner = EvolutionCycleRunner(
+            evolution_manager, GitRatchet(), skill_store, skill_files
+        )
     task_service = TaskService(
         store=store,
         repo=repo,
@@ -293,6 +382,13 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         socm_store=socm_store,
         judge_model=judge_model,
         models=models,
+        skill_snapshot=skill_snapshot if config.workflow_skill.enabled else None,
+        skill_store=skill_store,
+        skill_composer=skill_composer,
+        skill_judgment_analyzer=judgment_analyzer,
+        task_quality_judge=quality_judge,
+        post_task_observer=post_task_observer if config.workflow_skill.enabled else None,
+        evolution_cycle_runner=evolution_cycle_runner,
     )
 
     return ApplicationState(
@@ -304,6 +400,15 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         registry=registry,
         session_service=session_service,
         task_service=task_service,
+        skill_store=skill_store,
+        workflow_skill_store=workflow_skill_store,
+        skill_selector=skill_selector if config.workflow_skill.enabled else None,
+        skill_snapshot=skill_snapshot if config.workflow_skill.enabled else None,
+        skill_composer=skill_composer,
+        skill_files=skill_files,
+        post_task_observer=post_task_observer if config.workflow_skill.enabled else None,
+        evolution_manager=evolution_manager,
+        evolution_cycle_runner=evolution_cycle_runner,
         capability_report=capability_report,
         capability_diagnostics=diagnostics,
     )

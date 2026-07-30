@@ -107,6 +107,7 @@ class EvidenceIntake:
         max_input_chars: int = DEFAULT_JUDGE_MAX_INPUT_CHARS,
         emit_event: Any = None,
         task_id: str = "",
+        extraction_skills: list[Any] | None = None,
     ) -> None:
         self._socm_store = socm_store
         self._session_id = session_id
@@ -114,10 +115,9 @@ class EvidenceIntake:
         self._judge_model = judge_model
         self._max_input_chars = max_input_chars
         self._task_id = task_id
-        # v0.3.1 SSE: per-evidence event emit (None → noop). Injected via
-        # build_ephemeral from CoverageEngine (which gets it from ResearchRunner).
+        # v0.3.1 SSE: per-evidence event emit; no-op by default.
         self._emit_event = emit_event or _noop_emit
-        # entity_id -> list of (page_text, source_url) observations buffered.
+        self._extraction_skills = list(extraction_skills or [])[:3]
         self._buffer: dict[str, list[tuple[str, str]]] = {}
 
     def submit(self, entity_id: str, page_text: str, source: str) -> None:
@@ -223,6 +223,9 @@ class EvidenceIntake:
         if self._models is None or self._judge_model is None:
             return []
         prompt = _build_judge_prompt(entity_id, empty_attrs, pages_blob)
+        if self._extraction_skills:
+            from ..evolution.injector import compose_system_prompt
+            prompt = compose_system_prompt(prompt, self._extraction_skills)
         context = {"messages": [{"role": "user", "content": prompt}]}
         t0 = time.monotonic()
         try:

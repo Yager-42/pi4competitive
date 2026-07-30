@@ -64,6 +64,121 @@ create table if not exists report_feedback (
     data_json        text,
     updated_at       text not null
 );
+CREATE TABLE IF NOT EXISTS skill_records (
+    skill_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    generation INTEGER NOT NULL DEFAULT 0,
+    origin TEXT NOT NULL DEFAULT 'IMPORTED',
+    created_by TEXT,
+    description TEXT NOT NULL DEFAULT '',
+    allowed_tools TEXT NOT NULL DEFAULT '[]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    total_selections INTEGER NOT NULL DEFAULT 0,
+    total_applied INTEGER NOT NULL DEFAULT 0,
+    total_completions INTEGER NOT NULL DEFAULT 0,
+    total_fallbacks INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    last_updated TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_records_name ON skill_records(name);
+CREATE INDEX IF NOT EXISTS idx_skill_records_active ON skill_records(is_active);
+CREATE TABLE IF NOT EXISTS skill_lineage_parents (
+    skill_id TEXT NOT NULL,
+    parent_skill_id TEXT NOT NULL,
+    PRIMARY KEY(skill_id, parent_skill_id)
+);
+CREATE TABLE IF NOT EXISTS skill_judgments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    skill_id TEXT NOT NULL,
+    applied INTEGER,
+    task_completed INTEGER NOT NULL DEFAULT 0,
+    ts TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_skill_judgments_skill ON skill_judgments(skill_id, ts);
+CREATE TABLE IF NOT EXISTS skill_evolutions (
+    evolution_id TEXT PRIMARY KEY,
+    skill_name TEXT NOT NULL,
+    evolution_type TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    baseline_id TEXT,
+    candidate_id TEXT NOT NULL,
+    failure_focus TEXT NOT NULL DEFAULT '',
+    mutation_diff TEXT NOT NULL DEFAULT '',
+    eval_score REAL NOT NULL DEFAULT 0.0,
+    gate_decision TEXT NOT NULL,
+    created_version_id TEXT,
+    timestamp TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_skill_evolutions_name ON skill_evolutions(skill_name, timestamp);
+CREATE TABLE IF NOT EXISTS skill_eval_judgments (
+    judgment_id TEXT PRIMARY KEY,
+    skill_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    task_id TEXT,
+    skill_applied INTEGER NOT NULL,
+    deviation_note TEXT NOT NULL DEFAULT '',
+    timestamp TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS task_quality_scores (
+    score_id TEXT PRIMARY KEY,
+    task_id TEXT,
+    task_completion REAL NOT NULL,
+    response_quality REAL NOT NULL,
+    efficiency REAL NOT NULL,
+    tool_usage REAL NOT NULL,
+    overall_score REAL NOT NULL,
+    rationale TEXT NOT NULL DEFAULT '',
+    timestamp TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS skill_eval_runs (
+    eval_run_id TEXT PRIMARY KEY,
+    eval_layer TEXT NOT NULL,
+    skill_ids TEXT NOT NULL,
+    candidate_id TEXT,
+    baseline_id TEXT,
+    result_json TEXT NOT NULL DEFAULT '',
+    timestamp TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workflow_skill_metadata (
+    skill_id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL CHECK(scope IN ('plan','search','extraction','write')),
+    package_path TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS skill_task_bindings (
+    task_id TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK(scope IN ('plan','search','extraction','write')),
+    ordinal INTEGER NOT NULL,
+    skill_id TEXT NOT NULL,
+    bound_at TEXT NOT NULL,
+    PRIMARY KEY(task_id, scope, ordinal),
+    UNIQUE(task_id, scope, skill_id)
+);
+CREATE INDEX IF NOT EXISTS idx_skill_task_bindings_task ON skill_task_bindings(task_id, scope);
+CREATE TABLE IF NOT EXISTS skill_observations (
+    observation_id TEXT PRIMARY KEY,
+    task_id TEXT,
+    scope TEXT NOT NULL CHECK(scope IN ('plan','search','extraction','write')),
+    problem_signature TEXT NOT NULL,
+    solution TEXT NOT NULL DEFAULT '',
+    transferability TEXT NOT NULL DEFAULT '',
+    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+    consumed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_observations_task ON skill_observations(task_id, consumed);
+CREATE TABLE IF NOT EXISTS skill_evidence_refs (
+    observation_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    ref TEXT NOT NULL,
+    PRIMARY KEY(observation_id, kind, ref)
+);
 """
 
 
