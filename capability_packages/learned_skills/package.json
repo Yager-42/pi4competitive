@@ -1,0 +1,9 @@
+{
+  "name": "learned-skills",
+  "version": "0.1.0",
+  "pi": {
+    "skills": []
+  },
+  "description": "Learned Skills for CompetitorLens workflow (plan/search/extraction/write)",
+  "license": "MIT"
+}
