@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, Awaitable, Callable
 
 from ...domain.research_brief import ResearchBrief
@@ -27,7 +28,7 @@ from ...domain.stage import (
 )
 from .coverage_engine import CoverageEngine
 from .profiles import StageProfile, build_profiles, is_search_tool
-from .stage_outputs import append_stage_output, collect_prior_outputs
+from .stage_outputs import append_stage_output, collect_prior_outputs, last_usage, model_name
 
 
 class ResearchRunner:
@@ -172,12 +173,30 @@ class ResearchRunner:
         self.agent.state.tools = self._select_tools(profile)
         prior = await collect_prior_outputs(self.session, STAGE_DEPENDENCIES[name])
         prompt = self._build_prompt(name, profile, prior)
+        # v0.2.2 trace: wrap the LLM call in a span (token/latency).
+        t0 = time.monotonic()
         await self.harness.prompt(prompt)
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        usage = last_usage(self.agent.state.messages)
+        await self._emit_event(
+            "span",
+            {
+                "kind": name, "stage": name, "task_id": self.task_id,
+                "entity": None,
+                "model": model_name(self.agent.state.model),
+                "prompt_tokens": int(usage.get("input", 0) or 0),
+                "completion_tokens": int(usage.get("output", 0) or 0),
+                "latency_ms": latency_ms,
+            },
+        )
         if self.abort_signal.is_set():
             return StageResult(stage=name, ok=False, output={}, error="aborted")
         output = self._extract_output(name)
         result = validate_stage_output(name, output)
         if result.ok:
+            # v0.2.2: write stage — derive sections from the markdown (refine support).
+            if name == "write":
+                output["sections"] = _split_sections(output.get("report") or "")
             await append_stage_output(self.session, name, output)
         return result
 
@@ -376,6 +395,45 @@ def _extract_report_title(markdown: str) -> str:
         if stripped.startswith("#"):
             return stripped.lstrip("#").strip()
     return ""
+
+
+def _split_sections(markdown: str) -> list[dict[str, Any]]:
+    """v0.2.2: split a report markdown into sections by `##` headings.
+
+    Each section: {id: "1"/"2"/..., title, body}. `body` is the full text from
+    the `##` heading line up to (not including) the next `##` (or end). Top-level
+    `#` headings (the report title) are NOT sections — they're skipped, content
+    before the first `##` is dropped (it's the title + intro, captured by title).
+
+    Sections are a *derived* view of `report` (the LLM only outputs `report`);
+    the runner fills this so refine can locate a section by id. `## Sources` is
+    kept as a section so the citation block is refinable too.
+    """
+    if not markdown:
+        return []
+    sections: list[dict[str, Any]] = []
+    current: list[str] | None = None  # lines of the current section (None = before first ##)
+    for line in markdown.splitlines():
+        if line.lstrip().startswith("## "):
+            # start a new section
+            if current is not None:
+                sections.append(_finalize_section(current))
+            current = [line]
+        elif current is not None:
+            current.append(line)
+    if current is not None:
+        sections.append(_finalize_section(current))
+    # assign sequential ids
+    for i, s in enumerate(sections, 1):
+        s["id"] = str(i)
+    return sections
+
+
+def _finalize_section(lines: list[str]) -> dict[str, Any]:
+    """Build a section dict from its lines (first line is the `##` heading)."""
+    heading = lines[0].lstrip().lstrip("#").strip()
+    body = "\n".join(lines).strip()
+    return {"id": "", "title": heading, "body": body}
 
 
 async def _noop_emit(_event_type: str, _data: dict[str, Any]) -> None:

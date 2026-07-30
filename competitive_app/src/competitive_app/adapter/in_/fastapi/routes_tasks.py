@@ -178,4 +178,16 @@ async def stream_task(task_id: str, request: Request):
     )
 
 
+@router.get("/tasks/{task_id}/trace")
+async def get_task_trace(task_id: str, request: Request) -> dict:
+    """v0.3.2: call-level trace spans (token/latency per LLM call)."""
+    state = _state(request)
+    try:
+        return await state.task_service.get_trace(task_id)
+    except TaskNotFoundError as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"task not found: {exc}"
+        ) from exc
+
+
 __all__ = ["router"]

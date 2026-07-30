@@ -162,6 +162,7 @@ class _HarnessFactory(HarnessFactory):
         session_id: str = "",
         judge_model: dict[str, Any] | None = None,
         emit_event: Any = None,
+        task_id: str = "",
     ) -> tuple[AgentHarness, Any]:
         """Build an in-memory AgentHarness for an ephemeral sub-agent (F-R28).
 
@@ -203,6 +204,7 @@ class _HarnessFactory(HarnessFactory):
                 models=self._models,
                 judge_model=judge_model,
                 emit_event=emit_event,
+                task_id=task_id,
             )
             factory = make_extraction_extension_factory(intake)
             runtime = create_extension_runtime()  # fresh per harness — no sharing
@@ -290,6 +292,7 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         sessions_cwd=config.sessions_cwd,
         socm_store=socm_store,
         judge_model=judge_model,
+        models=models,
     )
 
     return ApplicationState(

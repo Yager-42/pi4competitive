@@ -38,6 +38,7 @@ class TaskService:
         sessions_cwd: str = "competitive_app",
         socm_store: Any = None,
         judge_model: dict[str, Any] | None = None,
+        models: Any = None,
     ) -> None:
         self._store = store
         self._repo = repo
@@ -47,6 +48,8 @@ class TaskService:
         self._sessions_cwd = sessions_cwd
         self._socm_store = socm_store
         self._judge_model = judge_model
+        # v0.3.2 refine: models for completeSimple (section rewrite, like judge).
+        self._models = models
         # task_id → (runner, abort_signal, agent) for abort/resume.
         self._runners: dict[str, tuple[ResearchRunner, asyncio.Event, Any]] = {}
 
@@ -218,12 +221,16 @@ class TaskService:
             }
         session_id = task.get("session_id")
         markdown = ""
+        sections: list[dict[str, Any]] = []
         if session_id:
             session = await self._open_session(session_id)
             from .stage_outputs import get_stage_output
 
-            write_out = await get_stage_output(session, "write")
-            markdown = (write_out or {}).get("report") or ""
+            # v0.3.2: prefer refine stage_output (post-refine) over write (original).
+            out = await get_stage_output(session, "refine") or await get_stage_output(session, "write")
+            out = out or {}
+            markdown = out.get("report") or ""
+            sections = out.get("sections") or []
         # Coverage four-state + sources from SOCM.
         coverage = {"filled": 0, "total": 0, "unknown": 0, "conflict": 0, "ratio": 0.0}
         sources: list[str] = []
@@ -236,11 +243,139 @@ class TaskService:
             "report_id": task_id,
             "title": proj.get("report_title") or task.get("query", ""),
             "markdown": markdown,
+            "sections": sections,
             "coverage": coverage,
             "evidence_count": proj.get("evidence_count", 0),
             "sources": sources,
             "created_at": task.get("created_at", ""),
         }
+
+    # --------------------------------------------------- v0.3.2 trace/refine/feedback
+
+    async def get_trace(self, task_id: str) -> dict[str, Any]:
+        """GET /tasks/{task_id}/trace — call-level spans (token/latency)."""
+        task = await self._store.get_task(task_id)
+        if task is None:
+            raise TaskNotFoundError(task_id)
+        spans = await self._store.list_spans(task_id)
+        return {"task_id": task_id, "spans": spans}
+
+    async def refine_report(
+        self, task_id: str, section_id: str, annotations: list[str]
+    ) -> dict[str, Any]:
+        """POST /reports/{task_id}/refine — rewrite one section via LLM.
+
+        Reads the current report (refine > write), locates the section by id,
+        rewrites its body with SOCM evidence + annotations via completeSimple,
+        then appends a "refine" stage_output (D24 append-only; write preserved).
+        """
+        from .research_runner import _split_sections
+        from .stage_outputs import append_stage_output, get_stage_output
+
+        task = await self._store.get_task(task_id)
+        if task is None:
+            raise TaskNotFoundError(task_id)
+        session_id = task.get("session_id")
+        if not session_id:
+            return {"ok": False, "message": "no session", "report_id": task_id}
+        session = await self._open_session(session_id)
+        # 1. read current report (refine > write) + sections
+        out = await get_stage_output(session, "refine") or await get_stage_output(session, "write")
+        out = out or {}
+        report = out.get("report") or ""
+        sections = out.get("sections") or _split_sections(report)
+        # 2. locate section
+        target = next((s for s in sections if str(s.get("id")) == str(section_id)), None)
+        if target is None:
+            return {"ok": False, "message": "section not found", "report_id": task_id}
+        # 3. filter SOCM evidence by section title keywords + top-N
+        evidence = await self._filter_evidence_for_section(session_id, target.get("title", ""))
+        # 4. LLM rewrite body
+        new_body = await self._rewrite_section(target, evidence, annotations)
+        if not new_body:
+            return {"ok": False, "message": "rewrite failed", "report_id": task_id}
+        # 5. splice back into report + sections
+        new_report = _replace_section_body(report, sections, str(section_id), new_body)
+        new_sections = [
+            {**s, "body": new_body, "refined": True} if str(s.get("id")) == str(section_id) else s
+            for s in sections
+        ]
+        # 6. append refine stage_output (D24: append, don't overwrite write)
+        await append_stage_output(
+            session, "refine",
+            {"section_id": section_id, "report": new_report, "sections": new_sections,
+             "refined_at": _now_iso()},
+        )
+        return {"ok": True, "section_id": section_id, "report_id": task_id}
+
+    async def add_feedback(
+        self, task_id: str, edited_blocks: int, total_blocks: int, data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """POST /reports/{task_id}/feedback — record revision rate."""
+        task = await self._store.get_task(task_id)
+        if task is None:
+            raise TaskNotFoundError(task_id)
+        await self._store.save_feedback(task_id, edited_blocks, total_blocks, data)
+        rate = (edited_blocks / total_blocks) if total_blocks else 0.0
+        return {"ok": True, "report_id": task_id, "revision_rate": round(rate, 4)}
+
+    async def _filter_evidence_for_section(
+        self, session_id: str, title: str
+    ) -> list[dict[str, Any]]:
+        """Filter SOCM evidence by section-title keyword relevance (top-N)."""
+        if self._socm_store is None or not session_id:
+            return []
+        try:
+            socm = await self._socm_store.load(session_id)
+        except Exception:  # noqa: BLE001
+            return []
+        # section title keywords (split on / 、 space; lowercase).
+        keywords = {
+            w for w in title.lower().replace("/", " ").replace("、", " ").split() if len(w) >= 2
+        }
+        nodes = list(socm.evidence_graph.nodes)
+        if not nodes:
+            return []
+
+        def _relevance(node: Any) -> int:
+            blob = f"{node.entity} {node.attribute} {node.value} {node.finding or ''}".lower()
+            return sum(1 for kw in keywords if kw in blob)
+
+        ranked = sorted(nodes, key=_relevance, reverse=True)
+        # keep only relevant (relevance > 0) when keywords exist; else top by confidence.
+        if keywords:
+            ranked = [n for n in ranked if _relevance(n) > 0] or ranked
+        return [
+            {"entity": n.entity, "attribute": n.attribute, "value": n.value,
+             "source": n.source, "confidence": n.confidence}
+            for n in ranked[:30]
+        ]
+
+    async def _rewrite_section(
+        self, section: dict[str, Any], evidence: list[dict[str, Any]], annotations: list[str]
+    ) -> str:
+        """LLM rewrite of one section body via completeSimple (judge-style call)."""
+        if self._models is None or self._judge_model is None:
+            return ""
+        title = section.get("title", "")
+        existing = section.get("body", "")
+        evidence_blob = "\n".join(
+            f"- [{e.get('source', '')}] {e.get('value', '')}" for e in evidence[:30]
+        ) or "(no additional evidence)"
+        notes = "\n".join(f"- {a}" for a in annotations if a) or "(no annotations)"
+        prompt = (
+            "你是资深竞品分析师。用户对报告某章节提出了批注，请基于章节现有内容、可用证据与批注，"
+            "把该章节重写得更深、更有针对性——补充论证、数据与对比。输出重写后的章节 markdown "
+            "（以 `## ` 标题行开头，到本章节结束，不要包含其他章节）。只输出 markdown 正文。\n\n"
+            f"章节标题：{title}\n现有内容：\n{existing}\n\n用户批注：\n{notes}\n\n可用证据：\n{evidence_blob}"
+        )
+        context = {"messages": [{"role": "user", "content": prompt}]}
+        try:
+            message = await self._models.completeSimple(self._judge_model, context)
+        except Exception:  # noqa: BLE001
+            return ""
+        text = _extract_assistant_text_for_refine(message)
+        return text.strip()
 
     @staticmethod
     def _task_to_report_card(task: dict[str, Any]) -> dict[str, Any]:
@@ -281,14 +416,21 @@ class TaskService:
     # ------------------------------------------------------------- runner glue
 
     def _make_emit(self, task_id: str) -> Any:
-        """v0.3.1 SSE: build the emit closure for a task's runner.
+        """v0.3.1 SSE + v0.2.2 trace: build the emit closure for a task's runner.
 
-        The closure pushes events onto the task's pre-registered queue (if any
-        SSE client is connected) — a no-op when the queue was already reaped
-        (task done) or no client ever connected.
+        - `span` events → written to SQLite (task_spans) for GET /tasks/{id}/trace.
+          NOT pushed to SSE (trace is post-hoc; SSE keeps its 11 business events).
+        - all other events → pushed to the pre-registered SSE queue (if a client
+          is connected); no-op when the queue was reaped (task done).
         """
 
         async def emit(event_type: str, data: dict[str, Any]) -> None:
+            if event_type == "span":
+                try:
+                    await self._store.record_span(task_id, data)
+                except Exception:  # noqa: BLE001
+                    pass  # span recording must never break the runner
+                return
             q = self._registry.get_stream(task_id)
             if q is not None:
                 q.put_nowait({"type": event_type, "data": data})
@@ -441,6 +583,68 @@ def _metadata_stop_after(metadata: dict[str, Any]) -> str | None:
     if not isinstance(raw, str) or not raw:
         return None
     return raw if raw in STAGES else None
+
+
+def _replace_section_body(
+    report: str, sections: list[dict[str, Any]], section_id: str, new_body: str
+) -> str:
+    """v0.3.2: replace one section's body in the full report markdown.
+
+    Splices by locating the target section's current body and substituting
+    new_body. Falls back to appending if the body can't be located (defensive).
+    """
+    target = next((s for s in sections if str(s.get("id")) == str(section_id)), None)
+    if target is None or not target.get("body"):
+        return report
+    old_body = target["body"]
+    if old_body and old_body in report:
+        return report.replace(old_body, new_body, 1)
+    # fallback: append (shouldn't happen if sections were derived from report)
+    return report + "\n\n" + new_body
+
+
+def _extract_assistant_text_for_refine(response: Any) -> str:
+    """Pull text from a completeSimple response (mirrors extraction._extract_assistant_text)."""
+    if response is None:
+        return ""
+    if isinstance(response, str):
+        return response
+    if isinstance(response, dict):
+        content = response.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict):
+                    parts.append(str(block.get("text") or block.get("content") or ""))
+            return "".join(parts)
+        return ""
+    if isinstance(response, list):
+        for event in reversed(response):
+            if not isinstance(event, dict):
+                continue
+            if event.get("type") in {"message_end", "message"}:
+                msg = event.get("message") or event
+                content = msg.get("content") if isinstance(msg, dict) else None
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    return "".join(
+                        str(b.get("text") or b.get("content") or "")
+                        for b in content if isinstance(b, dict)
+                    )
+            if event.get("type") == "text":
+                return str(event.get("text") or "")
+        return ""
+    return ""
+
+
+def _now_iso() -> str:
+    """v0.3.2: ISO timestamp for refine/feedback records."""
+    import datetime
+
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
 __all__ = ["TaskConflictError", "TaskNotFoundError", "TaskService"]

@@ -39,4 +39,29 @@ class WorkflowTaskRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-__all__ = ["PromptRequest", "SessionCreateRequest", "WorkflowTaskRequest"]
+class RefineRequest(BaseModel):
+    """``POST /reports/{task_id}/refine`` body (v0.3.2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    section_id: str = Field(description="Section id to rewrite (e.g. \"1\").")
+    annotations: list[str] = Field(default_factory=list, description="User notes for the rewrite.")
+
+
+class FeedbackRequest(BaseModel):
+    """``POST /reports/{task_id}/feedback`` body (v0.3.2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    edited_blocks: int = Field(ge=0, description="Blocks the user manually edited.")
+    total_blocks: int = Field(ge=0, description="Total blocks in the report.")
+    data: dict[str, Any] = Field(default_factory=dict, description="Extra feedback payload.")
+
+
+__all__ = [
+    "FeedbackRequest",
+    "PromptRequest",
+    "RefineRequest",
+    "SessionCreateRequest",
+    "WorkflowTaskRequest",
+]

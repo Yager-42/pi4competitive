@@ -21,11 +21,13 @@ import asyncio
 import contextvars
 import json
 import logging
+import time
 from typing import Any
 from uuid import uuid4
 
 from ...domain.socm import EvidenceNode, SOCMState
 from ...domain.socm.coverage import CellStatus
+from .stage_outputs import model_name
 
 _log = logging.getLogger(__name__)
 
@@ -104,12 +106,14 @@ class EvidenceIntake:
         judge_model: dict[str, Any] | None,
         max_input_chars: int = DEFAULT_JUDGE_MAX_INPUT_CHARS,
         emit_event: Any = None,
+        task_id: str = "",
     ) -> None:
         self._socm_store = socm_store
         self._session_id = session_id
         self._models = models
         self._judge_model = judge_model
         self._max_input_chars = max_input_chars
+        self._task_id = task_id
         # v0.3.1 SSE: per-evidence event emit (None → noop). Injected via
         # build_ephemeral from CoverageEngine (which gets it from ResearchRunner).
         self._emit_event = emit_event or _noop_emit
@@ -220,11 +224,24 @@ class EvidenceIntake:
             return []
         prompt = _build_judge_prompt(entity_id, empty_attrs, pages_blob)
         context = {"messages": [{"role": "user", "content": prompt}]}
+        t0 = time.monotonic()
         try:
             message = await self._models.completeSimple(self._judge_model, context)
         except Exception:  # noqa: BLE001
             _log.exception("judge completeSimple call failed for entity %s", entity_id)
             return []
+        # v0.2.2 trace: record a span for the judge LLM call.
+        usage = message.get("usage") if isinstance(message, dict) else None
+        await self._emit_event(
+            "span",
+            {
+                "kind": "judge", "stage": "search", "task_id": self._task_id,
+                "entity": entity_id, "model": model_name(self._judge_model),
+                "prompt_tokens": int((usage or {}).get("input", 0) or 0),
+                "completion_tokens": int((usage or {}).get("output", 0) or 0),
+                "latency_ms": int((time.monotonic() - t0) * 1000),
+            },
+        )
         text = _extract_assistant_text(message)
         if not text:
             return []

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from typing import Any
 
 import aiosqlite
@@ -39,6 +40,29 @@ create table if not exists sessions (
     model            text not null,
     system_prompt    text not null,
     created_at       text not null
+);
+
+create table if not exists task_spans (
+    span_id          text primary key,
+    task_id          text not null,
+    seq              integer not null,
+    kind             text not null,
+    stage            text,
+    entity           text,
+    model            text,
+    prompt_tokens    integer default 0,
+    completion_tokens integer default 0,
+    latency_ms       integer default 0,
+    ts               text not null
+);
+create index if not exists idx_task_spans_task on task_spans(task_id, seq);
+
+create table if not exists report_feedback (
+    report_id        text primary key,
+    edited_blocks    integer default 0,
+    total_blocks     integer default 0,
+    data_json        text,
+    updated_at       text not null
 );
 """
 
@@ -227,6 +251,96 @@ class TaskProjectionStore:
         async with self._write_lock:
             await self._db.execute("delete from sessions where session_id = ?", (session_id,))
             await self._db.commit()
+
+    # ------------------------------------------------------- v0.2.2 trace spans
+
+    async def record_span(self, task_id: str, data: dict[str, Any]) -> None:
+        """Append one trace span (called from the emit closure for `span` events)."""
+        await self.init()
+        assert self._db is not None
+        async with self._write_lock:
+            # seq = current span count for this task (monotonic per task).
+            cur = await self._db.execute(
+                "select count(*) from task_spans where task_id = ?", (task_id,)
+            )
+            row = await cur.fetchone()
+            seq = row[0] if row else 0
+            await self._db.execute(
+                "insert into task_spans(span_id, task_id, seq, kind, stage, entity, model, "
+                "prompt_tokens, completion_tokens, latency_ms, ts) values(?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    f"sp_{uuid.uuid4().hex[:12]}", task_id, seq,
+                    str(data.get("kind", "")), data.get("stage"), data.get("entity"),
+                    data.get("model"),
+                    int(data.get("prompt_tokens", 0) or 0),
+                    int(data.get("completion_tokens", 0) or 0),
+                    int(data.get("latency_ms", 0) or 0),
+                    _now_iso(),
+                ),
+            )
+            await self._db.commit()
+
+    async def list_spans(self, task_id: str) -> list[dict[str, Any]]:
+        """Return all spans for a task, ordered by seq (call order)."""
+        await self.init()
+        assert self._db is not None
+        async with self._db.execute(
+            "select span_id, task_id, seq, kind, stage, entity, model, "
+            "prompt_tokens, completion_tokens, latency_ms, ts "
+            "from task_spans where task_id = ? order by seq",
+            (task_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            {
+                "span_id": r[0], "task_id": r[1], "seq": r[2], "kind": r[3],
+                "stage": r[4], "entity": r[5], "model": r[6],
+                "prompt_tokens": r[7], "completion_tokens": r[8],
+                "latency_ms": r[9], "ts": r[10],
+            }
+            for r in rows
+        ]
+
+    # --------------------------------------------------- v0.3.2 report feedback
+
+    async def save_feedback(
+        self, task_id: str, edited_blocks: int, total_blocks: int, data: dict[str, Any]
+    ) -> None:
+        """Upsert feedback (edited/total blocks + raw data) for a report."""
+        await self.init()
+        assert self._db is not None
+        async with self._write_lock:
+            await self._db.execute(
+                "insert into report_feedback(report_id, edited_blocks, total_blocks, "
+                "data_json, updated_at) values(?,?,?,?,?) "
+                "on conflict(report_id) do update set "
+                "edited_blocks=excluded.edited_blocks, total_blocks=excluded.total_blocks, "
+                "data_json=excluded.data_json, updated_at=excluded.updated_at",
+                (
+                    task_id, int(edited_blocks), int(total_blocks),
+                    json.dumps(data, ensure_ascii=False) if data else None,
+                    _now_iso(),
+                ),
+            )
+            await self._db.commit()
+
+    async def get_feedback(self, task_id: str) -> dict[str, Any] | None:
+        await self.init()
+        assert self._db is not None
+        async with self._db.execute(
+            "select report_id, edited_blocks, total_blocks, data_json, updated_at "
+            "from report_feedback where report_id = ?",
+            (task_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        data = json.loads(row[3]) if row[3] else None
+        return {
+            "report_id": row[0], "edited_blocks": row[1], "total_blocks": row[2],
+            "data": data, "updated_at": row[4],
+            "revision_rate": (row[1] / row[2]) if row[2] else 0.0,
+        }
 
 
 def _row_to_task(row: Any) -> dict[str, Any]:

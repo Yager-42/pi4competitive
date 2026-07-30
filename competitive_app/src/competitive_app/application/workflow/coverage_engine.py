@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 from uuid import uuid4
 
@@ -32,6 +33,7 @@ from ...domain.socm import (
 from ...domain.stage import STAGES
 from .extraction import current_subtask
 from .profiles import is_search_tool
+from .stage_outputs import last_usage, model_name
 
 _log = logging.getLogger(__name__)
 
@@ -340,6 +342,7 @@ class CoverageEngine:
             session_id=self._session_id,
             judge_model=self._judge_model,
             emit_event=self._emit_event,
+            task_id=self._task_id,
         )
         try:
             agent = harness.agent
@@ -372,6 +375,8 @@ class CoverageEngine:
         """Run one sub-agent prompt. Exceptions leave cells empty (re-dispatchable)."""
         agent.state.systemPrompt = _SEARCH_RUNTIME_PROMPT
         prompt = _build_subagent_prompt(state, subtask)
+        entity_id = subtask.get("entity_id", "")
+        t0 = time.monotonic()
         try:
             await harness.prompt(prompt)
         except asyncio.CancelledError:
@@ -379,6 +384,18 @@ class CoverageEngine:
         except Exception:  # noqa: BLE001
             _log.exception("sub-agent prompt failed for subtask %s", subtask.get("question"))
             return
+        # v0.2.2 trace: record a span for the sub-agent LLM call.
+        usage = last_usage(agent.state.messages)
+        await self._emit_event(
+            "span",
+            {
+                "kind": "subagent", "stage": "search", "task_id": self._task_id,
+                "entity": entity_id, "model": model_name(agent.state.model),
+                "prompt_tokens": int(usage.get("input", 0) or 0),
+                "completion_tokens": int(usage.get("output", 0) or 0),
+                "latency_ms": int((time.monotonic() - t0) * 1000),
+            },
+        )
 
     async def _update_projection(self) -> None:
         state = await self._socm_store.load(self._session_id)
