@@ -49,7 +49,24 @@ def test_adapter_in_no_pi_or_db_imports() -> None:
 
 
 def test_adapter_out_no_fastapi_or_pi_imports() -> None:
-    offenders = _scan(APP_SRC / "adapter" / "out", ADAPTER_OUT_FORBIDDEN)
+    """adapter/out is store-only and never imports FastAPI.
+
+    P3.3 host delta: the ``sandbox`` adapter subtree is the consumer of Pi's
+    provider-neutral executor seam (``earendil_works.pi_agent`` types are its
+    message contract); it still must never import FastAPI/uvicorn.  Every other
+    out-layer module keeps the full ban.
+    """
+    sandbox_dir = (APP_SRC / "adapter" / "out" / "sandbox").resolve()
+    offenders: list[str] = []
+    for path in (APP_SRC / "adapter" / "out").rglob("*.py"):
+        relative = path.relative_to(ROOT)
+        if path.resolve().is_relative_to(sandbox_dir):
+            forbidden = {"fastapi", "uvicorn"}
+        else:
+            forbidden = ADAPTER_OUT_FORBIDDEN
+        for root in _import_roots(path):
+            if root in forbidden:
+                offenders.append(f"{relative}:{root}")
     assert not offenders, f"adapter/out layer violations: {offenders}"
 
 
@@ -57,21 +74,40 @@ def test_application_does_not_import_fastapi() -> None:
     # application may import pi_agent + adapter/out store, but NOT fastapi.
     offenders = _scan(APP_SRC / "application", {"fastapi", "uvicorn"})
     assert not offenders, f"application layer violations: {offenders}"
-
-
 def test_workflow_code_in_competitive_app_not_packages() -> None:
-    """F-R3/D8: three-stage workflow lives in competitive_app, not packages/agent."""
+    """F-R3/D8: three-stage workflow lives in competitive_app, not packages/agent.
+
+    P3.3 host delta: the provider-neutral AgentTool executor seam (plan A1–A4)
+    is a documented packages/agent change; nothing else may touch packages/.
+    """
     import subprocess
 
+    P3_3_SEAM_FILES = {
+        "packages/agent/src/earendil_works/pi_agent/__init__.py",
+        "packages/agent/src/earendil_works/pi_agent/agent.py",
+        "packages/agent/src/earendil_works/pi_agent/agent_loop.py",
+        "packages/agent/src/earendil_works/pi_agent/extensions/wrapper.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/agent_harness.py",
+        "packages/agent/src/earendil_works/pi_agent/tool_execution.py",
+        "packages/agent/src/earendil_works/pi_agent/types.py",
+    }
     result = subprocess.run(
-        ["git", "diff", "--exit-code", "--name-only", "HEAD", "--", "packages/"],
+        ["git", "diff", "--name-only", "HEAD", "--", "packages/"],
         cwd=ROOT,
         capture_output=True,
         text=True,
     )
-    # Non-zero exit means packages/ has changes; the workflow must not touch it.
-    assert result.returncode == 0, (
-        f"packages/ must not be modified by research-workflow-v1; changed: {result.stdout}"
+    tracked = {line for line in result.stdout.splitlines() if line}
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "packages/"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    new_files = {line for line in untracked.stdout.splitlines() if line}
+    changed = tracked | new_files
+    assert changed <= P3_3_SEAM_FILES, (
+        f"packages/ must not be modified by research-workflow-v1; changed: {sorted(changed)}"
     )
 
 
