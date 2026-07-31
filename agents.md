@@ -20,7 +20,7 @@ This file is for humans and coding agents working in this repo.
 | [`docs/plans/P3_capability_loader.md`](docs/plans/P3_capability_loader.md) | P3 plan (**completed**) — package-manager local subset |
 | [`docs/plans/P3_1_agent_engine_extensions.md`](docs/plans/P3_1_agent_engine_extensions.md) | P3.1 engine extension runtime (**completed v0.2.4 baseline**); map [`P3_1_module_map.md`](docs/plans/P3_1_module_map.md) |
 | [`docs/plans/P3_2_pi_extension_capability_enablement.md`](docs/plans/P3_2_pi_extension_capability_enablement.md) | P3.2 Pi extension capability enablement (**completed v0.1.2**); consumer = reasonix |
-| [`docs/plans/P3_3_agent_tool_sandbox.md`](docs/plans/P3_3_agent_tool_sandbox.md) | P3.3 AgentTool Docker sandbox implementation plan (**v0.1.0 todo**) |
+| [`docs/plans/P3_3_agent_tool_sandbox.md`](docs/plans/P3_3_agent_tool_sandbox.md) | P3.3 AgentTool Docker sandbox implementation plan (**v0.1.1 active**；A–E + F1/F2/F5 done，F3/F4 双平台证据待外部 host） |
 | [`docs/plans/P4_search_capability_packages.md`](docs/plans/P4_search_capability_packages.md) | search capability packages v1 (**completed** implementation; feature frozen) |
 | [`docs/plans/P4_competitive_app_http.md`](docs/plans/P4_competitive_app_http.md) | P4 competitive_app HTTP 骨架（v0.2.0；14 路由） |
 | [`docs/plans/P4_research_workflow_v2.md`](docs/plans/P4_research_workflow_v2.md) | P4 三阶段研究 workflow v0.2.0（SearchOS coverage 引擎；ADR 0010；plan 随 PR2 起补）；v1 plan `P4_research_workflow.md` completed v0.1.1 |

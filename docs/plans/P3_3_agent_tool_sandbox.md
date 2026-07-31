@@ -3,10 +3,10 @@
 | Field | Value |
 |-------|-------|
 | **plan_id** | `P3.3-agent-tool-sandbox` |
-| **plan_version** | `0.1.0` |
-| **status** | **todo — implementation not started** |
+| **plan_version** | `0.1.1` |
+| **status** | **active — A–E + F1/F2/F5 done；F3（Linux amd64）/F4（Docker Desktop arm64）证据待外部 host** |
 | **created** | 2026-07-31 |
-| **updated** | 2026-07-31 |
+| **updated** | 2026-08-01 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P3.3** |
 | **contract** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.7** |
 | **feature** | [`docs/features/agent_tool_sandbox_v1.md`](../features/agent_tool_sandbox_v1.md) **v0.1.31 frozen** — G1–G30 |
@@ -282,34 +282,34 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | Step | Phase | Status | Contract mapping |
 |------|-------|--------|------------------|
 | G0 | Current Pi/Poirot/SDK code preflight + offline baseline | **done** | Pi `7846534` direct call；Poirot frozen；SDK carrier confirmed；324 offline green with dummy Tavily config |
-| A1 | `ToolExecutionTarget` + derivation/signature validation | todo | G10–G12 / O4 / O17 |
-| A2 | `AgentToolExecutor` + Direct parity | todo | G1/G2 / O2 |
-| A3 | low-level loop seam + Agent/Harness propagation | todo | G1/G3 / O1/O3 |
-| A4 | wrapper lineage + Pi contract/dependency tests | todo | G10 / O4/O14 |
-| B1 | strict JSON request/frame codec | todo | G13/G14/G24 / O5 |
-| B2 | approved registry + baked manifest contract | todo | G10/G11/G22 / O4/S7 |
-| B3 | one-request worker + update/final/error behavior | todo | G11–G14/G29 / O5/O8/O17 |
-| B4 | current six tool targets worker-importable with no control plane | todo | G11/G17 |
-| C1 | COPY pure exceptions/contracts/translator/audit/lock | todo | G2/G19/G25/O15 |
-| C2 | ADAPT facade/types/runtime/provider/backend contracts | todo | G2/G15/G23 |
-| C3 | scope id + workspace/path/symlink guards | todo | G7/G9/G19 / S1–S4/S12 |
-| C4 | Poirot-derived unit parity/omit tests | todo | O14/O15 |
-| D1 | Docker CLI/backend with pinned image + fixed hardening | todo | G17–G22/G24 / S3/S7/S8/S10/S11 |
-| D2 | async SDK runtime using bash offset long-poll | todo | G13/G14/G16 / O5/O6 |
-| D3 | provider acquire/warm/orphan/idle/destroy/shutdown | todo | G15/G23/G24 / O7/O10/O11 |
-| D4 | derived multi-arch image + notices + manifest/SBOM/provenance | todo | G17/G22 / O15/S7 |
-| D5 | real image readiness/worker/hardening smoke | todo | G5/G18 / O13/S1–S12 |
-| E1 | App config + immutable registry + eager startup composition | todo | G1/G4/G5/G27/G28 / O4/O13 |
-| E2 | main/dynamic/resume/ephemeral scope propagation | todo | G1/G6/G8 / O1/O9 |
-| E3 | outer-run lazy acquire + once-only release | todo | G16/G23 / O6/O10 |
-| E4 | abort/shutdown/task-delete/workspace retention | todo | G9/G15/G23 / O7/O11/S9 |
-| E5 | production no-fallback/no-config-bypass contract tests | todo | G1/G4/G27/G28 / O8/O14/S6 |
-| F1 | full Offline O1–O17 | todo | feature §14.1 |
-| F2 | full Security S1–S12 on real Docker | todo | feature §14.2 |
-| F3 | Linux amd64 L1–L5 evidence | todo | feature §14.3 |
-| F4 | Docker Desktop arm64 L1–L5 evidence | todo | feature §14.3 |
-| F5 | full regression/CodeGraph/license/transplant audit | todo | O12/O14–O16 |
-| F6 | plan completed + Roadmap P3.3 done | todo | exit gate |
+| A1 | `ToolExecutionTarget` + derivation/signature validation | **done** | G10–G12 / O4 / O17；`test_tool_execution.py` |
+| A2 | `AgentToolExecutor` + Direct parity | **done** | G1/G2 / O2；`test_tool_execution.py::test_direct_executor_*` |
+| A3 | low-level loop seam + Agent/Harness propagation | **done** | G1/G3 / O1/O3；`test_executor_seam.py` / `test_executor_propagation.py` |
+| A4 | wrapper lineage + Pi contract/dependency tests | **done** | G10 / O4/O14；wrapper remap + lineage 测试 |
+| B1 | strict JSON request/frame codec | **done** | G13/G14/G24 / O5；`test_protocol.py`（5 项） |
+| B2 | approved registry + baked manifest contract | **done** | G10/G11/G22 / O4/S7；`test_approved_registry.py` |
+| B3 | one-request worker + update/final/error behavior | **done** | G11–G14/G29 / O5/O8/O17；`test_worker.py` |
+| B4 | current six tool targets worker-importable with no control plane | **done** | G11/G17；`test_sandbox_contract.py::test_worker_targets_import_without_pi_control_plane` |
+| C1 | COPY pure exceptions/contracts/translator/audit/lock | **done** | G2/G19/G25/O15；17 个 COPY/ADAPT 文件全部带 SHA/MIT |
+| C2 | ADAPT facade/types/runtime/provider/backend contracts | **done** | G2/G15/G23 |
+| C3 | scope id + workspace/path/symlink guards | **done** | G7/G9/G19 / S1–S4/S12；`test_facade.py` + live S2/S4 |
+| C4 | Poirot-derived unit parity/omit tests | **done** | O14/O15；omit 文件不存在断言 |
+| D1 | Docker CLI/backend with pinned image + fixed hardening | **done** | G17–G22/G24 / S3/S7/S8/S10/S11；`test_backend.py`（24 项）+ live S3/S10 |
+| D2 | async SDK runtime using bash offset long-poll | **done** | G13/G14/G16 / O5/O6 |
+| D3 | provider acquire/warm/orphan/idle/destroy/shutdown | **done** | G15/G23/G24 / O7/O10/O11；`test_docker_provider.py`（10 项） |
+| D4 | derived multi-arch image + notices + manifest/SBOM/provenance | **done** | G17/G22 / O15/S7；dev-3 digest `sha256:16a07d29…`（provenance=前序 digest，见 §5 决策） |
+| D5 | real image readiness/worker/hardening smoke | **done** | G5/G18 / O13/S1–S12；orbstack arm64 真实冒烟全绿 |
+| E1 | App config + immutable registry + eager startup composition | **done** | G1/G4/G5/G27/G28 / O4/O13；`test_composition.py` wiring fail-closed 5 项 |
+| E2 | main/dynamic/resume/ephemeral scope propagation | **done** | G1/G6/G8 / O1/O9；`_HarnessFactory` parent-derived scope |
+| E3 | outer-run lazy acquire + once-only release | **done** | G16/G23 / O6/O10；`test_composition.py` executor/lifecycle 8 项 |
+| E4 | abort/shutdown/task-delete/workspace retention | **done** | G9/G15/G23 / O7/O11/S9；live S9 + 真实 Docker task delete smoke |
+| E5 | production no-fallback/no-config-bypass contract tests | **done** | G1/G4/G27/G28 / O8/O14/S6；doubles-pair 校验 + 无 env/CLI bypass |
+| F1 | full Offline O1–O17 | **done** | feature §14.1；全仓 `-m "not live"` 406 passed |
+| F2 | full Security S1–S12 on real Docker | **done** | feature §14.2；`test_live_sandbox_security.py` 12/12（orbstack arm64） |
+| F3 | Linux amd64 L1–L5 evidence | blocked | feature §14.3；需外部 Linux amd64 host（见证据表） |
+| F4 | Docker Desktop arm64 L1–L5 evidence | blocked | feature §14.3；本机 orbstack（非 Docker Desktop），证据记录见证据表 |
+| F5 | full regression/CodeGraph/license/transplant audit | **done** | O12/O14–O16；406 offline + CodeGraph impact/affected + 17 COPY/ADAPT 审计 |
+| F6 | plan completed + Roadmap P3.3 done | in_progress | exit gate；待 F3/F4 外部证据后翻转 |
 
 Rules:
 
@@ -498,12 +498,21 @@ Real Docker tests must exercise enforcement, not only command strings: outside-h
 - L4 real overlap/update/abort/no-change/container-crash behavior.
 - L5 terminal states/restart/resume/warm reclaim/task delete/shutdown retention.
 
-Evidence table to fill before close:
+
+Evidence table (2026-08-01; orbstack = arm64 Docker daemon on macOS, NOT Docker Desktop):
 
 | Platform | Image digest | O | S | L1–L5 | Date / sanitized evidence |
 |----------|--------------|---|---|-------|---------------------------|
-| Linux amd64 | pending | pending | pending | pending | pending |
-| Docker Desktop arm64 | pending | pending | pending | pending | pending |
+| Linux amd64 | pending（dev-3 为 arm64 构建） | pending | pending | pending | 需外部 Linux amd64 host；测试均为 `live` 标记，主机就绪后直接运行 |
+| Docker Desktop arm64 | pending | pending | pending | pending | 本机为 orbstack daemon；`docker info` 含 orbstack 标识；L1 等价验证已由 `test_live_sandbox_security.py`（12/12）+ production e2e smoke 完成 |
+| orbstack arm64（本机，参考证据） | `sha256:16a07d2927a6daa024a199e41ab0c29b7812d40198a3a636a3262594f61f8276` | 406 offline + 本仓 O 映射 | S1–S12 12/12 | L1 通过（canary/manifest/production e2e）；L2–L5 需真实 provider key | 2026-08-01：real-Docker production e2e、abort→destroy、task delete→delete_workspace、S1–S12 全绿；无遗留 container（`docker ps -a --filter label=…` 为空） |
+
+**P3.3 已记录决策（本计划增量）：**
+
+1. **buildIdentity 语义 = provenance，非最终 digest**。内容寻址镜像中 manifest `buildIdentity == 最终 digest` 无固定点（D = f(B) 且要求 D == B 与 config digest 同时成立）。因此 baked manifest 的 `buildIdentity` 记录前一构建 digest（dev-3 中为 dev-2 `sha256:90e12a…`），S7 强制链改为：生产只接受 digest pin + `verify_image_identity`（daemon 解析）+ host registry ⊆ baked manifest 逐 target 校验 + canary（worker 侧自行校验 protocol/版本/baked manifest）。
+2. **启动握手**：默认 readiness（HTTP 200 + ready state，`/v1/sandbox` 只返回 base env blob，无 protocol/buildIdentity 字段）；manifest handshake 走 `read_baked_manifest`（`docker run --rm --read-only --network none --entrypoint cat`）+ `registry.validate_baked_manifest`；canary 用独立 `CANARY_SESSION_ID` scope，失败即销毁。
+3. **模块重映射 host delta（`extensions/wrapper.py::_remap_generated_module`）**：除把 target 从 `pi_extension_<hash>` 重映射到 `capability_packages.*` 外，还把生成的 module 对象注册进 `sys.modules[real_name]`，使 host 侧 lineage 校验（`__code__` 同一文件证明）在 pytest/打包安装（cwd 不在 sys.path）下仍然成立；worker 镜像内仍按真实路径 fresh import。
+4. **E5 无 bypass**：`build_application_state` 的 doubles 必须成对传入，缺一即 ValueError（在开任何资源之前校验）；sandbox 组合失败时先 `provider.shutdown()` 并关闭已开的 SQLite stores 再 re-raise（E1.4 unwind）。
 
 Test duration may be recorded diagnostically but is never a pass/fail SLA. Live skip cannot close P3.3.
 
@@ -548,3 +557,4 @@ No slice may ship a production path that silently uses Direct. Before PR4, the n
 | Version | Date | Change |
 |---------|------|--------|
 | `0.1.0` | 2026-07-31 | Initial implementation plan from frozen feature v0.1.31/ADR 0011：records Pi `main@7846534` preflight, exact Poirot COPY/ADAPT/OMIT/NEW-HOST map, SDK bash offset-long-poll carrier, A–F serial phases, O/S/L close gates and two-platform evidence table；implementation not started |
+| `0.1.1` | 2026-08-01 | **A–E + F1/F2/F5 完成**：status board 全量翻转（G0–F5）；real-Docker production e2e/abort/task-delete smoke 与 S1–S12 12/12 记录；E-phase offline contract tests（`test_composition.py` 19 项 + `test_docker_provider.py` 10 项 + `test_backend.py` 24 项）与 live `test_live_sandbox_security.py`；全仓 offline 406 passed；记录 buildIdentity=provenance 决策、启动握手、`_remap_generated_module` sys.modules host delta、E5 doubles-pair/unwind；F3/F4 双平台证据仍待外部 host |
