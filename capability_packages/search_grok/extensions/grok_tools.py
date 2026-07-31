@@ -13,11 +13,12 @@ import random
 import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from earendil_works.pi_agent.types import AgentTool, AgentToolResult
+if TYPE_CHECKING:
+    from earendil_works.pi_agent.types import AgentToolResult
 
 _TIMEOUT = httpx.Timeout(connect=6.0, write=10.0, read=120.0, pool=None)
 _RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
@@ -592,6 +593,7 @@ async def _grok_search_execute(
 
 
 def register(api: Any) -> None:
+    from earendil_works.pi_agent.types import AgentTool
     _env_required("GROK_API_KEY")
     _env_required("GROK_API_URL")
     _env_required("GROK_MODEL")

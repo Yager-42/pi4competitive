@@ -6,11 +6,12 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from earendil_works.pi_agent.types import AgentTool, AgentToolResult
+if TYPE_CHECKING:
+    from earendil_works.pi_agent.types import AgentToolResult
 
 _DEFAULT_API_URL = "https://api.tavily.com"
 _TIMEOUT = httpx.Timeout(connect=6.0, write=10.0, read=120.0, pool=None)
@@ -347,6 +348,7 @@ async def _tavily_fetch_execute(
 
 
 def register(api: Any) -> None:
+    from earendil_works.pi_agent.types import AgentTool
     # Fail closed before add_tool (F-S11)
     _env_required("TAVILY_API_KEY")
     api.registerTool(AgentTool(

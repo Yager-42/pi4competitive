@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, NotRequired, Protocol, TypedDict, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict, TypeAlias
 
 from earendil_works.pi_ai.types import (
     AssistantMessage,
@@ -23,6 +23,9 @@ from earendil_works.pi_ai.types import (
     Usage,
 )
 from earendil_works.pi_ai.utils.event_stream import AssistantMessageEventStream
+
+if TYPE_CHECKING:
+    from .tool_execution import AgentToolExecutor, ToolExecutionTarget
 
 # ---------------------------------------------------------------------------
 # StreamFn
@@ -135,6 +138,7 @@ class AgentTool:
     # (toolCallId, params, signal?, onUpdate?) -> AgentToolResult
     prepareArguments: Callable[[Any], Any] | None = None
     executionMode: ToolExecutionMode | None = None
+    executionTarget: ToolExecutionTarget | None = None
 
     def to_llm_tool(self) -> Tool:
         return {
@@ -286,6 +290,8 @@ class AgentLoopConfig:
     getSteeringMessages: Callable[[], Awaitable[list[AgentMessage]]] | None = None
     getFollowUpMessages: Callable[[], Awaitable[list[AgentMessage]]] | None = None
     toolExecution: ToolExecutionMode = "parallel"
+    toolExecutor: AgentToolExecutor | None = None
+    toolExecutionScopeId: str = ""
     beforeToolCall: (
         Callable[
             [BeforeToolCallContext, Any | None],

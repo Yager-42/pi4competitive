@@ -50,6 +50,13 @@ from .package_manager import (
     load_capability_packages_sync,
 )
 from .stream_fn import get_default_stream_fn, set_default_stream_fn
+from .tool_execution import (
+    DIRECT_TOOL_EXECUTOR,
+    AgentToolExecutor,
+    DirectToolExecutor,
+    ToolExecutionTarget,
+    derive_tool_execution_target,
+)
 from .types import (
     AfterToolCallContext,
     AfterToolCallResult,
@@ -88,6 +95,11 @@ __all__ = [
     "AgentMessage",
     "AgentOptions",
     "AgentTool",
+    "DIRECT_TOOL_EXECUTOR",
+    "AgentToolExecutor",
+    "DirectToolExecutor",
+    "ToolExecutionTarget",
+    "derive_tool_execution_target",
     "AgentToolCall",
     "AgentToolResult",
     "AgentToolUpdateCallback",

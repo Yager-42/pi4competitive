@@ -20,6 +20,7 @@ from earendil_works.pi_ai.utils.event_stream import EventStream
 from earendil_works.pi_ai.utils.validation import validate_tool_arguments
 
 from .stream_fn import get_default_stream_fn
+from .tool_execution import DIRECT_TOOL_EXECUTOR
 from .types import (
     AgentContext,
     AgentEvent,
@@ -520,7 +521,7 @@ async def _execute_tool_calls_sequential(
                 "isError": preparation["isError"],
             }
         else:
-            executed = await _execute_prepared_tool_call(preparation, signal, emit)
+            executed = await _execute_prepared_tool_call(preparation, config, signal, emit)
             finalized = await _finalize_executed_tool_call(
                 current_context,
                 assistant_message,
@@ -583,7 +584,7 @@ async def _execute_tool_calls_parallel(
         prep = preparation
 
         async def _run(prep: _PreparedToolCall = prep) -> _FinalizedToolCallOutcome:  # type: ignore[misc]
-            executed = await _execute_prepared_tool_call(prep, signal, emit)
+            executed = await _execute_prepared_tool_call(prep, config, signal, emit)
             finalized_inner = await _finalize_executed_tool_call(
                 current_context,
                 assistant_message,
@@ -704,6 +705,7 @@ async def _prepare_tool_call(
 
 async def _execute_prepared_tool_call(
     prepared: _PreparedToolCall,
+    config: AgentLoopConfig,
     signal: Any | None,
     emit: AgentEventSink,
 ) -> _ExecutedToolCallOutcome:
@@ -730,11 +732,14 @@ async def _execute_prepared_tool_call(
         update_events.append(asyncio.create_task(_do()))
 
     try:
-        result = await prepared["tool"].execute(
-            prepared["toolCall"]["id"],
-            prepared["args"],
-            signal,
-            on_update,
+        executor = config.toolExecutor or DIRECT_TOOL_EXECUTOR
+        result = await executor.execute(
+            scope_id=config.toolExecutionScopeId,
+            tool=prepared["tool"],
+            tool_call_id=prepared["toolCall"]["id"],
+            params=prepared["args"],
+            signal=signal,
+            on_update=on_update,
         )
         accepting_updates = False
         if update_events:

@@ -67,3 +67,11 @@ def test_pydantic_v2_available() -> None:
     import pydantic
 
     assert int(pydantic.VERSION.split(".")[0]) >= 2
+
+def test_pi_agent_has_no_sandbox_imports() -> None:
+    offenders: list[str] = []
+    for path in AGENT_SRC.rglob("*.py"):
+        for root in _import_roots(path):
+            if root in {"agent_sandbox", "docker"}:
+                offenders.append(f"{path}:{root}")
+    assert not offenders, offenders
