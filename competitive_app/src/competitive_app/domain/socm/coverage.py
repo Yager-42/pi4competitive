@@ -374,6 +374,33 @@ class CoverageMap(BaseModel):
             "ratio": round(self.coverage_ratio(), 4),
         }
 
+    def to_matrix(self) -> dict[str, Any]:
+        """F2: full coverage_map matrix for GET /reports/{id} + GraphPage.
+
+        Returns entities/attributes/cells (each cell with four-state status +
+        value/source/confidence/candidates). pi4 differentiator: the structured
+        entity×attribute matrix (vs VerdaAI's flat evidence). SOCM stays the
+        search SoT (D-S4); this is a read-only projection.
+        """
+        return {
+            "entities": [e.model_dump(mode="json") for e in self.entities],
+            "attributes": [a.model_dump(mode="json") for a in self.attributes],
+            "cells": [
+                {
+                    "entity_id": c.entity_id,
+                    "attribute_id": c.attribute_id,
+                    "status": c.status.value,
+                    "value": c.value,
+                    "source": c.source,
+                    "source_excerpt": c.source_excerpt,
+                    "confidence": c.confidence,
+                    "attempts": c.attempts,
+                    "candidates": [cand.model_dump(mode="json") for cand in c.candidates],
+                }
+                for c in self.cells.values()
+            ],
+        }
+
 
 def _normalize_value(value: str) -> str:
     """Normalize a value for same/different comparison (case + whitespace)."""

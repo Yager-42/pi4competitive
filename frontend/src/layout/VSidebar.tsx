@@ -3,11 +3,11 @@
  */
 import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Home, Sprout, ChevronDown, Radar } from 'lucide-react'
+import { Home, Sprout, ChevronDown, Radar, BarChart3 } from 'lucide-react'
 
 const navItems = [
   { to: '/', label: '工作台', icon: Home, end: true },
-  // F2: { to: '/library', label: '我的调研', icon: BarChart3 }
+  { to: '/library', label: '我的调研', icon: BarChart3 },
   // F3: { to: '/evidences', label: '证据库', icon: Library }
   // F3: { to: '/dashboard', label: '竞争情报中心', icon: Radar }
 ]
@@ -59,9 +59,8 @@ export default function VSidebar() {
             <span>{item.label}</span>
           </NavLink>
         ))}
-        {/* F2/F3 占位(灰,未实现) */}
+        {/* F3 占位(灰,未实现) */}
         {[
-          { label: '我的调研', icon: Radar, soon: 'F2' },
           { label: '证据库', icon: Radar, soon: 'F3' },
           { label: '竞争情报中心', icon: Radar, soon: 'F3' },
         ].map((x) => (

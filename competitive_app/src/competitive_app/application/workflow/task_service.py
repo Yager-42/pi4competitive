@@ -359,11 +359,17 @@ class TaskService:
         # Coverage four-state + sources from SOCM.
         coverage = {"filled": 0, "total": 0, "unknown": 0, "conflict": 0, "ratio": 0.0}
         sources: list[str] = []
+        coverage_map: dict[str, Any] | None = None
         if session_id and self._socm_store is not None:
             socm = await self._socm_store.load(session_id)
             coverage = socm.coverage_map.to_projection_with_states()
             sources = sorted({n.source for n in socm.evidence_graph.nodes if n.source})
-        return {
+            # F2: coverage_map matrix for GraphPage (read-only projection; D-S4).
+            try:
+                coverage_map = socm.coverage_map.to_matrix()
+            except Exception:  # noqa: BLE001
+                coverage_map = None
+        result = {
             "ok": True,
             "report_id": task_id,
             "title": proj.get("report_title") or task.get("query", ""),
@@ -374,6 +380,9 @@ class TaskService:
             "sources": sources,
             "created_at": task.get("created_at", ""),
         }
+        if coverage_map is not None:
+            result["coverage_map"] = coverage_map
+        return result
 
     # --------------------------------------------------- v0.3.2 trace/refine/feedback
 

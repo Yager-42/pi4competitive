@@ -73,3 +73,89 @@ export interface SubagentNode {
   status: 'running' | 'done'
   started_at?: number
 }
+
+/* ============================================================ F2 报告闭环 */
+
+/* 报告卡片(GET /api/v2/reports 返 {reports: ReportCard[]}) */
+export interface ReportCard {
+  report_id: string
+  title: string
+  brands: string[]
+  evidence_count: number
+  claim_count: number
+  coverage_ratio: number
+  status: string
+  created_at: string
+}
+
+/* 报告章节(POST /reports/{id}/refine 重写后标 refined) */
+export interface ReportSection {
+  id: string
+  title: string
+  body: string
+  refined?: boolean
+}
+
+/* 报告全文(GET /api/v2/reports/{id}) */
+export interface Report {
+  ok: boolean
+  report_id?: string
+  title?: string
+  markdown?: string
+  sections?: ReportSection[]
+  coverage?: Coverage
+  coverage_map?: CoverageMatrix
+  evidence_count?: number
+  sources?: string[]
+  created_at?: string
+  message?: string
+  status?: string
+}
+
+/* coverage_map 矩阵(GET /reports/{id} 补字段,F2 后端补) */
+export interface CoverageMatrixCell {
+  entity_id: string
+  attribute_id: string
+  status: 'filled' | 'empty' | 'unknown' | 'conflict'
+  value?: string
+  source?: string
+  source_excerpt?: string
+  confidence?: number
+  attempts?: number
+  candidates?: { value: string; source: string; confidence: number }[]
+}
+
+export interface CoverageMatrixEntity {
+  id: string
+  name: string
+  kind?: string
+}
+
+export interface CoverageMatrixAttribute {
+  id: string
+  name: string
+  dimension?: string
+  type?: string
+}
+
+export interface CoverageMatrix {
+  entities: CoverageMatrixEntity[]
+  attributes: CoverageMatrixAttribute[]
+  cells: CoverageMatrixCell[]
+}
+
+/* trace span(GET /api/v2/tasks/{id}/trace)——轻量,无 prompt/response 全文 */
+export interface TraceSpan {
+  span_id: string
+  task_id: string
+  seq: number
+  kind: 'plan' | 'subagent' | 'judge' | 'write' | string
+  stage?: string | null
+  entity?: string | null
+  model?: string | null
+  prompt_tokens: number
+  completion_tokens: number
+  latency_ms: number
+  ts: string
+}
+

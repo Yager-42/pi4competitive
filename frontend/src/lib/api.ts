@@ -4,7 +4,10 @@
 import type {
   ClarifyAnswer,
   CreateTaskResp,
+  Report,
+  ReportCard,
   SSEEventType,
+  TraceSpan,
 } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
@@ -88,6 +91,60 @@ export function openTaskStream(taskId: string, handlers: SSEHandlers): () => voi
     handlers.onError?.(e)
   }
   return () => es.close()
+}
+
+/* ============================================================ F2 报告闭环 */
+
+/* GET /api/v2/reports → {reports: ReportCard[]} */
+export async function fetchReports(): Promise<ReportCard[]> {
+  return safeJson<{ reports: ReportCard[] }>('/api/v2/reports', undefined, { reports: [] })
+    .then((r) => r.reports ?? [])
+}
+
+/* GET /api/v2/reports/{id} → Report 全文(refine 优先 write + coverage + coverage_map) */
+export async function fetchReport(reportId: string): Promise<Report | null> {
+  return safeJson<Report | null>(`/api/v2/reports/${reportId}`, undefined, null)
+}
+
+/* GET /api/v2/tasks/{id}/trace → {spans: TraceSpan[]} */
+export async function fetchTrace(reportId: string): Promise<TraceSpan[]> {
+  return safeJson<{ spans: TraceSpan[] }>(`/api/v2/tasks/${reportId}/trace`, undefined, { spans: [] })
+    .then((r) => r.spans ?? [])
+}
+
+/* POST /api/v2/reports/{id}/refine {section_id, annotations[]} → section 级重写 */
+export async function refineSection(
+  reportId: string,
+  sectionId: string,
+  annotations: string[],
+): Promise<{ ok: boolean; message?: string }> {
+  return safeJson(
+    `/api/v2/reports/${reportId}/refine`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ section_id: sectionId, annotations }),
+    },
+    { ok: false, message: '请求失败' },
+  )
+}
+
+/* POST /api/v2/reports/{id}/feedback {edited_blocks, total_blocks, data?} → 修正率 */
+export async function submitFeedback(
+  reportId: string,
+  editedBlocks: number,
+  totalBlocks: number,
+  data: Record<string, unknown> = {},
+): Promise<{ ok: boolean; revision_rate?: number }> {
+  return safeJson(
+    `/api/v2/reports/${reportId}/feedback`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edited_blocks: editedBlocks, total_blocks: totalBlocks, data }),
+    },
+    { ok: true },
+  )
 }
 
 export { API_BASE }
