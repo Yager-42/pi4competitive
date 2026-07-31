@@ -1,0 +1,12 @@
+# Build context for deploy/tool-sandbox/Dockerfile — keep the context lean.
+.git
+.venv
+data
+vendor
+frontend/node_modules
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.codegraph
+.agent
