@@ -3,20 +3,20 @@
 | Field | Value |
 |-------|-------|
 | **plan_id** | `P3.3-agent-tool-sandbox` |
-| **plan_version** | `0.1.1` |
-| **status** | **active — A–E + F1/F2/F5 done；F3（Linux amd64）/F4（Docker Desktop arm64）证据待外部 host** |
+| **plan_version** | `0.1.2` |
+| **status** | **active — A–E + F1/F2/F4/F5 done；F3（Linux amd64）证据待外部 host（ADR 0011-A：arm64 daemon 接受 orbstack 实测）** |
 | **created** | 2026-07-31 |
 | **updated** | 2026-08-01 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P3.3** |
-| **contract** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.7** |
-| **feature** | [`docs/features/agent_tool_sandbox_v1.md`](../features/agent_tool_sandbox_v1.md) **v0.1.31 frozen** — G1–G30 |
-| **ADR** | [`0011-agent-tool-sandbox-runtime.md`](../contracts/adr/0011-agent-tool-sandbox-runtime.md) **accepted** |
+| **contract** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.8** |
+| **feature** | [`docs/features/agent_tool_sandbox_v1.md`](../features/agent_tool_sandbox_v1.md) **v0.1.32 frozen** — G1–G30 |
+| **ADR** | [`0011-agent-tool-sandbox-runtime.md`](../contracts/adr/0011-agent-tool-sandbox-runtime.md) **accepted + Amendment 0011-A（2026-08-01）** |
 | **depends_on** | **P3.2 done**；P3 local loader；P3.1 extension runtime；现有 P4 session/task/wiring |
 | **Pi source** | `earendil-works/pi` `main` @ `784653468c42387f607d41ed5ca533100e7eb2fe`（2026-07-31 preflight；每个 Pi PR 实施前再确认） |
 | **sandbox source** | `HezaoHezao/poirot@86bf279ad90c180f0ba696755620dd7d6661465e` |
 | **runtime tuple** | `agent-sandbox==0.0.30`；AIO base `sha256:6328d7fd2f0ff0b4c147c3d05b3df1ce331f4a482eb6e550ecd64ed1fcf906e7`；`agent-tool-rpc.v1` |
 | **target** | Pi provider-neutral executor seam + App Poirot/Docker adapter/wiring + pinned worker image |
-| **tests** | Feature §14 O1–O17、S1–S12、L1–L5；Linux amd64 + Docker Desktop arm64 live evidence |
+| **tests** | Feature §14 O1–O17、S1–S12、L1–L5；Linux amd64 + arm64 macOS Docker daemon（orbstack 实测，ADR 0011-A）live evidence |
 | **non_goal** | LocalRuntime；tool-name bypass；artifact delivery；remote/K8s/E2B；rollout switch；audit store；egress subsystem；性能 SLA/telemetry/tuning |
 
 ---
@@ -37,8 +37,8 @@
 
 | Source | Must |
 |--------|------|
-| Feature v0.1.31 | G1–G30、§3–§15 全部锁定；plan 不重新解释或扩大 |
-| ADR 0011 | D-SBX1–D-SBX10；单控制面 + Docker tool 数据面；Pi/App 双层所有权 |
+| Feature v0.1.32 | G1–G30、§3–§15 全部锁定；plan 不重新解释或扩大 |
+| ADR 0011 + 0011-A | D-SBX1–D-SBX10；单控制面 + Docker tool 数据面；Pi/App 双层所有权；arm64 daemon 验收接受 orbstack 实测 |
 | Architecture D1/D6/D9/D14/D16 | Docker policy 不进 Pi core/Domain；Pi 语义只对齐当时 `main`；P3.3 串行关门 |
 | G1/G4/G27/G28 | App production/正常 dev server 只有 Docker；Direct 仅 Pi standalone 默认或 Python 参数显式 test DI |
 | G3 | package import/register/prepare/extension handlers 留宿主；只隔离已校验 `execute()` |
@@ -307,9 +307,9 @@ Status: `todo` | `in_progress` | `done` | `blocked`.
 | F1 | full Offline O1–O17 | **done** | feature §14.1；全仓 `-m "not live"` 406 passed |
 | F2 | full Security S1–S12 on real Docker | **done** | feature §14.2；`test_live_sandbox_security.py` 12/12（orbstack arm64） |
 | F3 | Linux amd64 L1–L5 evidence | blocked | feature §14.3；需外部 Linux amd64 host（见证据表） |
-| F4 | Docker Desktop arm64 L1–L5 evidence | blocked | feature §14.3；本机 orbstack（非 Docker Desktop），证据记录见证据表 |
+| F4 | arm64 macOS Docker daemon L1–L5 evidence | **done** | feature §14.3；**ADR 0011-A（2026-08-01 owner decision）**：orbstack 实测接受为 F4 证据（Linux 内核容器行为与 Docker Desktop 无实质差异）；S1–S12 12/12 + production e2e 记录见证据表 |
 | F5 | full regression/CodeGraph/license/transplant audit | **done** | O12/O14–O16；406 offline + CodeGraph impact/affected + 17 COPY/ADAPT 审计 |
-| F6 | plan completed + Roadmap P3.3 done | in_progress | exit gate；待 F3/F4 外部证据后翻转 |
+| F6 | plan completed + Roadmap P3.3 done | in_progress | exit gate；待 F3（Linux amd64）外部 host 证据后翻转 |
 
 Rules:
 
@@ -499,13 +499,12 @@ Real Docker tests must exercise enforcement, not only command strings: outside-h
 - L5 terminal states/restart/resume/warm reclaim/task delete/shutdown retention.
 
 
-Evidence table (2026-08-01; orbstack = arm64 Docker daemon on macOS, NOT Docker Desktop):
+Evidence table（2026-08-01；**ADR 0011-A**：arm64 macOS Docker daemon = orbstack 实测，接受为 F4 证据；与 Docker Desktop 同为 Linux VM daemon，无实质差异）：
 
 | Platform | Image digest | O | S | L1–L5 | Date / sanitized evidence |
 |----------|--------------|---|---|-------|---------------------------|
-| Linux amd64 | pending（dev-3 为 arm64 构建） | pending | pending | pending | 需外部 Linux amd64 host；测试均为 `live` 标记，主机就绪后直接运行 |
-| Docker Desktop arm64 | pending | pending | pending | pending | 本机为 orbstack daemon；`docker info` 含 orbstack 标识；L1 等价验证已由 `test_live_sandbox_security.py`（12/12）+ production e2e smoke 完成 |
-| orbstack arm64（本机，参考证据） | `sha256:16a07d2927a6daa024a199e41ab0c29b7812d40198a3a636a3262594f61f8276` | 406 offline + 本仓 O 映射 | S1–S12 12/12 | L1 通过（canary/manifest/production e2e）；L2–L5 需真实 provider key | 2026-08-01：real-Docker production e2e、abort→destroy、task delete→delete_workspace、S1–S12 全绿；无遗留 container（`docker ps -a --filter label=…` 为空） |
+| Linux amd64 | pending（dev-3 为 arm64 构建，需 buildx 构建 amd64 变体） | pending | pending | pending | F3：需外部 Linux amd64 host；测试均为 `live` 标记，主机就绪后直接运行 |
+| arm64 macOS Docker daemon（orbstack 实测 = F4 证据） | `sha256:16a07d2927a6daa024a199e41ab0c29b7812d40198a3a636a3262594f61f8276`（dev-3，arm64） | 406 offline + 本仓 O 映射 | S1–S12 12/12 | L1 通过（canary/manifest/production e2e）；L2–L5 需真实 provider key | 2026-08-01：real-Docker production e2e、abort→destroy、task delete→delete_workspace、S1–S12 全绿；无遗留 container（`docker ps -a --filter label=…` 为空）；F4 done（ADR 0011-A） |
 
 **P3.3 已记录决策（本计划增量）：**
 
@@ -546,7 +545,7 @@ No slice may ship a production path that silently uses Direct. Before PR4, the n
 - [ ] Scope/workspace identity, retention, task delete, warm/orphan/idle/shutdown match G6–G9/G23.
 - [ ] Derived digest image satisfies G17–G22/G24 and contains no App/Pi control plane.
 - [ ] `agent-sandbox==0.0.30` and both license notices are locked.
-- [ ] O1–O17, S1–S12 and L1–L5 are green on Linux amd64 and Docker Desktop arm64.
+- [ ] O1–O17, S1–S12 and L1–L5 are green on Linux amd64 and arm64 macOS Docker daemon（orbstack 实测，ADR 0011-A；F4 已 closed）。
 - [ ] Full offline regression, CodeGraph impact/affected and contract-drift suites are green.
 - [ ] Plan status is `completed` and Roadmap marks `P3.3=done`; only then resume AgentTool-dependent P4 expansion.
 
@@ -558,3 +557,4 @@ No slice may ship a production path that silently uses Direct. Before PR4, the n
 |---------|------|--------|
 | `0.1.0` | 2026-07-31 | Initial implementation plan from frozen feature v0.1.31/ADR 0011：records Pi `main@7846534` preflight, exact Poirot COPY/ADAPT/OMIT/NEW-HOST map, SDK bash offset-long-poll carrier, A–F serial phases, O/S/L close gates and two-platform evidence table；implementation not started |
 | `0.1.1` | 2026-08-01 | **A–E + F1/F2/F5 完成**：status board 全量翻转（G0–F5）；real-Docker production e2e/abort/task-delete smoke 与 S1–S12 12/12 记录；E-phase offline contract tests（`test_composition.py` 19 项 + `test_docker_provider.py` 10 项 + `test_backend.py` 24 项）与 live `test_live_sandbox_security.py`；全仓 offline 406 passed；记录 buildIdentity=provenance 决策、启动握手、`_remap_generated_module` sys.modules host delta、E5 doubles-pair/unwind；F3/F4 双平台证据仍待外部 host |
+| `0.1.2` | 2026-08-01 | **ADR 0011-A（owner decision）**：arm64 daemon 验收接受 orbstack 实测为 F4 证据（Linux 内核容器行为与 Docker Desktop 无实质差异）；F4 状态翻 done、证据表记录实测；F3（Linux amd64）仍待外部 host；同步契约 0.3.8 / feature v0.1.32 / Roadmap 0.1.42 |

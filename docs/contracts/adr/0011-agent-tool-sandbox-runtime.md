@@ -6,10 +6,16 @@
 - **contract_version_after:** 0.3.7
 - **extends:** ADR 0008（P3.1 extension runtime）与 ADR 0009（P3.2 capability enablement）
 - **does not supersede:** Pi `main` 同构基线、唯一 agent 内核、local-only capability package、DDD/Domain 无 IO、JSONL/SOCM/SQLite SoT 边界
-- **feature contract:** [`agent_tool_sandbox_v1.md`](../../features/agent_tool_sandbox_v1.md) **frozen v0.1.31，G1–G30 resolved**
+- **feature contract:** [`agent_tool_sandbox_v1.md`](../../features/agent_tool_sandbox_v1.md) **frozen v0.1.32，G1–G30 resolved**
 - **sandbox code parent:** [`HezaoHezao/poirot`](https://github.com/HezaoHezao/poirot/tree/86bf279ad90c180f0ba696755620dd7d6661465e) @ `86bf279ad90c180f0ba696755620dd7d6661465e`
 
-> 本 ADR 已 accepted，并由架构契约 0.3.7、Roadmap P3.3 与 frozen feature v0.1.31 同步生效。implementation plan v0.1.0 已建立；运行时代码只能按 plan 推进。
+> 本 ADR 已 accepted，并由架构契约 0.3.8、Roadmap P3.3 与 frozen feature v0.1.32 同步生效。implementation plan v0.1.2 已建立；运行时代码只能按 plan 推进。
+
+## Amendment 0011-A（2026-08-01，owner decision）
+
+- **验收平台措辞**：arm64 平台的 daemon 验收从字面 "Docker Desktop" 放宽为 **arm64 macOS Docker daemon（orbstack 实测被接受为 F4 证据）**。理由：容器行为由 Linux 内核决定，orbstack 与 Docker Desktop 都是 macOS 上的 Linux VM docker daemon，对 P3.3 执行语义无实质差异；orbstack 上 S1–S12 12/12 与 production e2e 已真实通过。
+- **不变**：Linux amd64 证据仍强制（F3，需外部 host）；live skip 仍不能关闭阶段；Docker 执行语义、G18 加固、digest pin、no-fallback 契约均未变化。
+- 本 amendment 同步：契约 0.3.7 → **0.3.8**；feature v0.1.31 → **v0.1.32**；plan v0.1.1 → **v0.1.2**；Roadmap 0.1.42。
 
 ## Context
 
@@ -138,13 +144,12 @@ Poirot frozen SHA 是 sandbox 基础设施代码父本，不替代 Pi `main` 作
 明确 `OMIT`：Poirot LangChain/LangGraph middleware、`SANDBOX_TOOL_NAMES` passthrough、LocalRuntime/LocalSandboxProvider/LocalSecurityGuard、任意 provider 反射配置、六个 product façade tools、`present_files`/ArtifactServer/store、K8s/E2B/remote backend、RunJournal/ActivityTracker、新 rollout 子系统、性能 SLA/benchmark/telemetry/tuning，以及本地 package install/npm/git/home/TUI 产品面。
 
 直接复制或实质改编 Poirot 文件必须保留 frozen SHA/path、MIT copyright/license notice 与 host delta；`agent-sandbox` Apache-2.0 notice 同步保留。
-
 ### D-SBX10 — 文档与 exit gate
 
 1. 架构契约升至 0.3.7，并同步 D1/D6/D9/D14/D16、逻辑架构、技术栈、质量门禁与术语。
 2. Roadmap 增加 P3.3 及 exit gate；feature v0.1.31 冻结最终 Poirot module map 并链接 implementation plan。
 3. feature frozen 后才能建立 implementation plan；plan 必须逐文件落实 transplant map，实施前重新记录当时 Pi `main` SHA。
-4. offline contract/security tests 与真实 Linux amd64、Docker Desktop arm64 L1–L5 都是 P3.3 exit gate；live skip 不能关闭阶段。
+4. offline contract/security tests 与真实 Linux amd64、arm64 macOS Docker daemon（orbstack 实测，见 Amendment 0011-A）L1–L5 都是 P3.3 exit gate；live skip 不能关闭阶段。
 5. Poirot 没有性能 SLA；只验证 readiness、真并行、warm reclaim 与真实功能，不新增 P50/P95/cold/warm/throughput 数值。
 
 ## Consequences
@@ -166,13 +171,9 @@ Poirot frozen SHA 是 sandbox 基础设施代码父本，不替代 Pi `main` 作
 | Docker policy 放进 `packages/agent` | 污染 provider-neutral Pi core 并反转依赖方向 |
 | LocalRuntime/宿主 subprocess 作为 dev 或 fallback | 不是 OS 隔离，且会让 production fail-open |
 | 每 tool call 一个 container | 破坏 session workspace 共享和 Poirot warm lifecycle，冷启动开销不必要 |
-| 新写 sandbox HTTP server | AIO server/SDK 已覆盖 transport；增加第二套 server 无父本依据 |
-| shadow/灰度/kill switch/host dual-run | Poirot 无此机制，且与 universal + no fallback 契约冲突 |
-| 新增 egress/secret/audit/artifact/performance 子系统 | Poirot 无对应实现，用户未要求，现有架构与已锁定边界不强制 |
-
 ## Implementation pointer
 
-- Feature：[`agent_tool_sandbox_v1.md`](../../features/agent_tool_sandbox_v1.md) **frozen v0.1.31**
+- Feature：[`agent_tool_sandbox_v1.md`](../../features/agent_tool_sandbox_v1.md) **frozen v0.1.32**
 - Poirot source：`HezaoHezao/poirot@86bf279ad90c180f0ba696755620dd7d6661465e`
 - Pi forensics snapshot：`earendil-works/pi@471c3390fe015de9b7308fce0ada5bc7c3bb7d3c`（实施前重新对照 `main`）
-- Plan：[`P3_3_agent_tool_sandbox.md`](../../plans/P3_3_agent_tool_sandbox.md) **v0.1.0 todo**
+- Plan：[`P3_3_agent_tool_sandbox.md`](../../plans/P3_3_agent_tool_sandbox.md) **v0.1.2 active**

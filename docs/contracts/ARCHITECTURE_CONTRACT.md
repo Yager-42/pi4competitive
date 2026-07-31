@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **contract_version** | `0.3.7` |
-| **status** | **active**（0.3.7 + ADR 0011 P3.3 production AgentTool Docker sandbox execution；变更仍须 ADR + 升版本） |
-| **updated** | 2026-07-31 |
-| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、**P3.3 AgentTool sandbox（ADR 0011）**、P4 旧仓参考身份、SearchOS 引擎架构参考身份（ADR 0010） |
+| **contract_version** | `0.3.8` |
+| **status** | **active**（0.3.8 = ADR 0011-A：arm64 daemon 验收接受 orbstack 实测；变更仍须 ADR + 升版本） |
+| **updated** | 2026-08-01 |
+| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、**P3.3 AgentTool sandbox（ADR 0011 + 0011-A）**、P4 旧仓参考身份、SearchOS 引擎架构参考身份（ADR 0010） |
 | **roadmap** | 实现顺序与阶段门禁见 [`docs/ROADMAP.md`](../ROADMAP.md) |
 | **out of scope for this doc** | 业务特性 backlog 细则、各业务 JSON Schema 字段表（另文） |
 
@@ -102,7 +102,7 @@
 | 落点 | provider-neutral executor seam 在 `packages/agent`；Docker/Poirot adapter 在 `competitive_app.adapter.out.sandbox` |
 | 规则 | 模块契约对得上优先 `COPY`；确有 host 差异才 `ADAPT`；无父本且非契约必需则 `OMIT`；最小必要 glue 才 `NEW-HOST` |
 | **禁止** | 复制 LangChain/LangGraph、tool-name passthrough、LocalRuntime、artifact/rollout/performance 等 feature 已 OMIT 产品面；以 Poirot 替代 Pi Agent 语义 |
-| 详细边界 | [`agent_tool_sandbox_v1.md`](../features/agent_tool_sandbox_v1.md) frozen v0.1.31；[`P3_3_agent_tool_sandbox.md`](../plans/P3_3_agent_tool_sandbox.md) v0.1.0 todo；ADR 0011 |
+| 详细边界 | [`agent_tool_sandbox_v1.md`](../features/agent_tool_sandbox_v1.md) frozen v0.1.32；[`P3_3_agent_tool_sandbox.md`](../plans/P3_3_agent_tool_sandbox.md) v0.1.2 active；ADR 0011 + 0011-A |
 
 ---
 
@@ -238,6 +238,7 @@ capability_packages/
 | **v0.3.5** | **P3.2** = P3.1 后的 Pi extension capability enablement（ADR 0009）；P4 保持 App/workflow 阶段 |
 | **v0.3.6** | **P4 research-workflow v0.2.0** = 六阶段→三阶段 + SearchOS coverage 引擎复现（ADR 0010 D-S1..D-S9）；反转 F-R2/F-R3/F-R7/F-R10（局部）；D24 澄清搜索状态 SoT |
 | **v0.3.7** | **P3.3 AgentTool sandbox** = 单一 Python 控制面 + Docker tool 数据面；Pi executor seam / App Poirot adapter 双层所有权；production universal/fail-closed（ADR 0011） |
+| **v0.3.8** | **arm64 验收 daemon 措辞（ADR 0011-A）**：arm64 平台接受 orbstack 实测为 F4 证据（Linux 内核容器行为与 Docker Desktop 无实质差异）；Linux amd64 证据仍强制；Docker 执行语义/加固/digest/no-fallback 不变 |
 
 ---
 
@@ -296,7 +297,7 @@ pi4competitive/
 
 加载器/同构子集代码放在 `packages/agent` 扩展面（`earendil_works.pi_agent.package_manager` + **`pi_agent.extensions`**），**不**另起第二 agent 内核；**不**要求移植完整 coding-agent 树（TUI/CLI/install）。规范源与删除清单见 **ADR 0006**、**ADR 0008** 与 `docs/plans/P3_capability_loader.md` / `P3_1_agent_engine_extensions.md`。
 
-P3.3 的 provider-neutral executor seam 属 `packages/agent`；Poirot sandbox facade/provider/runtime/backend 及 Docker policy 属 `competitive_app.adapter.out.sandbox`。production 只接受 digest image、固定 workspace mount 与 ADR 0011/feature v0.1.31 的 hardening/network/secret 边界；不得把 Docker SDK/策略导入 Pi core 或 Domain。
+P3.3 的 provider-neutral executor seam 属 `packages/agent`；Poirot sandbox facade/provider/runtime/backend 及 Docker policy 属 `competitive_app.adapter.out.sandbox`。production 只接受 digest image、固定 workspace mount 与 ADR 0011/0011-A + feature v0.1.32 的 hardening/network/secret 边界；不得把 Docker SDK/策略导入 Pi core 或 Domain。
 
 ### 6.5 import 映射
 
@@ -338,7 +339,7 @@ P3.3 的 provider-neutral executor seam 属 `packages/agent`；Poirot sandbox fa
 | G10 | **禁止**实现远程 package 下载作为默认路径 |
 | G11 | `competitive_app` production 所有 `AgentTool.execute()` 走 Docker sandbox executor；任何故障均无 host/Direct/Local fallback |
 | G12 | `packages/agent` 仅 provider-neutral seam；Docker/Poirot implementation 只在 App out adapter/wiring；Domain 无 sandbox IO |
-| G13 | P3.3 关闭须通过 feature v0.1.31 / plan v0.1.0 的 offline/security 与真实 Linux amd64 + Docker Desktop arm64 L1–L5；live skip 不能关阶段 |
+| G13 | P3.3 关闭须通过 feature v0.1.32 / plan v0.1.2 的 offline/security 与真实 Linux amd64 + arm64 macOS Docker daemon（orbstack 实测，ADR 0011-A）L1–L5；live skip 不能关阶段 |
 
 ---
 
@@ -398,4 +399,5 @@ P3.3 的 provider-neutral executor seam 属 `packages/agent`；Poirot sandbox fa
 | *(0.3.6 patch)* | 2026-07-30 | **http v0.3.1 → v0.3.2 + research-workflow v0.2.1 → v0.2.2**：新增 3 路由（`GET /tasks/{id}/trace` + `POST /reports/{id}/refine` + `POST /reports/{id}/feedback`）；write 产物加 `sections`（后端从 report 切）；trace span 记录（LLM 调用包夹 emit span → SQLite `task_spans`，轻量无全文，span 不推 SSE）；refine append "refine" stage_output（守 D24，reader 优先 refine）；feedback `report_feedback` 表（修正率不进 projection）；TaskService 加 models 参数（refine 用 completeSimple）；**不动 D*/G* 核心、不升 contract_version**（仅新增 3 路由 + span/feedback 表，17 路由不破坏）；feature `competitive-app-http-v1` v0.3.2 + `research-workflow-v1` v0.2.2 |
 | *(0.3.6 patch)* | 2026-07-30 | **http v0.3.2 → v0.3.3 + research-workflow v0.2.2 → v0.2.3**：新增 7 路由（`POST /tasks/{id}/clarify` + `GET /evidences` + `GET /dashboard` + `POST/GET/DELETE /subscriptions` + `POST /subscriptions/{id}/run`）；`POST /tasks` 重载二选一（research_brief 向后兼容 / query→`awaiting_clarify`，session 延迟到 clarify 完成才建，F-R14 在启动那一刻成立）；clarify 融合 VerdaAI（1 次 LLM 发现竞品 + 硬编码模板 3 问 competitors/focus/market + 第 2 次 LLM 推 `ResearchBrief`，强制 competitors≥1，生问题失败退化直跑；产物落 `metadata_json` 不建 session 不加表）；evidence 全量物化投影（SQLite `evidences` 表，任务完成从 SOCM `evidence_graph.nodes` 扁平化 ACTIVE 节点，D-S4 投影语义扩展 coverage 计数→evidence 明细，先删后插保 resume 一致，cascade delete 同事务，`brand=entity`/`source_type` 三态）；dashboard 纯 SQL 聚合（tasks/evidences/task_spans，去 VerdaAI 伪业务指标，fact_accuracy=高置信 evidence 占比阈值 WEAK_CONFIDENCE=0.7，token_total 来自 batch2 span）；订阅轻量对齐 VerdaAI（纯配置 + 手动 `POST /run`，无定时器，run 走 `create_task(skip_clarify=True)` 直跑路径）；新表 `evidences`/`subscriptions` IF NOT EXISTS 幂等升级；**不动 D*/G* 核心、不升 contract_version**（仅新增 7 路由 + 2 投影表 + clarify 重载，20 路由行为不破坏）；feature `competitive-app-http-v1` v0.3.3 + `research-workflow-v1` v0.2.3 |
 | **0.3.7** | 2026-07-31 | **ADR 0011**：新增 P3.3 production AgentTool Docker sandbox；D1 单一 Python 控制面 + Docker tool 数据面；D6/D9/D14/D16、拓扑、技术栈、SoT/门禁/术语同步；Pi provider-neutral executor seam + App Poirot adapter 双层所有权；feature `agent-tool-sandbox-v1` frozen v0.1.30 |
+| **0.3.8** | 2026-08-01 | **ADR 0011-A**：arm64 验收 daemon 措辞从字面 "Docker Desktop" 放宽为 arm64 macOS Docker daemon（orbstack 实测接受为 F4 证据）；理由：容器行为由 Linux 内核决定，daemon 产品无实质差异；Linux amd64 证据仍强制；G13 同步更新；D*/G* 其余不变 |
 | *(0.3.7 patch)* | 2026-07-31 | 建立 P3.3 implementation plan v0.1.0；feature 无语义 patch 至 v0.1.31；同步 plan/exit-gate 指针，**不改 D*/G*、不升 contract_version** |

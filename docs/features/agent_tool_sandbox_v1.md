@@ -2,20 +2,20 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.1.31` |
-| **status** | **frozen — G1–G30 resolved；ADR 0011 accepted；implementation plan v0.1.0 todo** |
+| **feature_contract_version** | `0.1.32` |
+| **status** | **frozen — G1–G30 resolved；ADR 0011 + 0011-A accepted；implementation plan v0.1.2 active** |
 | **created** | 2026-07-31 |
-| **updated** | 2026-07-31 |
+| **updated** | 2026-08-01 |
 | **feature_id** | `agent-tool-sandbox-v1` |
 | **roadmap_stage** | **P3.3 AgentTool sandbox**：P3.2 后、继续扩大依赖 AgentTool 的 P4 业务面前关闭 exit gate |
-| **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.7**；ADR 0011 |
+| **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.8**；ADR 0011 + 0011-A |
 | **depends_on** | [`agent-engine-extensions-v1`](agent_engine_extensions_v1.md) v0.3.0；P3 local capability loader；P4 `competitive_app` wiring / lifecycle |
 | **代码参考父本** | [`HezaoHezao/poirot`](https://github.com/HezaoHezao/poirot/tree/86bf279ad90c180f0ba696755620dd7d6661465e) frozen SHA [`86bf279`](https://github.com/HezaoHezao/poirot/commit/86bf279ad90c180f0ba696755620dd7d6661465e) |
 | **Pi 对照（调查快照）** | [`earendil-works/pi`](https://github.com/earendil-works/pi/tree/471c3390fe015de9b7308fce0ada5bc7c3bb7d3c) `main` @ `471c3390fe015de9b7308fce0ada5bc7c3bb7d3c`；仅为 2026-07-31 forensics，实施仍须重新对照当时 `main` |
 | **Pi 实施前复核** | `main` @ `784653468c42387f607d41ed5ca533100e7eb2fe`（2026-07-31 plan preflight）；`executePreparedToolCall` 仍直接调用 tool，实施 PR 仍须复核当时 `main` |
 | **许可证** | Poirot = MIT；`agent-sandbox` SDK = Apache-2.0；直接复制/实质改编文件必须保留 immutable source、copyright、license notice 与 host delta |
 | **path** | `docs/features/agent_tool_sandbox_v1.md` |
-| **plan** | [`P3_3_agent_tool_sandbox.md`](../plans/P3_3_agent_tool_sandbox.md) **v0.1.0 todo**；实现只能按 plan 串行推进 |
+| **plan** | [`P3_3_agent_tool_sandbox.md`](../plans/P3_3_agent_tool_sandbox.md) **v0.1.2 active**；实现只能按 plan 串行推进 |
 
 ---
 
@@ -26,7 +26,7 @@
    - **FACT**：已从当前仓库、Pi upstream 或 Poirot frozen SHA 的代码确认；
    - **RESOLVED / 锁定**：G1–G30 已确认边界；
    - **COPY / ADAPT / OMIT / NEW-HOST**：Poirot transplant 分类。
-3. 架构效力来自 accepted ADR 0011 + [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) v0.3.7；Roadmap P3.3 负责实施顺序与 exit gate。
+3. 架构效力来自 accepted ADR 0011 + 0011-A + [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) v0.3.8；Roadmap P3.3 负责实施顺序与 exit gate。
 4. implementation 只能按 [`P3_3_agent_tool_sandbox.md`](../plans/P3_3_agent_tool_sandbox.md) 的阶段与门禁推进；仍禁止：
    - 修改 `packages/agent` 的 tool execution 语义；
    - 把 Poirot sandbox 代码直接落仓；
@@ -706,7 +706,7 @@ G18 边界：
 2. `LocalContainerBackend` 的 CRUD、参数组装和测试形状 `ADAPT`；删除 `seccomp=unconfined`，增加不可由普通 production config 关闭的 hardening 参数与 inspect/assert gate。不存在可复制的 Poirot hardening policy。
 3. workspace 以外 rootfs 只读；必要写路径只能是 G19 批准的 scope workspace 或 G24 锁定的每路径 `256 MiB` capped tmpfs。
 4. AIO 未使用服务应在 derived image/runtime 中尽可能禁用；但“禁用服务”不能替代 OCI/Docker enforcement。
-5. derived image 必须在 Linux amd64 与 Docker Desktop arm64 真实执行 readiness、worker、parallel、no-change/abort 测试，并用 inspect 证明限制生效；只断言 command string 不算通过。
+5. derived image 必须在 Linux amd64 与 arm64 macOS Docker daemon（orbstack 实测，ADR 0011-A；与 Docker Desktop 同为 Linux VM daemon，无实质差异）真实执行 readiness、worker、parallel、no-change/abort 测试，并用 inspect 证明限制生效；只断言 command string 不算通过。
 6. 若 G17 的 AIO-derived image 无法在上述 baseline 下工作，必须重新打开 G17 并改用可 harden 的 worker image；禁止以兼容 AIO 为理由放宽、隐藏或配置绕过任一 MUST。
 
 ### 9.3 G19 锁定：唯一 scope workspace mount
@@ -1086,7 +1086,7 @@ deploy/tool-sandbox/
 P1 → P2 → P3 → P3.1 → P3.2 → P3.3 AgentTool sandbox → continue P4
 ```
 
-P4 已有实现不回退；但在 P3.3 exit gate 前暂停继续扩大依赖 AgentTool 的 P4 业务面。该阶段归属已由 ADR 0011、架构契约 v0.3.7 与 Roadmap 锁定；运行时代码只能按 active implementation plan 推进。
+P4 已有实现不回退；但在 P3.3 exit gate 前暂停继续扩大依赖 AgentTool 的 P4 业务面。该阶段归属已由 ADR 0011 + 0011-A、架构契约 v0.3.8 与 Roadmap 锁定；运行时代码只能按 active implementation plan 推进。
 
 ---
 
@@ -1149,7 +1149,7 @@ Poirot frozen source/tests 没有 cold/warm start、单调用 overhead、through
 
 1. v1 不冻结 cold/warm、单调用、P50/P95、throughput 或 4-way speedup 数值，不新增 benchmark harness、load test、性能 CI、sandbox latency telemetry/span 或 tuning config。
 2. 保留既有功能门禁：G5 在 G24 的 60s readiness 边界内完成 startup canary；G16 用 barrier + wall-clock 只证明 parallel 调用确实重叠且不被全局锁串行，不把 wall-clock 变成绝对延迟 SLA；G23 验证 same-scope warm reclaim，不要求比 cold start 快多少。
-3. L1–L5 继续要求 pinned derived image 在真实 Linux amd64 与 Docker Desktop arm64 上功能全绿；测试耗时只作为诊断输出，不作为 pass/fail 门槛，也不得因慢而 host fallback。
+3. L1–L5 继续要求 pinned derived image 在真实 Linux amd64 与 arm64 macOS Docker daemon（orbstack 实测，ADR 0011-A）上功能全绿；测试耗时只作为诊断输出，不作为 pass/fail 门槛，也不得因慢而 host fallback。
 4. cold start/worker overhead 作为已知残余风险如实保留；只有出现明确产品 latency 需求或真实测量问题后，才另建性能 feature，不在 sandbox v1 预留接口。
 
 分类：Poirot warm pool/readiness/功能集成测试已分别由 G23/G5/L* `COPY/ADAPT`；父本不存在的性能 SLA、baseline suite、telemetry 与调优面全部 `OMIT`，无 `NEW-HOST` 性能模块。
@@ -1174,7 +1174,7 @@ Poirot frozen source/tests 没有 cold/warm start、单调用 overhead、through
 | Docker 不是 VM/kernel zero-day boundary | hardening + threat-model wording；不做绝对隔离宣传 |
 | cold start/worker overhead | 复用 Poirot warm pool；v1 不设性能 SLA，残余风险如实保留且不以 host fallback 优化 |
 | sandbox workspace 变成隐式 SoT | JSONL/SOCM/SQLite 职责不变；workspace retention 单独约束 |
-| Docker Desktop / arm64 差异 | multi-arch image + macOS arm64 real gate |
+| Docker Desktop/orbstack / arm64 差异 | multi-arch image + macOS arm64 real gate（orbstack 实测，ADR 0011-A） |
 | local test 为方便绕过 sandbox | direct/fake 只能显式 DI；production wiring contract test |
 
 ---
@@ -1244,6 +1244,7 @@ G20 grilling correction 后进一步锁定：Poirot 没有且用户未明确提�
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | `0.1.31` | 2026-07-31 | 无边界语义 patch：建立 `P3_3_agent_tool_sandbox.md` v0.1.0 todo，逐文件落实 transplant map、A–F 串行阶段与 O/S/L 双平台 exit gate；记录 Pi `main@7846534` 和 `agent-sandbox==0.0.30` async bash offset-long-poll 源码 preflight；implementation 尚未开始 |
+| `0.1.32` | 2026-08-01 | 无边界语义 patch（ADR 0011-A）：arm64 验收 daemon 措辞从字面 "Docker Desktop" 放宽为 arm64 macOS Docker daemon（orbstack 实测接受为 F4 证据）；G18 §9.2.5 与 plan/契约指针同步；Linux amd64 证据仍强制，live skip 仍不能关闭阶段；执行语义/加固/digest/no-fallback 不变 |
 | `0.1.30` | 2026-07-31 | 用户接受 ADR 0011 并冻结 feature：G1–G30、Poirot SHA、transplant map、Pi/App ownership、Docker-only universal execution、scope/workspace/lifecycle、RPC、hardening/network/secret/error/rollout/performance 边界正式生效；架构契约 v0.3.7 + Roadmap P3.3 同步；implementation plan 尚未建立，禁止修改运行时代码 |
 | `0.1.30-draft` | 2026-07-31 | G30 resolved，G1–G30 grilling completed：Poirot 无 cold/warm、单调用、P50/P95、throughput 或 load benchmark；OMIT 性能 SLA、baseline suite、性能 CI、sandbox latency telemetry/span 与 tuning config；只保留 G5 readiness、G16 真并行、G23 warm reclaim、L1–L5 双平台功能门禁，cold/worker overhead 作为残余风险；feature 仍 draft，待 ADR 0011 + architecture/Roadmap 同步 |
 | `0.1.29-draft` | 2026-07-31 | G29 resolved：复制 Poirot/Pi catch-all，全部 execute 期 sandbox acquire/runtime/worker/protocol/serialization/timeout/OOM/container-exit 异常转现有脱敏 error tool result；不强制 task fail；G5 startup fail 与 G15 abort 保持独立；只保留 per-container health check/drop，OMIT fatal taxonomy、provider-wide unhealthy/circuit breaker/sandbox retry controller；G30 继续 open |
