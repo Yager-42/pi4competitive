@@ -1,5 +1,4 @@
-/* pi4 前端 router —— F1 工作台 + F2 报告闭环。
- * F3 加 /evidences / /dashboard / /knowledge。
+/* pi4 前端 router —— F1 工作台 + F2 报告闭环 + F3 情报闭环(全批完成)。
  */
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AppLayout from './layout/AppLayout'
@@ -10,6 +9,8 @@ import ReportPage from './pages/ReportPage'
 import LibraryPage from './pages/LibraryPage'
 import TracePage from './pages/TracePage'
 import GraphPage from './pages/GraphPage'
+import DashboardPage from './pages/DashboardPage'
+import EvidencesPage from './pages/EvidencesPage'
 
 export default function App() {
   return (
@@ -19,6 +20,8 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/library" element={<LibraryPage />} />
+          <Route path="/evidences" element={<EvidencesPage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
         </Route>
 
         {/* 全屏沉浸页:澄清 / 工作台 / 报告 / trace / graph */}

@@ -3,13 +3,13 @@
  */
 import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Home, Sprout, ChevronDown, Radar, BarChart3 } from 'lucide-react'
+import { Home, Sprout, ChevronDown, Radar, BarChart3, Library } from 'lucide-react'
 
 const navItems = [
   { to: '/', label: '工作台', icon: Home, end: true },
   { to: '/library', label: '我的调研', icon: BarChart3 },
-  // F3: { to: '/evidences', label: '证据库', icon: Library }
-  // F3: { to: '/dashboard', label: '竞争情报中心', icon: Radar }
+  { to: '/evidences', label: '证据库', icon: Library },
+  { to: '/dashboard', label: '竞争情报中心', icon: Radar },
 ]
 
 export default function VSidebar() {

@@ -4,9 +4,12 @@
 import type {
   ClarifyAnswer,
   CreateTaskResp,
+  DashboardStats,
+  EvidenceQueryResp,
   Report,
   ReportCard,
   SSEEventType,
+  Subscription,
   TraceSpan,
 } from '../types'
 
@@ -145,6 +148,61 @@ export async function submitFeedback(
     },
     { ok: true },
   )
+}
+
+/* ============================================================ F3 情报闭环 */
+
+/* GET /api/v2/dashboard → DashboardStats(11 指标 + 分布) */
+export async function fetchDashboard(): Promise<DashboardStats | null> {
+  return safeJson<DashboardStats | null>('/api/v2/dashboard', undefined, null)
+}
+
+/* GET /api/v2/evidences?brand=&source_type=&min_confidence=&limit= → {items, facets} */
+export async function fetchEvidences(params?: {
+  brand?: string
+  source_type?: string
+  min_confidence?: number
+  limit?: number
+}): Promise<EvidenceQueryResp> {
+  const qs = new URLSearchParams()
+  if (params?.brand) qs.set('brand', params.brand)
+  if (params?.source_type) qs.set('source_type', params.source_type)
+  if (params?.min_confidence != null) qs.set('min_confidence', String(params.min_confidence))
+  if (params?.limit != null) qs.set('limit', String(params.limit))
+  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  return safeJson<EvidenceQueryResp>(`/api/v2/evidences${suffix}`, undefined, {
+    items: [],
+    facets: { total: 0, by_type: {}, by_brand: {} },
+  })
+}
+
+/* GET /api/v2/subscriptions → {subscriptions: Subscription[]} */
+export async function fetchSubscriptions(): Promise<Subscription[]> {
+  return safeJson<{ subscriptions: Subscription[] }>('/api/v2/subscriptions', undefined, { subscriptions: [] })
+    .then((r) => r.subscriptions ?? [])
+}
+
+/* POST /api/v2/subscriptions {query, brands} */
+export async function createSubscription(query: string, brands: string[]): Promise<Subscription | null> {
+  return safeJson<Subscription | null>(
+    '/api/v2/subscriptions',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, brands }),
+    },
+    null,
+  )
+}
+
+/* DELETE /api/v2/subscriptions/{sub_id} */
+export async function deleteSubscription(subId: string): Promise<{ ok: boolean }> {
+  return safeJson(`/api/v2/subscriptions/${subId}`, { method: 'DELETE' }, { ok: true })
+}
+
+/* POST /api/v2/subscriptions/{sub_id}/run → {ok, task_id, status} */
+export async function runSubscription(subId: string): Promise<{ ok: boolean; task_id?: string; status?: string }> {
+  return safeJson(`/api/v2/subscriptions/${subId}/run`, { method: 'POST' }, { ok: false })
 }
 
 export { API_BASE }

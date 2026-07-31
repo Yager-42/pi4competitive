@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.2.0` |
+| **feature_contract_version** | `0.3.0` |
 | **status** | **frozen** |
 | **updated** | 2026-07-31 |
 | **feature_id** | `competitive_app_frontend_v1` |
@@ -16,8 +16,8 @@
 
 ## 0. 效力与状态
 
-1. 本文是 pi4 前端 SPA 的 **frozen** 功能边界(v0.1.0 grill 收敛于 2026-07-31,10 决策见 §8;v0.2.0 F2 patch 2026-07-31)。
-2. 分 3 子批次实现:**F1 建任务闭环**(v0.1.0 frozen)/ **F2 报告闭环**(本文 v0.2.0 frozen)/ F3 情报闭环(v0.3.0,待)。每 F 一 commit+merge。
+1. 本文是 pi4 前端 SPA 的 **frozen** 功能边界(v0.1.0 grill 收敛于 2026-07-31,10 决策见 §8;v0.2.0 F2 patch / v0.3.0 F3 patch 2026-07-31)。
+2. 分 3 子批次实现:**F1 建任务闭环**(v0.1.0 frozen)/ **F2 报告闭环**(v0.2.0 frozen)/ **F3 情报闭环**(本文 v0.3.0 frozen,全批完成)。每 F 一 commit+merge。
 3. 标为 locked 的决定不得由实现者自行改写;变更须重新 grill 并升 version。
 4. 前端独立技术栈(React/TS/Vite),**不进 uv workspace**;不碰 `packages/ai|agent`,不动后端 27 路由行为(F1 零后端改动)。
 
@@ -53,6 +53,15 @@
 - 后端改动(patch,向后兼容):`GET /reports/{id}` 加 `coverage_map` 字段(`CoverageMap.to_matrix()`,§6 schema),不动现有字段/路由。
 - 前端 4 页:ReportPage(精简重写,markdown+coverage 侧栏+refine section 级+feedback+trace/graph 入口,砍 12 子组件/选区高亮)、LibraryPage(报告卡片网格)、TracePage(调用级时间线表格按 stage 分组,砍 prompt/response)、GraphPage(coverage 矩阵表格 cell 四态着色)。
 - 侧边栏 nav 启用「我的调研」(`/library`)。
+
+### 1.4 F3 范围(v0.3.0)——情报闭环(全批完成)
+
+- DashboardPage(竞争情报中心,内嵌订阅管理)+ EvidencesPage(证据库,KnowledgePage 改造)。
+- 零后端改动,只消费 pi4 已有接口(batch3:GET /dashboard + GET /evidences + POST/GET/DELETE /subscriptions + POST /run)。
+- DashboardPage:精简重写(渲染 pi4 11 指标 reports/tasks_by_status/evidence_total/token_total/avg_coverage/fact_accuracy + brand/source_type 分布 + 内嵌订阅 CRUD+run;砍 VerdaAI 专家工作量/业务伪指标)。
+- EvidencesPage:重写(过滤侧栏 brand/source_type/min_confidence + facets 汇总 + evidence 卡片网格;不照搬 VerdaAI KnowledgePage 文档搜索+批注)。
+- 全批落地:复现 7 页(Home/Clarify/Workspace/Report/Library/Dashboard/Trace)+ 砍 Experts×2 + 改造 GraphPage(coverage 图谱)/KnowledgePage→证据库。
+
 
 
 ---
@@ -197,3 +206,4 @@ GraphPage 用 reactflow 或矩阵表格渲染(实体×属性,cell 四态着色)�
 |------|------|------|
 | 0.1.0 | 2026-07-31 | **grill frozen(F1)**:建任务闭环 —— pi4 仓内 `frontend/` + 照搬 VerdaAI 技术栈 + HomePage/ClarifyPage/WorkspacePage(api.ts 适配层直按 pi4 契约 /api/v2+snake_case / taskStore 按 12 事件 ingest / SSE 映射 coverage 替 percent+sub-agent 替专家)+ serve_app.py + 独立契约文档 v0.1.0;零后端改动,F2/F3 待续 |
 | 0.2.0 | 2026-07-31 | **grill frozen(F2)**:报告闭环 —— ReportPage(精简重写:react-markdown 渲染 sections + coverage 侧栏 + sources + refine section 级 + feedback 修正率表单 + trace/graph 入口;砍 VerdaAI 12 子组件 claims/charts/sentiment/audit/quality/datagrid/structured + 选区高亮 annotationStore/VEditableBlock/VSelectionToolbar)+ LibraryPage(报告卡片网格)+ TracePage(调用级时间线表格按 plan/search/write 分组,seq/kind/entity/model/token in→out/latency;砍 prompt/response/purpose/decision)+ GraphPage(coverage_map 矩阵表格,实体×属性 cell 四态着色 filled/unknown/conflict/empty + 点击看 value/confidence/source/candidates)+ VSidebar 启用「我的调研」;后端补 coverage_map 矩阵字段(`CoverageMap.to_matrix()` + `get_report_full` 加字段,patch 向后兼容不升 http minor 不动 27 路由);api.ts/types.ts 扩展 fetchReport/fetchReports/fetchTrace/refineSection/submitFeedback;build 通过(2145 模块),159 offline + proxy 联调 |
+| 0.3.0 | 2026-07-31 | **grill frozen(F3,全批完成)**:情报闭环 —— DashboardPage(精简重写:11 指标卡 VCountUp reports/evidence_total/token_total/avg_coverage/fact_accuracy/high_conf + tasks_by_status 分布横条 + brand/source_type 分布 + 内嵌订阅管理 CRUD+run;砍 VerdaAI 专家工作量 fetchWorkload + 业务伪指标 minutes_saved/avg_efficiency)+ EvidencesPage(重写:过滤侧栏 brand/source_type/min_confidence/limit + facets 汇总 + evidence 卡片网格;不照搬 VerdaAI KnowledgePage 文档搜索+批注)+ VSidebar 启用「证据库」+「竞争情报中心」;api.ts/types.ts 扩展 fetchDashboard/fetchEvidences/订阅 CRUD+run;零后端改动(只消费 batch3 接口);build 通过(含新 2 页),proxy 联调 /dashboard+/evidences+/subscriptions 通 |

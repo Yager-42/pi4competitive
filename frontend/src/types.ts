@@ -159,3 +159,44 @@ export interface TraceSpan {
   ts: string
 }
 
+/* ============================================================ F3 情报闭环 */
+
+/* 仪表盘统计(GET /api/v2/dashboard) */
+export interface DashboardStats {
+  reports: number
+  tasks_total: number
+  tasks_by_status: Record<string, number>
+  evidence_total: number
+  claim_total: number
+  high_conf_total: number
+  avg_evidence_per_report: number
+  avg_coverage: number
+  fact_accuracy: number
+  token_total: number
+  brand_distribution: Record<string, number>
+  source_type_distribution: Record<string, number>
+}
+
+/* 订阅(GET/POST /api/v2/subscriptions) */
+export interface Subscription {
+  sub_id: string
+  query: string
+  brands: string[]
+  interval_hours: number
+  created_at: string
+  last_run_at: string | null
+  last_task_id: string | null
+  run_count: number
+}
+
+/* 证据库查询(GET /api/v2/evidences) */
+export interface EvidenceQueryResp {
+  items: Evidence[]
+  facets: {
+    total: number
+    by_type: Record<string, number>
+    by_brand: Record<string, number>
+  }
+}
+
+
