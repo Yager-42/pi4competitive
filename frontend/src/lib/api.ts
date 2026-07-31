@@ -10,6 +10,7 @@ import type {
   ReportCard,
   SSEEventType,
   Subscription,
+  Task,
   TraceSpan,
 } from '../types'
 
@@ -203,6 +204,47 @@ export async function deleteSubscription(subId: string): Promise<{ ok: boolean }
 /* POST /api/v2/subscriptions/{sub_id}/run → {ok, task_id, status} */
 export async function runSubscription(subId: string): Promise<{ ok: boolean; task_id?: string; status?: string }> {
   return safeJson(`/api/v2/subscriptions/${subId}/run`, { method: 'POST' }, { ok: false })
+}
+
+/* ============================================================ F4 补缺口 */
+
+/* GET /api/v2/tasks → {tasks: Task[]}(全量,含 failed/aborted/running) */
+export async function fetchTasks(): Promise<Task[]> {
+  return safeJson<{ tasks: Task[] }>('/api/v2/tasks', undefined, { tasks: [] })
+    .then((r) => r.tasks ?? [])
+}
+
+/* GET /api/v2/tasks/{id} → Task(单任务兜底) */
+export async function fetchTask(taskId: string): Promise<Task | null> {
+  return safeJson<Task | null>(`/api/v2/tasks/${taskId}`, undefined, null)
+}
+
+/* POST /api/v2/tasks/{id}/abort → {task_id, status:"aborted"} */
+export async function abortTask(taskId: string): Promise<{ task_id: string; status: string }> {
+  return safeJson(
+    `/api/v2/tasks/${taskId}/abort`,
+    { method: 'POST' },
+    { task_id: taskId, status: 'aborted' },
+  )
+}
+
+/* POST /api/v2/tasks/{id}/resume → {task_id, status}(completed→completed; failed/aborted→pending; running→409) */
+export async function resumeTask(taskId: string): Promise<{ task_id: string; status: string }> {
+  return safeJson(
+    `/api/v2/tasks/${taskId}/resume`,
+    { method: 'POST' },
+    { task_id: taskId, status: 'pending' },
+  )
+}
+
+/* DELETE /api/v2/tasks/{id} → 204(cascade 删 session/SOCM/evidence) */
+export async function deleteTask(taskId: string): Promise<boolean> {
+  try {
+    const r = await fetch(`${API_BASE}/api/v2/tasks/${taskId}`, { method: 'DELETE' })
+    return r.ok || r.status === 204
+  } catch {
+    return false
+  }
 }
 
 export { API_BASE }

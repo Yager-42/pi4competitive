@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.3.0` |
+| **feature_contract_version** | `0.3.1` |
 | **status** | **frozen** |
 | **updated** | 2026-07-31 |
 | **feature_id** | `competitive_app_frontend_v1` |
@@ -16,8 +16,8 @@
 
 ## 0. 效力与状态
 
-1. 本文是 pi4 前端 SPA 的 **frozen** 功能边界(v0.1.0 grill 收敛于 2026-07-31,10 决策见 §8;v0.2.0 F2 patch / v0.3.0 F3 patch 2026-07-31)。
-2. 分 3 子批次实现:**F1 建任务闭环**(v0.1.0 frozen)/ **F2 报告闭环**(v0.2.0 frozen)/ **F3 情报闭环**(本文 v0.3.0 frozen,全批完成)。每 F 一 commit+merge。
+1. 本文是 pi4 前端 SPA 的 **frozen** 功能边界(v0.1.0 grill 收敛于 2026-07-31,10 决策见 §8;v0.2.0 F2 / v0.3.0 F3 / v0.3.1 F4 patch 2026-07-31)。
+2. 分 3 子批次 + 1 补丁:**F1 建任务闭环**(v0.1.0)/ **F2 报告闭环**(v0.2.0)/ **F3 情报闭环**(v0.3.0)/ **F4 补 6 缺口**(本文 v0.3.1,全批+缺口完成)。每 F 一 commit+merge。
 3. 标为 locked 的决定不得由实现者自行改写;变更须重新 grill 并升 version。
 4. 前端独立技术栈(React/TS/Vite),**不进 uv workspace**;不碰 `packages/ai|agent`,不动后端 27 路由行为(F1 零后端改动)。
 
@@ -61,6 +61,18 @@
 - DashboardPage:精简重写(渲染 pi4 11 指标 reports/tasks_by_status/evidence_total/token_total/avg_coverage/fact_accuracy + brand/source_type 分布 + 内嵌订阅 CRUD+run;砍 VerdaAI 专家工作量/业务伪指标)。
 - EvidencesPage:重写(过滤侧栏 brand/source_type/min_confidence + facets 汇总 + evidence 卡片网格;不照搬 VerdaAI KnowledgePage 文档搜索+批注)。
 - 全批落地:复现 7 页(Home/Clarify/Workspace/Report/Library/Dashboard/Trace)+ 砍 Experts×2 + 改造 GraphPage(coverage 图谱)/KnowledgePage→证据库。
+
+### 1.5 F4 范围(v0.3.1)——补 6 个真缺口接口
+
+系统核对发现:前端接 14 接口,后端 27 路由中 6 个真缺口没接(后端有但前端没用)。F4 补:
+- `POST /tasks/{id}/abort` —— WorkspacePage 顶栏「中止」按钮(二次确认,running 时显示);中止后留工作台显示"已中止"(不跳回)。
+- `POST /tasks/{id}/resume` —— LibraryPage failed/aborted 任务卡片「恢复」按钮(POST → 跳 /workspace/{id})。
+- `DELETE /tasks/{id}` —— LibraryPage 全状态「删除」(二次确认,cascade 删 session/SOCM/evidence)。
+- `GET /tasks` —— LibraryPage 从只看 completed(/reports)改全量任务(/tasks,含 failed/aborted/running)。
+- `GET /tasks/{id}` —— WorkspacePage 兜底:进入先拉填初始(避免白屏)+ SSE 断连切 5s 轮询(SSE 鲁棒性)。
+- 不接(合理):sessions×5(平行路,前端走 task 不走 session)+ /health(readiness probe)+ legacy GET /tasks/{id}/report(被 /reports/{id} 替代)。
+- 零后端改动,只接前端。
+
 
 
 
@@ -207,3 +219,4 @@ GraphPage 用 reactflow 或矩阵表格渲染(实体×属性,cell 四态着色)�
 | 0.1.0 | 2026-07-31 | **grill frozen(F1)**:建任务闭环 —— pi4 仓内 `frontend/` + 照搬 VerdaAI 技术栈 + HomePage/ClarifyPage/WorkspacePage(api.ts 适配层直按 pi4 契约 /api/v2+snake_case / taskStore 按 12 事件 ingest / SSE 映射 coverage 替 percent+sub-agent 替专家)+ serve_app.py + 独立契约文档 v0.1.0;零后端改动,F2/F3 待续 |
 | 0.2.0 | 2026-07-31 | **grill frozen(F2)**:报告闭环 —— ReportPage(精简重写:react-markdown 渲染 sections + coverage 侧栏 + sources + refine section 级 + feedback 修正率表单 + trace/graph 入口;砍 VerdaAI 12 子组件 claims/charts/sentiment/audit/quality/datagrid/structured + 选区高亮 annotationStore/VEditableBlock/VSelectionToolbar)+ LibraryPage(报告卡片网格)+ TracePage(调用级时间线表格按 plan/search/write 分组,seq/kind/entity/model/token in→out/latency;砍 prompt/response/purpose/decision)+ GraphPage(coverage_map 矩阵表格,实体×属性 cell 四态着色 filled/unknown/conflict/empty + 点击看 value/confidence/source/candidates)+ VSidebar 启用「我的调研」;后端补 coverage_map 矩阵字段(`CoverageMap.to_matrix()` + `get_report_full` 加字段,patch 向后兼容不升 http minor 不动 27 路由);api.ts/types.ts 扩展 fetchReport/fetchReports/fetchTrace/refineSection/submitFeedback;build 通过(2145 模块),159 offline + proxy 联调 |
 | 0.3.0 | 2026-07-31 | **grill frozen(F3,全批完成)**:情报闭环 —— DashboardPage(精简重写:11 指标卡 VCountUp reports/evidence_total/token_total/avg_coverage/fact_accuracy/high_conf + tasks_by_status 分布横条 + brand/source_type 分布 + 内嵌订阅管理 CRUD+run;砍 VerdaAI 专家工作量 fetchWorkload + 业务伪指标 minutes_saved/avg_efficiency)+ EvidencesPage(重写:过滤侧栏 brand/source_type/min_confidence/limit + facets 汇总 + evidence 卡片网格;不照搬 VerdaAI KnowledgePage 文档搜索+批注)+ VSidebar 启用「证据库」+「竞争情报中心」;api.ts/types.ts 扩展 fetchDashboard/fetchEvidences/订阅 CRUD+run;零后端改动(只消费 batch3 接口);build 通过(含新 2 页),proxy 联调 /dashboard+/evidences+/subscriptions 通 |
+| 0.3.1 | 2026-07-31 | **grill frozen(F4,补 6 缺口接口)**:系统核对发现前端接 14 接口,后端 27 路由中 6 个真缺口未接。补:WorkspacePage 顶栏「中止」按钮(POST /tasks/{id}/abort,二次确认,running 时显示,中止后留工作台显示已中止)+ LibraryPage 改造(GET /tasks 全量替代 GET /reports 只 completed;failed/aborted 卡片「恢复」POST /tasks/{id}/resume + 全状态「删除」DELETE /tasks/{id} 二次确认 + 状态徽章)+ WorkspacePage 兜底(进入先拉 GET /tasks/{id} 填初始 taskStore.applyTask + SSE onError 切 5s 轮询终态停);api.ts/types.ts 扩展 fetchTasks/fetchTask/abortTask/resumeTask/deleteTask + Task/TaskProjection 类型;useTaskStream 加兜底轮询;零后端改动(接口 batch1/2 已就绪);不接 sessions×5/health/legacy report(合理);build 通过 |

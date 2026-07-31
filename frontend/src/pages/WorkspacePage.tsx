@@ -3,7 +3,7 @@
  * 渲染:顶栏 + 阶段卡(plan/search/write)+ coverage 进度 + iteration + evidence 流 + sub-agent 节点。
  * done → 跳 /report/{reportId}(F2 实现 ReportPage 前,ReportPage 占位也可跳)。
  */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -15,9 +15,11 @@ import {
   Search as SearchIcon,
   PenLine,
   Lightbulb,
+  Square,
 } from 'lucide-react'
 import { useTaskStream } from '../hooks/useTaskStream'
 import { useTaskStore } from '../store/taskStore'
+import { abortTask } from '../lib/api'
 import type { StageName } from '../types'
 
 const STAGE_META: Record<StageName, { icon: typeof PenLine; label: string }> = {
@@ -56,7 +58,19 @@ export default function WorkspacePage() {
     reportId,
     finished,
     error,
+    running,
   } = useTaskStore()
+  const [aborting, setAborting] = useState(false)
+
+  async function onAbort() {
+    if (!taskId || aborting) return
+    const ok = window.confirm('确定中止此任务?\n\n研究将停止,后续阶段不再运行(可在列表恢复)。')
+    if (!ok) return
+    setAborting(true)
+    await abortTask(taskId)
+    // SSE 会推 error(status=aborted)或轮询兜底拿到 aborted;留工作台显示已中止
+    setAborting(false)
+  }
 
   useEffect(() => {
     if (finished && reportId) {
@@ -86,6 +100,16 @@ export default function WorkspacePage() {
         <div className="hidden items-center gap-1.5 text-tag text-ink-2 sm:flex">
           <FileText size={13} /> {evidences.length} 条证据
         </div>
+        {/* F4: 中止按钮(running 时显示) */}
+        {running && !finished && !error && (
+          <button
+            onClick={onAbort}
+            disabled={aborting}
+            className="inline-flex items-center gap-1.5 rounded-btn bg-risk/10 px-3 h-9 text-aux font-medium text-risk hover:bg-risk/20 disabled:opacity-50"
+          >
+            {aborting ? <Loader2 size={14} className="animate-spin" /> : <Square size={14} />} 中止
+          </button>
+        )}
       </header>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">

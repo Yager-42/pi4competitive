@@ -9,6 +9,8 @@ import type {
   StageName,
   StageStatus,
   SubagentNode,
+  Task,
+  TaskProjection,
 } from '../types'
 
 export interface TaskState {
@@ -27,6 +29,7 @@ export interface TaskState {
 
   reset: (taskId: string, query: string) => void
   ingest: (type: SSEEventType, data: unknown) => void
+  applyTask: (task: Task) => void
 }
 
 const INIT_STAGES: Record<StageName, StageStatus> = {
@@ -157,5 +160,41 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         return
       }
     }
+  },
+
+  /* F4: 从 GET /tasks/{id} 的 Task 填 store(进入先拉 + SSE 断连轮询兜底) */
+  applyTask: (task: Task) => {
+    const s = get()
+    const proj: TaskProjection = task.projection || ({} as TaskProjection)
+    const stagesIn = proj.stages || {}
+    const stagePatch: Record<StageName, StageStatus> = {
+      plan: (stagesIn.plan as StageStatus) ?? s.stages.plan,
+      search: (stagesIn.search as StageStatus) ?? s.stages.search,
+      write: (stagesIn.write as StageStatus) ?? s.stages.write,
+    }
+    const coverage = proj.coverage ?? s.coverage
+    const current = (proj.current_stage as StageName | null) ?? s.currentStage
+    const patch: Partial<TaskState> = {
+      taskId: task.task_id,
+      currentStage: current,
+      stages: stagePatch,
+      coverage,
+    }
+    const status = task.status
+    if (status === 'completed') {
+      patch.running = false
+      patch.finished = true
+      patch.reportId = task.task_id
+    } else if (status === 'failed') {
+      patch.running = false
+      patch.error = '任务失败'
+    } else if (status === 'aborted') {
+      patch.running = false
+      patch.error = '已中止'
+    } else {
+      // running / pending / awaiting_clarify → keep running
+      patch.running = true
+    }
+    set(patch)
   },
 }))

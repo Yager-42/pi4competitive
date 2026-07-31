@@ -199,4 +199,29 @@ export interface EvidenceQueryResp {
   }
 }
 
+/* ============================================================ F4 补缺口 */
+
+/* 任务(GET /tasks 全量 / GET /tasks/{id} 单任务) */
+export interface TaskProjection {
+  current_stage: string | null
+  stages: Record<string, string>
+  coverage: Coverage
+  report_title?: string
+  brands?: string[]
+  evidence_count?: number
+  claim_count?: number
+}
+
+export interface Task {
+  task_id: string
+  session_id: string | null
+  query: string
+  status: string
+  created_at: string
+  updated_at: string
+  metadata: Record<string, unknown>
+  projection: TaskProjection
+}
+
+
 
