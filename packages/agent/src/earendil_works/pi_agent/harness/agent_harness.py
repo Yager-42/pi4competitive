@@ -9,6 +9,7 @@ from typing import Any
 
 from earendil_works.pi_agent.agent import Agent, AgentOptions
 from earendil_works.pi_agent.types import AgentEvent, AgentMessage, AgentTool, StreamFn
+from earendil_works.pi_agent.tool_execution import AgentToolExecutor
 from earendil_works.pi_agent.harness.compaction import (
     compact, estimate_context_tokens, isolated_summary, snapshot_fingerprint,
     validate_compaction_plan,
@@ -33,6 +34,8 @@ class AgentHarness:
         skills: list[Skill] | None = None,
         capability_report: Any | None = None,
         tool_execution: str = "parallel",
+        tool_executor: AgentToolExecutor | None = None,
+        tool_execution_scope_id: str = ""
     ) -> None:
         prompt = build_system_prompt(base=system_prompt, skills=skills)
         self.session = session
@@ -46,6 +49,8 @@ class AgentHarness:
                     "systemPrompt": prompt,
                 },
                 tool_execution=tool_execution,  # type: ignore[arg-type]
+                tool_executor=tool_executor,
+                tool_execution_scope_id=tool_execution_scope_id,
             )
         )
         if capability_report is not None:

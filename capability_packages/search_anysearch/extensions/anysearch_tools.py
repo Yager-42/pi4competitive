@@ -9,11 +9,12 @@ import json
 import os
 import re
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from earendil_works.pi_agent.types import AgentTool, AgentToolResult
+if TYPE_CHECKING:
+    from earendil_works.pi_agent.types import AgentToolResult
 
 _TIMEOUT = httpx.Timeout(connect=6.0, write=10.0, read=120.0, pool=None)
 _PROTOCOL_VERSION = "2024-11-05"
@@ -512,6 +513,7 @@ async def _anysearch_fetch_execute(
 
 
 def register(api: Any) -> None:
+    from earendil_works.pi_agent.types import AgentTool
     _env_required("ANYSEARCH_API_KEY")
     _env_required("ANYSEARCH_API_URL")
     api.registerTool(AgentTool(

@@ -11,6 +11,36 @@ from typing import Any
 import pytest
 
 
+
+
+class _TestToolExecutor:
+    """E5 test double: in-process direct execution (never a production path)."""
+
+    async def execute(self, *, scope_id, tool, tool_call_id, params, signal=None, on_update=None):
+        del scope_id
+        return await tool.execute(tool_call_id, params, signal, on_update)
+
+
+class _TestSandboxLifecycle:
+    """E5 test double: no-op lifecycle for offline App tests."""
+
+    async def release(self, *, session_id):  # noqa: ARG002
+        return None
+
+    async def destroy(self, *, session_id):  # noqa: ARG002
+        return None
+
+    async def delete_workspace(self, *, session_id):  # noqa: ARG002
+        return None
+
+    async def shutdown(self) -> None:
+        return None
+
+
+@pytest.fixture
+def sandbox_doubles():
+    """Reusable E5 Python-only doubles for direct state builds in tests."""
+    return _TestToolExecutor(), _TestSandboxLifecycle()
 @pytest.fixture
 async def app_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("USE_FAUX", "1")
@@ -28,7 +58,11 @@ async def app_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from competitive_app.wiring import build_application_state, load_config_from_env
 
     config = load_config_from_env()
-    state = await build_application_state(config)
+    state = await build_application_state(
+        config,
+        tool_executor=_TestToolExecutor(),
+        sandbox_lifecycle=_TestSandboxLifecycle(),
+    )
     app = create_app()
     app.state.application = state  # type: ignore[attr-defined]
     try:

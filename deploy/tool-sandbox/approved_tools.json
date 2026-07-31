@@ -1,0 +1,31 @@
+{
+  "protocol": "agent-tool-rpc.v1",
+  "protocolVersion": 1,
+  "buildIdentity": "dev-unbuilt",
+  "tools": {
+    "echo": {
+      "module": "capability_packages.echo_example.extensions.echo_tools",
+      "qualname": "_echo_execute"
+    },
+    "tavily_search": {
+      "module": "capability_packages.search_tavily.extensions.tavily_tools",
+      "qualname": "_tavily_search_execute"
+    },
+    "tavily_fetch": {
+      "module": "capability_packages.search_tavily.extensions.tavily_tools",
+      "qualname": "_tavily_fetch_execute"
+    },
+    "anysearch_search": {
+      "module": "capability_packages.search_anysearch.extensions.anysearch_tools",
+      "qualname": "_anysearch_search_execute"
+    },
+    "anysearch_fetch": {
+      "module": "capability_packages.search_anysearch.extensions.anysearch_tools",
+      "qualname": "_anysearch_fetch_execute"
+    },
+    "grok_search": {
+      "module": "capability_packages.search_grok.extensions.grok_tools",
+      "qualname": "_grok_search_execute"
+    }
+  }
+}

@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **contract_version** | `0.3.6` |
-| **status** | **active**（0.3.6 + ADR 0010 research-workflow v0.2.0 SearchOS coverage 引擎复现；变更仍须 ADR + 升版本） |
-| **updated** | 2026-07-28 |
-| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、P4 旧仓参考身份、**SearchOS 引擎架构参考身份（ADR 0010）** |
+| **contract_version** | `0.3.8` |
+| **status** | **active**（0.3.8 = ADR 0011-A：arm64 daemon 验收接受 orbstack 实测；变更仍须 ADR + 升版本） |
+| **updated** | 2026-08-01 |
+| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、**P3.3 AgentTool sandbox（ADR 0011 + 0011-A）**、P4 旧仓参考身份、SearchOS 引擎架构参考身份（ADR 0010） |
 | **roadmap** | 实现顺序与阶段门禁见 [`docs/ROADMAP.md`](../ROADMAP.md) |
 | **out of scope for this doc** | 业务特性 backlog 细则、各业务 JSON Schema 字段表（另文） |
 
@@ -24,22 +24,22 @@
 
 | ID | 主题 | 决定 | 禁止 |
 |----|------|------|------|
-| D1 | 进程拓扑 | **单进程 Python** | Node+Flask/FastAPI 双进程 Pi |
+| D1 | 进程拓扑 | **单一 Python 控制面**（FastAPI/Pi/LLM/Session）+ **Docker AgentTool 执行数据面**（ADR 0011） | 第二 Agent/LLM/workflow 控制面；Node+FastAPI 双 Pi |
 | D2 | Agent 基座 | **Python 移植官方 Pi**（main）作基座 | npm 当运行时；灵感式 loop |
 | D3 | agent 深度 | **C 档**：main `packages/agent` core+harness 目标面 | demo loop + App 再造 session |
 | D4 | 复刻方式 | **TS→Python 同构**（行为+模块边界+包组织） | 自创简化架构冒充 port |
 | D5 | 能力包 | **仅本地**；P3 = package-manager 本地同构子集（ADR 0006）；P3.1 = coding-agent extension runtime S-engine（ADR 0008）；**P3.2 = Pi extension capability enablement**（ADR 0009，policy 留 local package） | 远程 install；home 默认发现；扩展商店；全文 package-manager/TUI；自创平行 Hook 品牌；Reasonix policy 焊入 core |
-| D6 | 执行面 | package 内 tools/extensions 为 **Python** | 嵌 Node 跑 TS 包 |
+| D6 | 执行面 | package 内 tools/extensions 为 **Python**；`competitive_app` production 的 `AgentTool.execute()` 在 pinned Python Docker worker 中运行 | 嵌 Node 跑 TS 包；production 宿主执行/fallback |
 | D7 | 语言绑定 | jiti/TUI 不字面移植；agent 内核职责与次序对齐 main | 乱删 agent 状态机步骤 |
 | D8 | 产品 | `competitive_app` DDD + 六边形 | 六阶段写进 `packages/agent` |
-| D9 | 过程执行 | Application Process Manager | Domain 内跑 IO 流程 |
+| D9 | 过程执行 | Application Process Manager；sandbox lifecycle/transport 属 App out adapter + wiring | Domain 内跑 IO 流程；Docker policy 进入 Pi core |
 | D10 | Domain | 契约/不变量/纯校验 | fastapi/网络/装包 IO |
 | D11 | 真相源 | agent Session/Transcript；App 可投影 | 仅内存当唯一史实 |
 | D12 | 旧仓 | **能力参考** = `competitive-agent`（https://github.com/xj120/competitive-agent）；本地与本仓并排检出；见 §1.3 | 抄旧仓当 Pi 父本；1:1 复刻清单当 backlog |
 | D13 | 技术栈 | Python 3.12 + **FastAPI** + Pydantic | 未 ADR 换主框架/内核 |
-| D14 | 上游 | **只对齐 main 当前实现** | 钉死过期 tag 当永久真理 |
+| D14 | 规范源 | Pi Agent/AI 语义只对齐 **Pi main 当前实现**；P3.3 sandbox 基础设施代码父本固定 Poirot `86bf279`（ADR 0011） | Poirot 替代 Pi 语义父本；钉死过期 Pi tag 当永久真理 |
 | D15 | `packages/ai` | **全量**对齐 main | 单兼容层；LangChain 替代 |
-| D16 | 实现顺序 | **串行**：① ai → ② agent → ③ package 本地子集 → ③.1 extension 运行时（P3.1）→ **③.2 Pi extension capability enablement（P3.2）** → ④ `competitive_app` | 跳阶段；App 先于 Pi enablement；未完成 P3.1/P3.2 宣称下阶段完成 |
+| D16 | 实现顺序 | **串行**：P1 ai → P2 agent → P3 local package → P3.1 extensions → P3.2 enablement → **P3.3 AgentTool sandbox** → continue P4 | 跳阶段；P3.3 exit 前继续扩大依赖 AgentTool 的 P4 业务面 |
 | D17 | 路径同构 | 上游包 → `packages/ai`、`packages/agent` | 自创顶层 `pi_core` 等替代路径 |
 | D18 | import 名 | `earendil_works.pi_ai` / `pi_agent` /（加载器可在 agent 或薄模块） | 打平无边界命名空间 |
 | D19 | HTTP | **FastAPI** | Flask 默认（已废） |
@@ -49,7 +49,7 @@
 | D23 | 模型/密钥配置 | **配置文件 + env 覆盖（C）**；密钥不入 git | 密钥提交仓库 |
 | D24 | Agent Session 默认存储 | **JSONL** 作对话/tool SoT；搜索状态（SOCM）可落 JSON（`search_state.json`），属搜索 SoT 非对话 SoT（ADR 0010 D-S4） | 仅内存当默认 SoT |
 | D25 | JSONL 落盘路径 | 默认 **`data/sessions/`**（`data/` 不入库） | 默认写系统临时目录导致无法稳定 resume |
-| D26 | 架构冻结 | v0.3.1 baseline；0.3.2+ 按 ADR 演进（含 0006、0007、0008、0009、**0010**） | 仅聊天改架构不改本文 |
+| D26 | 架构冻结 | v0.3.1 baseline；0.3.2+ 按 ADR 演进（含 0006–**0011**） | 仅聊天改架构不改本文 |
 
 ### 1.1 已废弃
 
@@ -93,20 +93,33 @@
 | **禁止** | 引入 langgraph/langchain/deepagents（约束 3）；把 SearchOS 当 1:1 复刻 backlog；以 SearchOS 替代 `packages/ai|agent` 作 Pi 父本 |
 | 对照 | **Pi 父本** 仍只为 §1.2 `earendil-works/pi` **main**；旧仓（§1.3）是业务形状参考，SearchOS 是引擎架构参考（ADR 0010 D-S1） |
 
+### 1.5 Poirot — P3.3 sandbox 基础设施代码父本
+
+| 项 | 约定 |
+|----|------|
+| 仓库 / SHA | `HezaoHezao/poirot@86bf279ad90c180f0ba696755620dd7d6661465e` |
+| 角色 | **仅** P3.3 sandbox facade/provider/runtime/backend/path/guard/lifecycle/test 的 transplant-first 代码父本；MIT |
+| 落点 | provider-neutral executor seam 在 `packages/agent`；Docker/Poirot adapter 在 `competitive_app.adapter.out.sandbox` |
+| 规则 | 模块契约对得上优先 `COPY`；确有 host 差异才 `ADAPT`；无父本且非契约必需则 `OMIT`；最小必要 glue 才 `NEW-HOST` |
+| **禁止** | 复制 LangChain/LangGraph、tool-name passthrough、LocalRuntime、artifact/rollout/performance 等 feature 已 OMIT 产品面；以 Poirot 替代 Pi Agent 语义 |
+| 详细边界 | [`agent_tool_sandbox_v1.md`](../features/agent_tool_sandbox_v1.md) frozen v0.1.32；[`P3_3_agent_tool_sandbox.md`](../plans/P3_3_agent_tool_sandbox.md) v0.1.2 active；ADR 0011 + 0011-A |
+
 ---
 
 ## 2. 系统是什么 / 不是什么
 
 ### 2.1 是什么
 
-- 单进程：**FastAPI 竞品 App** + **Python 移植的 Pi（ai+agent）** + **本地 `capability_packages/` 能力包**。  
+- 单一 Python 控制面：**FastAPI 竞品 App** + **Python 移植的 Pi（ai+agent）** + **本地 `capability_packages/` 能力包**。
+- P3.3 工具数据面：`competitive_app` production 的每次 `AgentTool.execute()` 在 per-parent-session Docker sandbox worker 中运行；其余 Agent/LLM/session/workflow 仍在宿主控制面。
 - 基座用途：给研究 workflow 提供模型/tool/session/事件，**不是** coding TUI 产品。
 
 ### 2.2 不是什么
 
 - coding-agent CLI/TUI/扩展市场；  
 - 自动从网络装第三方包；  
-- LangChain 第二内核。
+- LangChain 第二内核；
+- 把 LocalRuntime、宿主 subprocess 或路径检查称为 production sandbox。
 
 ---
 
@@ -119,10 +132,15 @@ Clients → FastAPI (competitive_app)
          application / domain
                 │
                 ▼
-         packages/agent  ←── 注册 tools/resources
-                │                    ▲
-                ▼                    │
-         packages/ai          capability_packages/*（本地实现）
+         packages/agent  ←── 注册 tools/resources ←── capability_packages/*
+           │        │
+           │        └──→ packages/ai
+           │ AgentToolExecutor
+           ▼
+ competitive_app.adapter.out.sandbox
+           │
+           ▼
+ pinned Docker tool worker
 ```
 
 **依赖：**
@@ -130,17 +148,19 @@ Clients → FastAPI (competitive_app)
 ```text
 competitive_app → packages/agent → packages/ai
 capability_packages → 只通过加载器注册进 agent（不依赖 competitive domain）
+competitive_app.adapter.out.sandbox → pi_agent executor contract + agent-sandbox/Docker
 packages/agent|ai ↛ competitive_app.domain
+packages/agent ↛ Docker / agent-sandbox / competitive_app
 ```
 
 ### 3.2 competitive_app
 
 DDD：`adapter/in/fastapi`、`application/workflow`、`domain`、`adapter/out`、`wiring`。  
-Runner 在 Application；Domain 无 IO。
+Runner 在 Application；Domain 无 IO。P3.3 Docker provider/runtime/lifecycle 位于 `adapter/out/sandbox`，production fail-closed composition 与 eager readiness 位于 wiring/lifespan。
 
 ### 3.3 `packages/ai` / `packages/agent`
 
-同构 main 全量（D15/D3）；串行完成（D16）。
+同构 main 全量（D15/D3）；串行完成（D16）。`packages/agent` 只新增 ADR 0011 列名的 provider-neutral `AgentToolExecutor`/Direct parity/target metadata host delta，不拥有 Docker policy。
 
 ### 3.4 本地能力包（D5/D22）— 你要的形态
 
@@ -159,8 +179,8 @@ Runner 在 Application；Domain 无 IO。
 
 ## 4. App ↔ agent
 
-进程内 async API；阶段：Domain → agent.prompt → Domain 校验 → 持久化。  
-对外业务事件脱敏。
+控制面仍使用进程内 async API：Domain → agent.prompt → Domain 校验 → 持久化。
+production tool execute 阶段经注入的 `AgentToolExecutor` 进入 Docker；validation、extension events、AgentToolResult、JSONL 顺序不变。executor 缺失、Docker/readiness/target/protocol 失败均禁止宿主 fallback。对外业务事件继续脱敏。
 
 ---
 
@@ -180,7 +200,7 @@ capability_packages/
 
 根目录名固定 **`capability_packages/`**（D22）。
 
-### 5.2 规范源与职责（阶段 ③ / P3 + P3.1 + P3.2）
+### 5.2 规范源与职责（P3 + P3.1 + P3.2 + P3.3）
 
 | 项 | 约定 |
 |----|------|
@@ -190,7 +210,8 @@ capability_packages/
 | 加载结果（P3） | 资源路径 → tools / skills / prompts |
 | 运行时（P3.1） | `ExtensionRunner` + `registerTool` + §3.1 IN 事件；Context = **C-engine**（无 `ui`） |
 | P3.2 | 既有 P3.1 lifecycle + upstream `packages/ai` cache adapter 语义（ADR 0009）；最小 generic bridge / parity，Reasonix policy 仅在 local package |
-| 落点 | `earendil_works.pi_agent.package_manager` + **`earendil_works.pi_agent.extensions`** |
+| P3.3 | Pi provider-neutral executor seam + App-owned Docker sandbox adapter/wiring；production universal/fail-closed；Poirot frozen SHA transplant-first（ADR 0011） |
+| 落点 | `earendil_works.pi_agent.package_manager` + `pi_agent.extensions` + 最小 `pi_agent` executor seam；Docker 实现在 `competitive_app.adapter.out.sandbox` |
 | 失败 | 可观测；默认不因单包失败拖垮进程 |
 
 **禁止实现（默认路径）：** npm/git 源安装、`pi install` CLI、lock 远程解、`~/.pi` 默认发现、update/remove 远程包、扩展商店、**coding TUI / `ui.*` / session 树 UX 事件**（详见 feature `agent-engine-extensions-v1` §3.1 OUT）。
@@ -205,6 +226,7 @@ capability_packages/
 - 挂载公开 API：对齐上游 runtime/runner 符号语义（feature **AP3**）；禁止与临时 `apply_capability_report` **长期双 SoT**。  
 - 改 context/payload：**仅** extension 事件（feature **H1**），禁止平行公共 host 钩子长期并存。
 - P3.2：仅为已冻结 local extension consumer 补 provider-neutral bridge 与 upstream adapter parity（ADR 0009）；不得把 policy 或新的公共 hook 写入 core。
+- P3.3：Pi tool/Agent 语义继续对齐 main；executor seam 是列名 host delta。sandbox 基础设施按 Poirot frozen SHA `COPY/ADAPT` 到 App out adapter；production 所有 `AgentTool.execute()` 必须 Docker-only/fail-closed（ADR 0011）。
 
 ### 5.4 相对 v0.3.1–0.3.3 的策略升级
 
@@ -215,6 +237,8 @@ capability_packages/
 | **v0.3.4** | **P3.1** = 同子集上加厚 **extension 运行时（引擎）**；仍无 install/TUI |
 | **v0.3.5** | **P3.2** = P3.1 后的 Pi extension capability enablement（ADR 0009）；P4 保持 App/workflow 阶段 |
 | **v0.3.6** | **P4 research-workflow v0.2.0** = 六阶段→三阶段 + SearchOS coverage 引擎复现（ADR 0010 D-S1..D-S9）；反转 F-R2/F-R3/F-R7/F-R10（局部）；D24 澄清搜索状态 SoT |
+| **v0.3.7** | **P3.3 AgentTool sandbox** = 单一 Python 控制面 + Docker tool 数据面；Pi executor seam / App Poirot adapter 双层所有权；production universal/fail-closed（ADR 0011） |
+| **v0.3.8** | **arm64 验收 daemon 措辞（ADR 0011-A）**：arm64 平台接受 orbstack 实测为 F4 证据（Linux 内核容器行为与 Docker Desktop 无实质差异）；Linux amd64 证据仍强制；Docker 执行语义/加固/digest/no-fallback 不变 |
 
 ---
 
@@ -228,6 +252,7 @@ capability_packages/
 | 异步 | **asyncio** |
 | 工程 | uv/pip + pytest + import-linter（推荐） |
 | LLM | 仅 `packages/ai` + `packages/agent` |
+| AgentTool sandbox | Docker + `agent-sandbox==0.0.30` + pinned AIO-derived Python worker image（ADR 0011） |
 | 投影 | App **SQLite**（任务列表/进度，非 agent 对话史实） |
 | Agent Session 存储 | **JSONL（D24）** @ **`data/sessions/`（D25）** |
 | Node | 非运行时依赖 |
@@ -253,12 +278,15 @@ pi4competitive/
     application/workflow/
     adapter/in/fastapi/
     adapter/out/persistence/
+    adapter/out/sandbox/      # P3.3 Poirot transplant + AgentTool Docker executor
     wiring.py
+  deploy/tool-sandbox/        # pinned AIO-derived worker image
   pyproject.toml
   config/
     settings.example.yaml
   data/
     sessions/                 # JSONL SoT（D25）；整棵 data/ gitignore
+    sandboxes/                # per-parent-session workspace；执行数据，非 SoT
   # .env：不入库
   tests/
     packages/ai/
@@ -268,6 +296,8 @@ pi4competitive/
 ```
 
 加载器/同构子集代码放在 `packages/agent` 扩展面（`earendil_works.pi_agent.package_manager` + **`pi_agent.extensions`**），**不**另起第二 agent 内核；**不**要求移植完整 coding-agent 树（TUI/CLI/install）。规范源与删除清单见 **ADR 0006**、**ADR 0008** 与 `docs/plans/P3_capability_loader.md` / `P3_1_agent_engine_extensions.md`。
+
+P3.3 的 provider-neutral executor seam 属 `packages/agent`；Poirot sandbox facade/provider/runtime/backend 及 Docker policy 属 `competitive_app.adapter.out.sandbox`。production 只接受 digest image、固定 workspace mount 与 ADR 0011/0011-A + feature v0.1.32 的 hardening/network/secret 边界；不得把 Docker SDK/策略导入 Pi core 或 Domain。
 
 ### 6.5 import 映射
 
@@ -286,6 +316,7 @@ pi4competitive/
 | 对话/tool/session 树 | `packages/agent` JSONL，默认目录 **`data/sessions/`（D24/D25）** |
 | 能力包代码 | 仓库 `capability_packages/`（随 git） |
 | 任务投影 | App **SQLite** |
+| sandbox workspace | `data/sandboxes/<scope-id>`；session-scoped 执行数据，**不是**对话/搜索/任务 SoT |
 | 锁定研究输入 | App 与/或 session 约定条目；创建后只读 |
 | 内存 running | 非 SoT |
 
@@ -303,9 +334,12 @@ pi4competitive/
 | G5 | 能力包仅 Python，且仅来自 `capability_packages/` |
 | G6 | 契约同步 |
 | G7 | Resume 不单靠内存 |
-| G8 | D16 串行：① ai → ② agent → ③ package 本地子集 → ④ app |
+| G8 | D16 串行：P1 → P2 → P3 → P3.1 → P3.2 → **P3.3** → continue P4 |
 | G9 | `packages/ai|agent` 目录同构；禁止并行自创内核树 |
 | G10 | **禁止**实现远程 package 下载作为默认路径 |
+| G11 | `competitive_app` production 所有 `AgentTool.execute()` 走 Docker sandbox executor；任何故障均无 host/Direct/Local fallback |
+| G12 | `packages/agent` 仅 provider-neutral seam；Docker/Poirot implementation 只在 App out adapter/wiring；Domain 无 sandbox IO |
+| G13 | P3.3 关闭须通过 feature v0.1.32 / plan v0.1.2 的 offline/security 与真实 Linux amd64 + arm64 macOS Docker daemon（orbstack 实测，ADR 0011-A）L1–L5；live skip 不能关阶段 |
 
 ---
 
@@ -315,6 +349,7 @@ pi4competitive/
 - 业务 backlog 细则；  
 - 业务 JSON 终表；  
 - 生产鉴权细节。
+- K8s/E2B/云 sandbox provider、LocalRuntime fallback、artifact delivery、rollout 子系统与 sandbox 性能 SLA（ADR 0011 明确 OMIT）。
 
 ---
 
@@ -329,6 +364,9 @@ pi4competitive/
 | Process Manager | App 阶段编排 |
 | package 本地子集 | resolve/collect/load；**不含** install/npm/git/home |
 | extension 运行时（S-engine） | `pi_agent.extensions`：runner + registerTool + engine 事件；**不含** TUI/ui/session 树/install |
+| 单一 Python 控制面 | FastAPI、Pi Agent/AI、Session、workflow 保持宿主唯一控制面；Docker worker 只执行批准的 AgentTool target |
+| P3.3 AgentTool sandbox | `packages/agent` executor seam + `competitive_app` Poirot/Docker adapter；production universal/fail-closed；ADR 0011 |
+| Poirot sandbox 父本 | `HezaoHezao/poirot@86bf279`；只作 P3.3 sandbox 基础设施 transplant source，不替代 Pi main |
 
 ---
 
@@ -360,3 +398,6 @@ pi4competitive/
 | *(0.3.6 patch)* | 2026-07-29 | **competitive-app-http-v1 v0.3.0 → v0.3.1**：报告列表+全文分离（`GET /reports` + `GET /reports/{task_id}`）+ SSE 流式（`GET /tasks/{id}/stream` 11 事件）；report_id 复用 task_id；卡片字段落 projection；全文实时组装；emit_event 透传链（task_service→runner→engine→EvidenceIntake）；created_at 空串 bug 修复；**不动 D*/G* 核心、不升 contract_version**（仅新增 3 路由 + 事件总线，14 路由不破坏）；feature `competitive-app-http-v1` v0.3.1 |
 | *(0.3.6 patch)* | 2026-07-30 | **http v0.3.1 → v0.3.2 + research-workflow v0.2.1 → v0.2.2**：新增 3 路由（`GET /tasks/{id}/trace` + `POST /reports/{id}/refine` + `POST /reports/{id}/feedback`）；write 产物加 `sections`（后端从 report 切）；trace span 记录（LLM 调用包夹 emit span → SQLite `task_spans`，轻量无全文，span 不推 SSE）；refine append "refine" stage_output（守 D24，reader 优先 refine）；feedback `report_feedback` 表（修正率不进 projection）；TaskService 加 models 参数（refine 用 completeSimple）；**不动 D*/G* 核心、不升 contract_version**（仅新增 3 路由 + span/feedback 表，17 路由不破坏）；feature `competitive-app-http-v1` v0.3.2 + `research-workflow-v1` v0.2.2 |
 | *(0.3.6 patch)* | 2026-07-30 | **http v0.3.2 → v0.3.3 + research-workflow v0.2.2 → v0.2.3**：新增 7 路由（`POST /tasks/{id}/clarify` + `GET /evidences` + `GET /dashboard` + `POST/GET/DELETE /subscriptions` + `POST /subscriptions/{id}/run`）；`POST /tasks` 重载二选一（research_brief 向后兼容 / query→`awaiting_clarify`，session 延迟到 clarify 完成才建，F-R14 在启动那一刻成立）；clarify 融合 VerdaAI（1 次 LLM 发现竞品 + 硬编码模板 3 问 competitors/focus/market + 第 2 次 LLM 推 `ResearchBrief`，强制 competitors≥1，生问题失败退化直跑；产物落 `metadata_json` 不建 session 不加表）；evidence 全量物化投影（SQLite `evidences` 表，任务完成从 SOCM `evidence_graph.nodes` 扁平化 ACTIVE 节点，D-S4 投影语义扩展 coverage 计数→evidence 明细，先删后插保 resume 一致，cascade delete 同事务，`brand=entity`/`source_type` 三态）；dashboard 纯 SQL 聚合（tasks/evidences/task_spans，去 VerdaAI 伪业务指标，fact_accuracy=高置信 evidence 占比阈值 WEAK_CONFIDENCE=0.7，token_total 来自 batch2 span）；订阅轻量对齐 VerdaAI（纯配置 + 手动 `POST /run`，无定时器，run 走 `create_task(skip_clarify=True)` 直跑路径）；新表 `evidences`/`subscriptions` IF NOT EXISTS 幂等升级；**不动 D*/G* 核心、不升 contract_version**（仅新增 7 路由 + 2 投影表 + clarify 重载，20 路由行为不破坏）；feature `competitive-app-http-v1` v0.3.3 + `research-workflow-v1` v0.2.3 |
+| **0.3.7** | 2026-07-31 | **ADR 0011**：新增 P3.3 production AgentTool Docker sandbox；D1 单一 Python 控制面 + Docker tool 数据面；D6/D9/D14/D16、拓扑、技术栈、SoT/门禁/术语同步；Pi provider-neutral executor seam + App Poirot adapter 双层所有权；feature `agent-tool-sandbox-v1` frozen v0.1.30 |
+| **0.3.8** | 2026-08-01 | **ADR 0011-A**：arm64 验收 daemon 措辞从字面 "Docker Desktop" 放宽为 arm64 macOS Docker daemon（orbstack 实测接受为 F4 证据）；理由：容器行为由 Linux 内核决定，daemon 产品无实质差异；Linux amd64 证据仍强制；G13 同步更新；D*/G* 其余不变 |
+| *(0.3.7 patch)* | 2026-07-31 | 建立 P3.3 implementation plan v0.1.0；feature 无语义 patch 至 v0.1.31；同步 plan/exit-gate 指针，**不改 D*/G*、不升 contract_version** |

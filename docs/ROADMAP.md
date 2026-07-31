@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.38` |
+| **roadmap_version** | `0.1.42` |
 | **status** | active |
-| **updated** | 2026-07-30 |
-| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6** |
+| **updated** | 2026-08-01 |
+| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.8** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
 ---
@@ -14,18 +14,19 @@
 
 1. **架构冲突 → 先改契约 + ADR**，再改 roadmap。  
 2. **范围冲突 → 改本文**，升 `roadmap_version`。  
-3. 实现 PR 须标明：**阶段 ID（P1–P4，含 P3.1/P3.2）** + 对照上游（若移植）。
-4. **禁止**在 P1–P3 未完成时合并依赖真基座的 `competitive_app` 主路径（契约 D16/G8）。
+3. 实现 PR 须标明：**阶段 ID（P1–P4，含 P3.1/P3.2/P3.3）** + 对照上游（若移植）。
+4. P4 已有实现不回退；**禁止**在 P3.3 exit 前继续扩大依赖 AgentTool 的 P4 业务面（契约 D16/G8）。
 
 ### 还要不要继续聊？
 
 | 话题 | 状态 | 建议 |
 |------|------|------|
-| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 **v0.3.5**） | **不必再聊**；要改走 ADR |
+| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 **v0.3.8**） | **不必再聊**；要改走 ADR |
 | **实现顺序与完成标准** | 见本文阶段 | 按 roadmap 执行；细节可在阶段开工时补 checklist |
 | **业务能力（研究流程、报告等）** | 搜索 capability v1 **frozen** | 边界：[`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.12**；其余 workflow/报告另开 |
 | **agent engine extensions** | **done** | feature **v0.3.0**（P3.1 completed baseline + P3.2 delta）；计划 **v0.2.4 completed** |
 | **P3.2 Pi extension capability enablement** | **done** | feature **v0.1.0 frozen**；extension runtime delta **v0.3.0 frozen**；plan [`P3_2_pi_extension_capability_enablement.md`](plans/P3_2_pi_extension_capability_enablement.md) **v0.1.2 completed**；ADR 0009 |
+| **P3.3 AgentTool sandbox** | **in_progress（A–E + F1/F2/F4/F5 done；F3 待外部 host）** | [`agent_tool_sandbox_v1.md`](features/agent_tool_sandbox_v1.md) **v0.1.32 frozen**；[`P3_3_agent_tool_sandbox.md`](plans/P3_3_agent_tool_sandbox.md) **v0.1.2 active**；ADR 0011 + 0011-A；contract **v0.3.8** |
 | **capability 里具体有哪些搜抓包** | **frozen** + 实现计划 | 搜索 feature 契约；计划 [`docs/plans/P4_search_capability_packages.md`](plans/P4_search_capability_packages.md) |
 | **workflow Skill 自进化** | **implemented / verified** | feature **frozen v0.2.1**；plan [`P4_workflow_skill_self_evolution.md`](plans/P4_workflow_skill_self_evolution.md) **v0.1.2 completed**；O1–O16、S1–S4、真实 provider L1–L4 green |
 
@@ -44,7 +45,9 @@ P3.1 agent engine extension 运行时（S-engine 同构）
         ↓
 P3.2 Pi extension capability enablement（generic bridge + upstream cache parity）
         ↓
-P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引入）
+P3.3 AgentTool sandbox   Pi executor seam + App Poirot/Docker adapter
+        ↓
+continue P4              保留既有实现；恢复依赖 AgentTool 的业务扩展
 ```
 
 | 阶段 | 仓库路径 | import | 完成前禁止 |
@@ -54,6 +57,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | **P3** | loader + `capability_packages/` | （loader 挂在 agent 扩展点或薄模块） | 远程 install；家目录发现 |
 | **P3.1** | `pi_agent/extensions/` + loop emit | `earendil_works.pi_agent.extensions` | 宣称 extension 钩子完成；TUI/install |
 | **P3.2** | `packages/ai` + `packages/agent` + local consumer package | `earendil_works.pi_ai` / `pi_agent.extensions` | Reasonix policy 写入 core；新 hook / TUI / 第二 runtime |
+| **P3.3** | `packages/agent` seam + `competitive_app/adapter/out/sandbox` + worker image | `earendil_works.pi_agent` / `competitive_app` | host/Direct/Local fallback；Poirot 无父本的额外产品面；plan 外实现 |
 | **P4** | `competitive_app/` | `competitive_app` | 绕过 agent 直连厂商 SDK 当内核 |
 
 **上游对照：** 一律 `https://github.com/earendil-works/pi` 的 **`main`**。
@@ -125,12 +129,26 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | **完成标准** | consumer feature §6 T1、extension-contract delta、upstream adapter parity tests、generic bridge tests 全绿；C8 走正式 loader/Harness 全栈路径且留存脱敏 live green 证据 |
 | **退出条件** | ADR 0006/0008 omit 仍成立，P3.2 feature/plan 所列 offline 门禁全绿，且 C8 实配成功；普通 CI 可 skip live，但 skip 不能关闭 P3.2 → `P3.2=done` |
 
+### P3.3 — Production AgentTool Docker sandbox
+
+| 项 | 内容 |
+|----|------|
+| **目标** | `competitive_app` production 的所有 `AgentTool.execute()` 在 Docker sandbox worker 中运行；无 host/Direct/Local fallback（ADR 0011） |
+| **依赖** | **P3.2 done**；feature [`agent_tool_sandbox_v1.md`](features/agent_tool_sandbox_v1.md) **v0.1.32 frozen** |
+| **实现计划** | [`P3_3_agent_tool_sandbox.md`](plans/P3_3_agent_tool_sandbox.md) **v0.1.2 active**；A–F 串行，plan 外实现禁止 |
+| **所有权** | `packages/agent` 只含 provider-neutral executor/Direct parity/target metadata；Poirot provider/runtime/backend 与 Docker policy 在 `competitive_app.adapter.out.sandbox` + wiring |
+| **代码父本** | Poirot `86bf279ad90c180f0ba696755620dd7d6661465e`；模块匹配则 `COPY`，必要才 `ADAPT`，父本不存在且非契约必需则 `OMIT` |
+| **必含** | production universal executor；parent-session scope/workspace；pinned AIO-derived image；eager readiness；warm lifecycle；JSON RPC/update/abort/parallel；hardening 与 no-fallback |
+| **显式不做** | LocalRuntime、tool-name bypass、artifact delivery、K8s/E2B、rollout/kill switch、sandbox audit store、性能 SLA/telemetry/tuning |
+| **完成标准** | feature §14 Offline O1–O17、Security S1–S12、Docker Live L1–L5 全部通过；Linux amd64 + arm64 macOS Docker daemon（orbstack 实测，ADR 0011-A）真实证据；skip 不得关闭阶段 |
+| **退出条件** | Pi parity + App production wiring + pinned worker image 三层统一交付，transplant map 与 license notice 可追溯，全部门禁 green → `P3.3=done` |
+
 ### P4 — `competitive_app`
 
 | 项 | 内容 |
 |----|------|
 | **目标** | FastAPI + DDD + workflow Process Manager；引入**业务能力**（研究闭环） |
-| **依赖** | **P1+P2+P3+P3.1+P3.2 done** |
+| **依赖** | 既有 P4 基于 **P1+P2+P3+P3.1+P3.2 done** 保留；继续扩大依赖 AgentTool 的业务面须 **P3.3 done** |
 | **结构** | `domain` / `application/workflow` / `adapter/in/fastapi` / `adapter/out` / `wiring` |
 | **配置** | `config/settings.example.yaml` + env 覆盖密钥（D23） |
 | **投影** | App SQLite（与 JSONL 史实分离） |
@@ -185,6 +203,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | P3 capability loader | **done** | 2026-07-23 | branch `p3/package-manager-local`; local isomorphic subset; C1 faux green |
 | P3.1 agent engine extensions | **done** | 2026-07-24 | feature v0.3.0（P3.2 delta）；plan v0.2.4 remains completed；Offline 124 passed；Live 24 passed |
 | P3.2 Pi extension capability enablement | **done** | 2026-07-26 | A+B+E；Offline 139 passed；full-stack Live warm-cache green；plan v0.1.2 |
+| P3.3 AgentTool sandbox | **in_progress** | | feature v0.1.32 frozen；plan **v0.1.2 active**；ADR 0011 + 0011-A / contract v0.3.8；**A–E 全部完成 + F1 全仓 offline 406 green + F2 real-Docker S1–S12 12/12（orbstack arm64）+ F4 done（ADR 0011-A：orbstack 实测接受为 arm64 daemon 证据）+ F5 审计完成**；F3（Linux amd64）证据待外部 host；P4 AgentTool-dependent expansion 保持暂停 |
 | P4 `competitive_app` | **in_progress** | | HTTP 骨架（`competitive-app-http-v1` v0.3.3：27 路由 = 20 + clarify + evidences + dashboard + subscriptions×4；报告列表+全文 + SSE 11 事件 + trace span + 章节批注深化 + 修正率闭环 + 澄清问卷 + 全局证据库 + 仪表盘 + 订阅监控）+ 三阶段研究 workflow（`research-workflow-v1` v0.2.3 frozen；evidence 物化投影 + clarify brief 推导；SearchOS coverage 引擎；ADR 0010 + Patch；SOCM + 并行 sub-agent + judge；搜索质量修复；offline 153 passed + live）+ **前端 SPA（`competitive_app_frontend_v1` v0.3.1 F4 frozen 全批+缺口完成；选择性复现 VerdaAI：F1 建任务闭环 + F2 报告闭环 + F3 情报闭环 + F4 补 6 缺口(abort/resume/delete/全量任务/单任务兜底)；复现 7 页 + 砍 Experts×2 + 改造 GraphPage/KnowledgePage；前端接 19 接口）**；后续：报告版本 diff/真监控、llm-ping/meta |
 | 业务能力 v1 | **partial**（搜索 capability **done** + 研究闭环 v1 done / v2 in_progress） | 2026-07-29 | search packages + 三阶段研究 workflow v0.2.1 冻结（ADR 0010 Patch v0.2.1）；v2 引擎实现 PR2-6 + 搜索质量修复；完整 fact_report schema 仍 todo |
 | P4 workflow Skill 自进化 | **done** | 2026-07-30 | App-owned Workflow Skill Overlay；Poirot frozen SHA；transplant-first；G0–F5 / O1–O16 / S1–S4 / 真实 provider L1–L4 全部完成；自动 CAPTURED、task-driven FIX、GitRatchet rollback 已接线；不改架构契约 |
@@ -200,6 +219,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 - [ ] 是否把业务类型写进 agent/ai？  
 - [ ] 是否引入远程 package 下载或第二内核？  
 - [ ] 是否需要改架构契约（若是先 ADR）？  
+- [ ] 若改 AgentTool execution / App wiring，是否属于 P3.3 plan 且保持 production Docker-only/no-fallback？
 
 ---
 
@@ -246,3 +266,7 @@ P4  competitive_app      DDD + FastAPI + workflow（业务能力在此阶段引�
 | 0.1.36 | 2026-07-31 | **前端 `competitive_app_frontend_v1` v0.2.0 frozen（F2 报告闭环）**：ReportPage（精简重写:react-markdown 渲染 sections + coverage 侧栏 + sources + refine section 级 + feedback 修正率表单 + trace/graph 入口;砍 VerdaAI 12 子组件 claims/charts/sentiment/audit/quality/datagrid/structured + 选区高亮 annotationStore/VEditableBlock/VSelectionToolbar）+ LibraryPage（报告卡片网格）+ TracePage（调用级时间线表格按 plan/search/write 分组,seq/kind/entity/model/token in→out/latency;砍 prompt/response/purpose/decision）+ GraphPage（coverage_map 矩阵表格,实体×属性 cell 四态着色 + 点击看 value/confidence/source/candidates）+ VSidebar 启用「我的调研」;后端补 coverage_map 矩阵字段（`CoverageMap.to_matrix()` + `get_report_full` 加字段,patch 向后兼容不升 http minor 不动 27 路由）;api.ts/types.ts 扩展 fetchReport/fetchReports/fetchTrace/refineSection/submitFeedback;build 通过（2145 模块）,159 offline + proxy 联调;不碰 packages/ai\|agent |
 | 0.1.37 | 2026-07-31 | **前端 `competitive_app_frontend_v1` v0.3.0 frozen（F3 情报闭环,全批完成）**：DashboardPage（精简重写:11 指标卡 VCountUp reports/evidence_total/token_total/avg_coverage/fact_accuracy/high_conf + tasks_by_status 分布横条 + brand/source_type 分布 + 内嵌订阅管理 CRUD+run;砍 VerdaAI 专家工作量 fetchWorkload + 业务伪指标 minutes_saved/avg_efficiency）+ EvidencesPage（重写:过滤侧栏 brand/source_type/min_confidence/limit + facets 汇总 + evidence 卡片网格;不照搬 VerdaAI KnowledgePage 文档搜索+批注）+ VSidebar 启用「证据库」+「竞争情报中心」;api.ts/types.ts 扩展 fetchDashboard/fetchEvidences/订阅 CRUD+run;零后端改动（只消费 batch3 接口）;全批落地（复现 7 页 + 砍 Experts×2 + 改造 GraphPage/KnowledgePage→证据库）;build 通过,proxy 联调 /dashboard+/evidences+/subscriptions 通;不碰 packages/ai\|agent |
 | 0.1.38 | 2026-07-31 | **前端 `competitive_app_frontend_v1` v0.3.1 frozen（F4 补 6 缺口接口）**：系统核对发现前端接 14 接口、后端 27 路由中 6 个真缺口未接(后端有但前端没用)。补:WorkspacePage 顶栏「中止」按钮(POST /tasks/{id}/abort,二次确认,running 时显示,中止后留工作台显示已中止)+ LibraryPage 改造(GET /tasks 全量替代 GET /reports 只 completed;failed/aborted 卡片「恢复」POST /tasks/{id}/resume + 全状态「删除」DELETE /tasks/{id} 二次确认 + 状态徽章)+ WorkspacePage 兜底(进入先拉 GET /tasks/{id} 填初始 taskStore.applyTask + SSE onError 切 5s 轮询终态停);api.ts/types.ts 扩展 fetchTasks/fetchTask/abortTask/resumeTask/deleteTask + Task/TaskProjection;useTaskStream 加兜底轮询;零后端改动(接口 batch1/2 已就绪);不接 sessions×5/health/legacy report(合理);build 通过;不碰 packages/ai\|agent |
+| 0.1.39 | 2026-07-31 | **ADR 0011 / contract 0.3.7 / agent-tool-sandbox-v1 v0.1.30 frozen**：新增 P3.3，统一交付 Pi executor seam + App Poirot/Docker adapter + pinned worker/live gates；状态 `todo`，implementation plan 未建立；P4 既有实现保留，但 AgentTool-dependent expansion 暂停至 P3.3 done |
+| 0.1.40 | 2026-07-31 | 建立 [`P3_3_agent_tool_sandbox.md`](plans/P3_3_agent_tool_sandbox.md) v0.1.0 todo：逐文件 COPY/ADAPT/OMIT/NEW-HOST map；A Pi seam → B RPC/worker → C Poirot facade → D Docker/image → E App wiring → F 双平台验证；锁定 SDK async bash offset-long-poll carrier；feature 无语义 patch 至 v0.1.31；G0 source/baseline preflight done，implementation 未开始 |
+| 0.1.41 | 2026-08-01 | **P3.3 A–E 全部完成 + F1/F2/F5 green（plan v0.1.1 active）**：A Pi provider-neutral executor seam/Direct parity/target lineage；B `agent-tool-rpc.v1` 严格 codec + 已批准 registry + 单请求 worker；C Poirot facade/contracts/path guards 移植（17 COPY/ADAPT 全部 SHA/MIT 标注）；D Docker backend/runtime/provider + derived multi-arch worker image dev-3（digest `sha256:16a07d29…`）+ real-image smoke；E App wiring（`sandbox.image` digest + `sandbox.root` 两字段配置、parent-session scope 传播、outer-run 生命周期、abort→destroy、task delete→delete_workspace、E1.4 失败 unwind、E5 doubles-only 无 env/CLI bypass）；F1 全仓 offline 406 passed；F2 real-Docker S1–S12 12/12（orbstack arm64）；F5 CodeGraph impact/affected + license/transplant 审计；plan 记录 buildIdentity=provenance 决策与 `_remap_generated_module` sys.modules host delta；**F3（Linux amd64）/F4（Docker Desktop arm64）证据待外部 host，P3.3 未关闭，P4 AgentTool-dependent expansion 保持暂停** |
+| 0.1.42 | 2026-08-01 | **ADR 0011-A / contract 0.3.8 / feature v0.1.32 / plan v0.1.2**：arm64 daemon 验收措辞从字面 "Docker Desktop" 放宽为 arm64 macOS Docker daemon——orbstack 实测（S1–S12 12/12 + production e2e）被 owner 接受为 F4 证据（Linux 内核容器行为与 Docker Desktop 无实质差异）；F4 done；**F3（Linux amd64）证据仍待外部 host（需 buildx 构建 amd64 变体 + 外部主机跑 live）**；P3.3 保持 open，P4 AgentTool-dependent expansion 保持暂停 |

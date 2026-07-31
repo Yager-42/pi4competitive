@@ -4,9 +4,10 @@ Discovered via capability_packages/echo_example (local package-manager subset).
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from earendil_works.pi_agent.types import AgentTool, AgentToolResult
+if TYPE_CHECKING:
+    from earendil_works.pi_agent.types import AgentToolResult
 
 
 async def _echo_execute(
@@ -23,6 +24,7 @@ async def _echo_execute(
 
 
 def register(api: Any) -> None:
+    from earendil_works.pi_agent.types import AgentTool
     api.registerTool(AgentTool(
         name="echo",
         description="Echo text back (capability_packages/echo_example)",

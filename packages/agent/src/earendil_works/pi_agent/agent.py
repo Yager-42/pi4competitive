@@ -15,6 +15,7 @@ from earendil_works.pi_ai.types import ImageContent, Message, Model, TextContent
 from .agent_loop import run_agent_loop, run_agent_loop_continue
 from .extensions.runner import ExtensionRunner
 from .stream_fn import get_default_stream_fn
+from .tool_execution import AgentToolExecutor
 from .types import (
     AfterToolCallContext,
     AfterToolCallResult,
@@ -176,6 +177,8 @@ class AgentOptions:
     transport: Any | None = "auto"
     max_retry_delay_ms: int | None = None
     tool_execution: ToolExecutionMode = "parallel"
+    tool_executor: AgentToolExecutor | None = None
+    tool_execution_scope_id: str = ""
 
 
 @dataclass
@@ -216,6 +219,8 @@ class Agent:
         self.transport = opts.transport
         self.max_retry_delay_ms = opts.max_retry_delay_ms
         self.tool_execution: ToolExecutionMode = opts.tool_execution
+        self.tool_executor = opts.tool_executor
+        self.tool_execution_scope_id = opts.tool_execution_scope_id
 
         if self.extension_runner:
             self.set_extension_runner(self.extension_runner)
@@ -516,6 +521,8 @@ class Agent:
             getSteeringMessages=get_steering,
             getFollowUpMessages=get_follow_up,
             toolExecution=self.tool_execution,
+            toolExecutor=self.tool_executor,
+            toolExecutionScopeId=self.tool_execution_scope_id,
             sessionId=self.session_id,
             onPayload=on_payload if runner else None,
             onResponse=on_response if runner else None,

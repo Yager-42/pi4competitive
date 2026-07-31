@@ -6,12 +6,13 @@ This file is for humans and coding agents working in this repo.
 
 | Doc | Role |
 |-----|------|
-| [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.6** — process, paths, imports, stack; P3 local subset (ADR 0006); **P3.1 engine extensions (ADR 0008)**; **P3.2 enablement (ADR 0009)**; P4 旧仓 pin (ADR 0007); **research-workflow v0.2.0 SearchOS 引擎复现 (ADR 0010)** |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Serial phases P1→P3→**P3.1**→**P3.2**→P4 and exit gates |
+| [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.8** — process, paths, imports, stack; P3 local subset (ADR 0006); **P3.1/P3.2** (ADR 0008/0009); **P3.3 AgentTool Docker sandbox (ADR 0011 + 0011-A)**; P4 references/workflow (ADR 0007/0010) |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Serial phases P1→P3→**P3.1**→**P3.2**→**P3.3**→continue P4 and exit gates |
 | [`docs/features/`](docs/features/) | Per-feature boundary contracts; see README index |
 | [`docs/features/search_capability_packages_v1.md`](docs/features/search_capability_packages_v1.md) | search capability v1 **frozen v0.1.12**（F-S1…F-S18 + §10） |
 | [`docs/features/agent_engine_extensions_v1.md`](docs/features/agent_engine_extensions_v1.md) | agent engine extensions **frozen v0.3.0**（P3.1 completed baseline + P3.2 delta） |
 | [`docs/features/reasonix_prefix_cache_v1.md`](docs/features/reasonix_prefix_cache_v1.md) | reasonix prefix cache v1 **frozen v0.1.0**（P3.2；A+B+E） |
+| [`docs/features/agent_tool_sandbox_v1.md`](docs/features/agent_tool_sandbox_v1.md) | AgentTool sandbox **frozen v0.1.32**（P3.3；G1–G30；Poirot transplant-first；plan active；arm64 daemon 验收 = orbstack 实测，ADR 0011-A） |
 | [`docs/features/competitive_app_http_v1.md`](docs/features/competitive_app_http_v1.md) | P4 app HTTP 边界 **frozen v0.3.0**（`competitive-app-http-v1`；14 路由；task 行为由 research-workflow-v1 v0.2.0 三阶段提供） |
 | [`docs/features/research_workflow_v1.md`](docs/features/research_workflow_v1.md) | P4 三阶段研究 workflow **frozen v0.2.0**（`research-workflow-v1`；SearchOS coverage 引擎复现；31 决策；ADR 0010） |
 | [`docs/plans/P1_packages_ai.md`](docs/plans/P1_packages_ai.md) | P1 plan (**completed**) — `packages/ai` |
@@ -19,6 +20,7 @@ This file is for humans and coding agents working in this repo.
 | [`docs/plans/P3_capability_loader.md`](docs/plans/P3_capability_loader.md) | P3 plan (**completed**) — package-manager local subset |
 | [`docs/plans/P3_1_agent_engine_extensions.md`](docs/plans/P3_1_agent_engine_extensions.md) | P3.1 engine extension runtime (**completed v0.2.4 baseline**); map [`P3_1_module_map.md`](docs/plans/P3_1_module_map.md) |
 | [`docs/plans/P3_2_pi_extension_capability_enablement.md`](docs/plans/P3_2_pi_extension_capability_enablement.md) | P3.2 Pi extension capability enablement (**completed v0.1.2**); consumer = reasonix |
+| [`docs/plans/P3_3_agent_tool_sandbox.md`](docs/plans/P3_3_agent_tool_sandbox.md) | P3.3 AgentTool Docker sandbox implementation plan (**v0.1.2 active**；A–E + F1/F2/F4/F5 done，F3 Linux amd64 证据待外部 host） |
 | [`docs/plans/P4_search_capability_packages.md`](docs/plans/P4_search_capability_packages.md) | search capability packages v1 (**completed** implementation; feature frozen) |
 | [`docs/plans/P4_competitive_app_http.md`](docs/plans/P4_competitive_app_http.md) | P4 competitive_app HTTP 骨架（v0.2.0；14 路由） |
 | [`docs/plans/P4_research_workflow_v2.md`](docs/plans/P4_research_workflow_v2.md) | P4 三阶段研究 workflow v0.2.0（SearchOS coverage 引擎；ADR 0010；plan 随 PR2 起补）；v1 plan `P4_research_workflow.md` completed v0.1.1 |
@@ -26,15 +28,16 @@ This file is for humans and coding agents working in this repo.
 | [`docs/contracts/adr/0007-legacy-repo-capability-reference.md`](docs/contracts/adr/0007-legacy-repo-capability-reference.md) | ADR: 旧仓 = `competitive-agent`（能力参考 only） |
 | [`docs/contracts/adr/0008-agent-engine-extensions-runtime.md`](docs/contracts/adr/0008-agent-engine-extensions-runtime.md) | ADR: P3.1 extension runtime S-engine |
 | [`docs/contracts/adr/0009-p3-2-pi-extension-capability-enablement.md`](docs/contracts/adr/0009-p3-2-pi-extension-capability-enablement.md) | ADR: P3.2 enablement (ai cache parity + CompactionPlan bridge + local consumer) |
+| [`docs/contracts/adr/0011-agent-tool-sandbox-runtime.md`](docs/contracts/adr/0011-agent-tool-sandbox-runtime.md) | ADR: P3.3 production AgentTool Docker sandbox execution |
 | `docs/contracts/adr/*` | Architecture Decision Records |
 
 **Rules:**
 
 1. Architecture changes require **ADR + contract version bump**. Chat-only architecture changes are invalid.
-2. Implementation order is **serial**: P1 `packages/ai` → P2 `packages/agent` → P3 local loader → **P3.1 engine extensions** → **P3.2 capability enablement** → P4 `competitive_app`.
+2. Implementation order is **serial**: P1 `packages/ai` → P2 `packages/agent` → P3 local loader → **P3.1 engine extensions** → **P3.2 capability enablement** → **P3.3 AgentTool sandbox** → continue P4 `competitive_app`.
 3. Pi base = **TS→Python isomorphic port** of upstream `earendil-works/pi` **`main`**, not an inspired rewrite.
 4. Import map: `packages/ai` → `earendil_works.pi_ai`; `packages/agent` → `earendil_works.pi_agent`.
-5. Do **not** implement P4 business features until P1–P3.2 exit gates pass and features are frozen separately.
+5. P4 existing work remains, but do **not** expand AgentTool-dependent P4 business features until the P3.3 plan's exit gates pass.
 
 ---
 
@@ -141,7 +144,7 @@ Record the main SHA used for a port PR in the PR body (forensics only; no mandat
 
 - Completed phase checklist: `docs/plans/P3_1_agent_engine_extensions.md` status board.
 - Roadmap phase flags: `docs/ROADMAP.md` §5.
-- Next work must follow the next frozen P4 feature/plan; do not infer an unfrozen workflow.
+- Next runtime work is P3.3; follow [`P3_3_agent_tool_sandbox.md`](docs/plans/P3_3_agent_tool_sandbox.md) serially and do not infer work outside the frozen feature/plan.
 
 ### PR checklist (every PR)
 
@@ -157,7 +160,7 @@ Reuse roadmap §6 plus:
 
 ## Quick start for a new agent session
 
-1. Read this file + architecture contract v0.3.4 + the active frozen feature/plan.
+1. Read this file + architecture contract v0.3.8 + the active frozen feature/plan.
 2. `codegraph status` — if empty/stale and source exists, `codegraph sync` or `index -f`.
 3. `codegraph explore` / `node` for the area you will change.
 4. Implement only the current plan phase; update checklist boxes when done.

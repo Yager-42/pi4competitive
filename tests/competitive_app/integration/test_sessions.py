@@ -50,7 +50,7 @@ async def test_session_prompt_persists_jsonl_and_returns_assistant_message(app_s
 
 
 @pytest.mark.asyncio
-async def test_session_resume_new_instance(app_state, tmp_path: Path):
+async def test_session_resume_new_instance(app_state, sandbox_doubles, tmp_path: Path):
     """New app instance (same SQLite+JSONL dir) can resume the session."""
     from competitive_app.adapter.in_.fastapi.app import create_app
     from competitive_app.wiring import build_application_state, load_config_from_env
@@ -65,7 +65,12 @@ async def test_session_resume_new_instance(app_state, tmp_path: Path):
 
     # Instance B: new state, same tmp dirs → resume
     config_b = load_config_from_env()
-    state_b = await build_application_state(config_b)
+    tool_executor, lifecycle_double = sandbox_doubles
+    state_b = await build_application_state(
+        config_b,
+        tool_executor=tool_executor,
+        sandbox_lifecycle=lifecycle_double,
+    )
     try:
         state_b.models.__faux["setResponses"]([faux_assistant_message("second")])  # type: ignore[attr-defined]
         app_b = create_app()
