@@ -29,7 +29,14 @@ from earendil_works.pi_agent.package_manager import load_capability_packages
 from .adapter.out.persistence.socm_store import SocmStore
 from .adapter.out.persistence.learned_skill_store import SQLiteSkillStore
 from .adapter.out.persistence.workflow_skill_store import WorkflowSkillStore
-from .application.evolution.config import SkillConfig, load_skill_config
+from .adapter.out.sandbox.approved_registry import ApprovedToolRegistry
+from .adapter.out.sandbox.lifecycle import SandboxLifecycle
+from .adapter.out.sandbox.docker.docker_sandbox_provider import DockerSandboxProvider
+from .adapter.out.sandbox.docker.local_container_backend import LocalContainerBackend
+from .adapter.out.sandbox.docker.local_container_backend import _ALLOWED_ENVIRONMENT
+from .adapter.out.sandbox.utils.sandbox_id import derive_sandbox_id
+from .adapter.out.sandbox.sandbox_tool_executor import SandboxToolExecutor
+
 from .application.evolution.selector import SkillSelector
 from .application.evolution.skill_version_snapshot import SkillVersionSnapshot
 from .application.evolution.stage_skill_composer import StageSkillComposer
@@ -41,6 +48,9 @@ from .application.evolution.eval.programmatic_bridge import ProgrammaticEvalBrid
 from .application.evolution.eval.registry import RegistryEvalBridge, build_default_registry
 from .application.evolution.evolution_manager import EvolutionManager
 from .application.evolution.focus.ive_focuser import IVEFocuser
+
+
+from .application.evolution.config import SkillConfig, load_skill_config
 from .application.evolution.gates.score_delta_gate import ScoreDeltaGate
 from .application.evolution.gates.git_ratchet import GitRatchet
 from .application.evolution.post_task_observer import PostTaskObserver
@@ -57,6 +67,18 @@ from .application.workflow.task_service import TaskService
 
 
 @dataclass
+class SandboxAppConfig:
+    """Production sandbox config: derived image digest + canonical root only.
+
+    E1: exactly two fields — no enabled/provider/tuning switches exist.
+    """
+
+    image: str = ""
+    root: str = "data/sandboxes"
+
+
+
+@dataclass
 class AppConfig:
     sessions_cwd: str = "competitive_app"
     sessions_root: str = "data/sessions"
@@ -70,6 +92,10 @@ class AppConfig:
     default_model: str = ""
     use_faux: bool = False
     workflow_skill: SkillConfig = field(default_factory=load_skill_config)
+    sandbox: SandboxAppConfig = field(default_factory=SandboxAppConfig)
+
+
+
 
 
 @dataclass
@@ -90,12 +116,14 @@ class ApplicationState:
     skill_files: SkillFiles | None = None
     post_task_observer: PostTaskObserver | None = None
     evolution_manager: EvolutionManager | None = None
-    evolution_cycle_runner: EvolutionCycleRunner | None = None
     capability_report: Any | None = None
     capability_diagnostics: list[Any] = field(default_factory=list)
+    sandbox: SandboxLifecycle | None = None
 
     async def shutdown(self) -> None:
         await self.registry.shutdown()
+        if self.sandbox is not None:
+            await self.sandbox.shutdown()
         if self.skill_store is not None:
             await self.skill_store.close()
         if self.workflow_skill_store is not None:
@@ -160,10 +188,17 @@ class _HarnessFactory(HarnessFactory):
         models: Any,
         capability_report: Any | None,
         model_resolver: _ModelResolver,
+        tool_executor: Any | None = None,
     ) -> None:
         self._models = models
         self._capability_report = capability_report
         self._model_resolver = model_resolver
+        self._tool_executor = tool_executor
+
+    def _derive_scope(self, session_id: str) -> str:
+        if not session_id:
+            return ""
+        return derive_sandbox_id(session_id)
 
     async def build(
         self,
@@ -174,12 +209,16 @@ class _HarnessFactory(HarnessFactory):
     ) -> AgentHarness:
         if model is None:
             model = self._model_resolver.resolve(None)
+        metadata = await session.get_metadata()
+        scope_id = self._derive_scope(str(metadata.get("id") or ""))
         return AgentHarness(
             session=session,
             stream_fn=self._models.streamSimple,
             model=model,
             system_prompt=system_prompt,
             capability_report=self._capability_report,
+            tool_executor=self._tool_executor,
+            tool_execution_scope_id=scope_id,
         )
 
     async def build_ephemeral(
@@ -213,7 +252,6 @@ class _HarnessFactory(HarnessFactory):
         )
         from earendil_works.pi_agent.extensions.types import LoadExtensionsResult
         from .application.workflow.extraction import EvidenceIntake, make_extraction_extension_factory
-
         repo = InMemorySessionRepo()
         session = await repo.create({"cwd": "ephemeral"})
         model = self._model_resolver.resolve(None)
@@ -224,6 +262,10 @@ class _HarnessFactory(HarnessFactory):
             tools=tools or [],
             system_prompt=system_prompt,
             # capability_report=None: shared runtime never attached.
+            # The scope derives from the PARENT session id; the in-memory repo
+            # id is ignored (E2).
+            tool_executor=self._tool_executor,
+            tool_execution_scope_id=self._derive_scope(session_id),
         )
         # Attach a per-harness Extraction extension (PR5) if SOCM wiring is provided.
         intake: EvidenceIntake | None = None
@@ -245,13 +287,28 @@ class _HarnessFactory(HarnessFactory):
         return harness, intake
 
 
-async def build_application_state(config: AppConfig) -> ApplicationState:
+async def build_application_state(
+    config: AppConfig,
+    *,
+    tool_executor: Any | None = None,
+    sandbox_lifecycle: SandboxLifecycle | None = None,
+) -> ApplicationState:
     """Build the full application state. Called from FastAPI lifespan.
 
     Raises on infra failure (SQLite/JSONL); does NOT raise on missing provider
     key or capability package failure (feature F-A23).
+
+    E1/E5: omitted ``tool_executor``/``sandbox_lifecycle`` ALWAYS build the
+    production Docker sandbox (image digest + canonical root required, startup
+    verification included, failure unwinds before re-raising).  Explicit
+    Python-only doubles are accepted for tests; no env/YAML/CLI switch exists
+    that disables or replaces the sandbox.
     """
     # --- models (app-level singleton) --------------------------------------
+    # E5: doubles must be provided together; validate before any resource opens
+    # so a bad composition cannot leak stores.
+    if (tool_executor is None) != (sandbox_lifecycle is None):
+        raise ValueError("tool_executor and sandbox_lifecycle must be provided together")
     models = create_models()
     if config.use_faux:
         from earendil_works.pi_ai.providers.faux import faux_provider
@@ -320,10 +377,58 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
     except Exception as exc:  # noqa: BLE001
         diagnostics = [{"level": "error", "message": f"capability load failed: {exc}"}]
 
+    # --- production sandbox composition (E1) ------------------------------
+    # Default/omitted arguments always build Docker.  Explicit Python-only
+    # executor + lifecycle doubles are accepted for tests (E5); there is no
+    # env/YAML/CLI switch that disables or replaces the sandbox.
+    if tool_executor is None:
+        if not config.sandbox.image:
+            raise ValueError(
+                "SANDBOX_IMAGE must be a pinned registry digest; no production fallback exists"
+            )
+        sandbox_tools = (
+            list(getattr(capability_report, "tools", []) or []) if capability_report else []
+        )
+        sandbox_registry = ApprovedToolRegistry.from_tools(sandbox_tools)
+        environment = {name: os.environ.get(name) for name in _ALLOWED_ENVIRONMENT}
+        sandbox_root = Path(config.sandbox.root)
+        backend = LocalContainerBackend(
+            image=config.sandbox.image,
+            sandbox_root=sandbox_root,
+            environment=environment,
+        )
+        backend.verify_image_identity()
+        provider = DockerSandboxProvider(
+            image=config.sandbox.image,
+            sandbox_root=sandbox_root,
+            environment=environment,
+            backend=backend,
+        )
+        sandbox_executor = SandboxToolExecutor(registry=sandbox_registry, provider=provider)
+        lifecycle = SandboxLifecycle(
+            provider=provider,
+            registry=sandbox_registry,
+            executor=sandbox_executor,
+            sandbox_root=sandbox_root,
+            backend=backend,
+        )
+        try:
+            await provider.start()
+            await lifecycle.verify_startup(build_identity=config.sandbox.image)
+        except Exception:
+            await provider.shutdown()
+            # E1.4: unwind already-open App resources (stores) before re-raising.
+            await store.close()
+            await skill_store.close()
+            await workflow_skill_store.close()
+            raise
+        tool_executor = sandbox_executor
+        sandbox_lifecycle = lifecycle
+
     # --- services ----------------------------------------------------------
     registry = RuntimeRegistry()
     model_resolver = _ModelResolver(models, config.default_model, allow_synthesize=not config.use_faux)
-    harness_factory = _HarnessFactory(models, capability_report, model_resolver)
+    harness_factory = _HarnessFactory(models, capability_report, model_resolver, tool_executor)
     session_service = SessionService(
         repo=repo,
         store=store,
@@ -331,6 +436,7 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         harness_factory=harness_factory,
         model_resolver=model_resolver,
         prompt_lock_timeout=config.prompt_lock_timeout,
+        sandbox_lifecycle=sandbox_lifecycle,
     )
     capability_tools = list(getattr(capability_report, "tools", []) or []) if capability_report else []
     # F-R29: judge model for Extraction. JUDGE_MODEL env if set; else fall back
@@ -389,6 +495,7 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         task_quality_judge=quality_judge,
         post_task_observer=post_task_observer if config.workflow_skill.enabled else None,
         evolution_cycle_runner=evolution_cycle_runner,
+        sandbox_lifecycle=sandbox_lifecycle,
     )
 
     return ApplicationState(
@@ -408,9 +515,9 @@ async def build_application_state(config: AppConfig) -> ApplicationState:
         skill_files=skill_files,
         post_task_observer=post_task_observer if config.workflow_skill.enabled else None,
         evolution_manager=evolution_manager,
-        evolution_cycle_runner=evolution_cycle_runner,
         capability_report=capability_report,
         capability_diagnostics=diagnostics,
+        sandbox=sandbox_lifecycle,
     )
 
 
@@ -428,6 +535,10 @@ def load_config_from_env() -> AppConfig:
         prompt_lock_timeout=float(os.environ.get("PROMPT_LOCK_TIMEOUT", "30")),
         default_model=os.environ.get("OPENAI_MODEL", ""),
         use_faux=os.environ.get("USE_FAUX", "").lower() in ("1", "true", "yes"),
+        sandbox=SandboxAppConfig(
+            image=os.environ.get("SANDBOX_IMAGE", ""),
+            root=os.environ.get("SANDBOX_ROOT", "data/sandboxes"),
+        ),
     )
     if enabled_list is not None:
         config.capability_packages_enabled = enabled_list
@@ -449,4 +560,10 @@ def _load_dotenv(path: Path) -> None:
             os.environ.setdefault(key, val)
 
 
-__all__ = ["AppConfig", "ApplicationState", "build_application_state", "load_config_from_env"]
+__all__ = [
+    "AppConfig",
+    "ApplicationState",
+    "SandboxAppConfig",
+    "build_application_state",
+    "load_config_from_env",
+]

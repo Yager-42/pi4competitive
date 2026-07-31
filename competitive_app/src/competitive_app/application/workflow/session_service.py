@@ -65,6 +65,7 @@ class SessionService:
         harness_factory: HarnessFactory,
         model_resolver: ModelResolver,
         prompt_lock_timeout: float = 30.0,
+        sandbox_lifecycle: Any | None = None,
     ) -> None:
         self._repo = repo
         self._store = store
@@ -72,6 +73,7 @@ class SessionService:
         self._harness_factory = harness_factory
         self._model_resolver = model_resolver
         self._prompt_lock_timeout = prompt_lock_timeout
+        self._sandbox_lifecycle = sandbox_lifecycle
 
     async def create_session(
         self,
@@ -142,6 +144,10 @@ class SessionService:
             await harness.prompt(content)
         finally:
             lock.release()
+            # E3: the outer run owns the once-only sandbox release; a prompt
+            # with no tool call creates no container (release is a no-op).
+            if self._sandbox_lifecycle is not None:
+                await self._sandbox_lifecycle.release(session_id=session_id)
 
         return {
             "session_id": session_id,
@@ -151,6 +157,10 @@ class SessionService:
 
     async def abort(self, session_id: str) -> dict[str, Any]:
         await self._registry.abort_session(session_id)
+        # E4: session abort rejects new scope work and destroys the whole
+        # container; the workspace is preserved.
+        if self._sandbox_lifecycle is not None:
+            await self._sandbox_lifecycle.destroy(session_id=session_id)
         return {"session_id": session_id, "status": "aborted"}
 
     async def messages(self, session_id: str) -> dict[str, Any]:

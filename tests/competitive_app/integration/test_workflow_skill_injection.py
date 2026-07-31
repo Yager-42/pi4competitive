@@ -11,7 +11,9 @@ from competitive_app.wiring import build_application_state, load_config_from_env
 
 
 @pytest.mark.asyncio
-async def test_enabled_app_bootstraps_learned_skills_and_app_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_enabled_app_bootstraps_learned_skills_and_app_db(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sandbox_doubles
+) -> None:
     root = tmp_path / "learned"
     skill_dir = root / "skills" / "plan-tip"
     skill_dir.mkdir(parents=True)
@@ -26,7 +28,12 @@ async def test_enabled_app_bootstraps_learned_skills_and_app_db(tmp_path: Path, 
     monkeypatch.setenv("WORKFLOW_SKILL_ENABLED", "1")
     monkeypatch.setenv("WORKFLOW_SKILL_ROOT", str(root))
     config = load_config_from_env()
-    state = await build_application_state(config)
+    tool_executor, lifecycle_double = sandbox_doubles
+    state = await build_application_state(
+        config,
+        tool_executor=tool_executor,
+        sandbox_lifecycle=lifecycle_double,
+    )
     try:
         assert state.skill_selector is not None and state.skill_snapshot is not None
         records = await state.skill_store.list_active("plan")

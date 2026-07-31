@@ -50,6 +50,7 @@ class TaskService:
         task_quality_judge: Any = None,
         evolution_cycle_runner: Any = None,
         post_task_observer: Any = None,
+        sandbox_lifecycle: Any | None = None,
     ) -> None:
         self._store = store
         self._repo = repo
@@ -67,6 +68,7 @@ class TaskService:
         self._task_quality_judge = task_quality_judge
         self._post_task_observer = post_task_observer
         self._evolution_cycle_runner = evolution_cycle_runner
+        self._sandbox_lifecycle = sandbox_lifecycle
         self._runners: dict[str, tuple[ResearchRunner, asyncio.Event, Any]] = {}
     async def create_task(
         self,
@@ -269,6 +271,11 @@ class TaskService:
             if agent is not None:
                 agent.abort()
         await self._registry.abort_task(task_id, "api_abort")
+        # E4: task abort rejects new scope calls and destroys the whole
+        # container; the workspace is preserved.
+        session_id = task.get("session_id") or ""
+        if self._sandbox_lifecycle is not None and session_id:
+            await self._sandbox_lifecycle.destroy(session_id=session_id)
         # Only flip to aborted if not already terminal.
         if task["status"] not in {"completed", "failed", "aborted"}:
             await self._store.update_task_status(task_id, "aborted")
@@ -287,6 +294,10 @@ class TaskService:
             except Exception:
                 pass
         if session_id:
+            # E4: abort/destroy first, then delete only the derived workspace
+            # as part of the session/JSONL/SOCM/index cascade.
+            if self._sandbox_lifecycle is not None:
+                await self._sandbox_lifecycle.delete_workspace(session_id=session_id)
             await self._cascade_delete_session(session_id)
         self._runners.pop(task_id, None)
 
@@ -806,6 +817,13 @@ class TaskService:
             await self._store.update_task_status(task_id, "failed")
         finally:
             self._runners.pop(task_id, None)
+            # E3: one outer-run release for the full task (parallel ephemeral
+            # agents share the parent scope); no tool call → no container.
+            if self._sandbox_lifecycle is not None:
+                try:
+                    await self._sandbox_lifecycle.release(session_id=session_id)
+                except Exception:  # noqa: BLE001
+                    pass
     async def _run_refinement_observation(self, task_id: str, section_id: str, annotations: list[str]) -> None:
         """Turn a successful feedback-driven refine into an evidence-gated capture.
 
