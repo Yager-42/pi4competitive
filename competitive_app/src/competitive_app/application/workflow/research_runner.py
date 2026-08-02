@@ -10,23 +10,26 @@ context-derived data passing (F-R9), minimal-schema output validation (F-R10),
 SQLite projection updates (F-R13), resume skipping ok stages (F-R16), and
 double-layer abort (F-R21).
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import time
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from ...domain.research_brief import ResearchBrief
 from ...domain.stage import (
-    STAGES,
     STAGE_DEPENDENCIES,
     STAGE_OUTPUT_SCHEMA,
+    STAGES,
     StageResult,
     empty_projection,
     validate_stage_output,
 )
 from .coverage_engine import CoverageEngine
+from .memory_inject import recall_prior_findings
 from .profiles import StageProfile, build_profiles, is_search_tool
 from .stage_outputs import append_stage_output, collect_prior_outputs, last_usage, model_name
 
@@ -92,8 +95,10 @@ class ResearchRunner:
         for index, name in enumerate(STAGES):
             if self.abort_signal.is_set():
                 await self._set_status("aborted")
-                await self._emit_event("error", {"task_id": self.task_id, "status": "aborted",
-                                                 "message": "aborted by signal"})
+                await self._emit_event(
+                    "error",
+                    {"task_id": self.task_id, "status": "aborted", "message": "aborted by signal"},
+                )
                 return "aborted"
             if index < start_index:
                 if projection["stages"].get(name) == "ok":
@@ -117,21 +122,37 @@ class ResearchRunner:
                 projection["stages"][name] = "failed"
                 await self._save_projection(projection)
                 await self._set_status("aborted")
-                await self._emit_event("error", {"task_id": self.task_id, "status": "aborted",
-                                                 "stage": name, "message": "cancelled"})
+                await self._emit_event(
+                    "error",
+                    {
+                        "task_id": self.task_id,
+                        "status": "aborted",
+                        "stage": name,
+                        "message": "cancelled",
+                    },
+                )
                 raise
             except Exception as exc:  # noqa: BLE001
-                result = StageResult(stage=name, ok=False, output={}, error=f"{type(exc).__name__}: {exc}")
+                result = StageResult(
+                    stage=name, ok=False, output={}, error=f"{type(exc).__name__}: {exc}"
+                )
             if not result.ok:
                 projection["stages"][name] = "failed"
                 await self._save_projection(projection)
                 await self._emit_event(
-                    "stage_end", {"stage": name, "ok": False, "task_id": self.task_id,
-                                  "error": result.error}
+                    "stage_end",
+                    {"stage": name, "ok": False, "task_id": self.task_id, "error": result.error},
                 )
                 await self._set_status("failed")
-                await self._emit_event("error", {"task_id": self.task_id, "status": "failed",
-                                                 "stage": name, "message": result.error or ""})
+                await self._emit_event(
+                    "error",
+                    {
+                        "task_id": self.task_id,
+                        "status": "failed",
+                        "stage": name,
+                        "message": result.error or "",
+                    },
+                )
                 return "failed"
             # Re-load projection: the search stage's CoverageEngine writes
             # `coverage` directly to the store; merge it into our in-memory copy
@@ -139,7 +160,9 @@ class ResearchRunner:
             projection = await self._load_projection()
             projection["stages"][name] = "ok"
             await self._save_projection(projection)
-            await self._emit_event("stage_end", {"stage": name, "ok": True, "task_id": self.task_id})
+            await self._emit_event(
+                "stage_end", {"stage": name, "ok": True, "task_id": self.task_id}
+            )
             # write stage done → report ready (report_id = task_id, v0.3.1-A decision 1).
             if name == "write":
                 await self._emit_event(
@@ -178,7 +201,16 @@ class ResearchRunner:
             self._stage_skills[name] = await self._skill_snapshot.ensure_scope(
                 self.task_id, name, description
             )
-        prompt = self._build_prompt(name, profile, prior)
+        memory_blob: str | None = None
+        if name == "write":
+            try:
+                memory_blob = await recall_prior_findings(
+                    self.store,
+                    [self.research_brief.target.name, *self.research_brief.competitors],
+                )
+            except Exception:  # noqa: BLE001 — best-effort recall; never fail the write stage
+                memory_blob = None
+        prompt = self._build_prompt(name, profile, prior, memory_blob=memory_blob)
         t0 = time.monotonic()
         await self.harness.prompt(prompt)
         latency_ms = int((time.monotonic() - t0) * 1000)
@@ -186,7 +218,9 @@ class ResearchRunner:
         await self._emit_event(
             "span",
             {
-                "kind": name, "stage": name, "task_id": self.task_id,
+                "kind": name,
+                "stage": name,
+                "task_id": self.task_id,
                 "entity": None,
                 "model": model_name(self.agent.state.model),
                 "prompt_tokens": int(usage.get("input", 0) or 0),
@@ -215,8 +249,12 @@ class ResearchRunner:
         entities = schema.get("entities") or []
         attributes = schema.get("attributes") or []
         if not entities or not attributes:
-            return StageResult(stage="search", ok=False, output={},
-                               error="plan output missing coverage_schema with ≥1 entity × ≥1 attribute")
+            return StageResult(
+                stage="search",
+                ok=False,
+                output={},
+                error="plan output missing coverage_schema with ≥1 entity × ≥1 attribute",
+            )
         description = json.dumps(plan_output, ensure_ascii=False)
         if self._skill_snapshot is not None:
             self._stage_skills["search"] = await self._skill_snapshot.ensure_scope(
@@ -254,7 +292,14 @@ class ResearchRunner:
         wanted = set(profile.tool_names)
         return [t for t in self.all_tools if t.name in wanted]
 
-    def _build_prompt(self, name: str, profile: StageProfile, prior: dict[str, Any]) -> str:
+    def _build_prompt(
+        self,
+        name: str,
+        profile: StageProfile,
+        prior: dict[str, Any],
+        *,
+        memory_blob: str | None = None,
+    ) -> str:
         skills = self._stage_skills.get(name, [])
         base = profile.system_prompt
         if self._skill_composer is not None:
@@ -264,14 +309,20 @@ class ResearchRunner:
         brief = self.research_brief.model_dump(mode="json")
         parts: list[str] = [f"Research brief: {json.dumps(brief, ensure_ascii=False)}"]
         for stage_name, output in prior.items():
-            parts.append(f"Prior stage '{stage_name}' output: {json.dumps(output, ensure_ascii=False)}")
+            parts.append(
+                f"Prior stage '{stage_name}' output: {json.dumps(output, ensure_ascii=False)}"
+            )
         if name == "write":
             parts.append(
                 "(The coverage map snapshot with filled/unknown/conflict cells is provided "
                 "as a custom_message stage_output from the search stage; render it as a "
                 "citation-grounded markdown table.)"
             )
-        parts.append(f"Now run the '{name}' stage. Output ONLY the JSON described in the system prompt.")
+            if memory_blob:
+                parts.append(memory_blob)
+        parts.append(
+            f"Now run the '{name}' stage. Output ONLY the JSON described in the system prompt."
+        )
         return "\n\n".join(parts)
 
     def _extract_output(self, name: str) -> dict[str, Any]:
@@ -323,9 +374,7 @@ class ResearchRunner:
         """
         # brands — from the brief, always available.
         brands = list(
-            dict.fromkeys(
-                [self.research_brief.target.name] + list(self.research_brief.competitors)
-            )
+            dict.fromkeys([self.research_brief.target.name] + list(self.research_brief.competitors))
         )
         projection["brands"] = brands
 
@@ -339,9 +388,7 @@ class ResearchRunner:
             # socm load — no extra IO. Fails soft: indexing must never break completion.
             task = await self.store.get_task(self.task_id)
             created_at = (task or {}).get("created_at", "")
-            await self.store.index_evidences(
-                self.task_id, socm.evidence_graph.nodes, created_at
-            )
+            await self.store.index_evidences(self.task_id, socm.evidence_graph.nodes, created_at)
         except Exception:  # noqa: BLE001
             pass  # keep defaults (0)
 
@@ -458,7 +505,7 @@ def _finalize_section(lines: list[str]) -> dict[str, Any]:
 
 async def _noop_emit(_event_type: str, _data: dict[str, Any]) -> None:
     """v0.3.1 SSE: default emit sink (no-op when SSE isn't wired)."""
-    return None
+    return
 
 
 __all__ = ["ResearchRunner"]

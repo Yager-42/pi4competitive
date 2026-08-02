@@ -11,11 +11,13 @@ Single connection + asyncio.Lock serializes writes (feature F-A24); reads are
 lock-free (aiosqlite connection is safe for interleaved read cursors, but every
 write transaction completes begin→execute→commit inside the lock).
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import uuid
+from datetime import UTC
 from typing import Any
 
 import aiosqlite
@@ -433,8 +435,12 @@ class TaskProjectionStore:
                 "insert into task_spans(span_id, task_id, seq, kind, stage, entity, model, "
                 "prompt_tokens, completion_tokens, latency_ms, ts) values(?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    f"sp_{uuid.uuid4().hex[:12]}", task_id, seq,
-                    str(data.get("kind", "")), data.get("stage"), data.get("entity"),
+                    f"sp_{uuid.uuid4().hex[:12]}",
+                    task_id,
+                    seq,
+                    str(data.get("kind", "")),
+                    data.get("stage"),
+                    data.get("entity"),
                     data.get("model"),
                     int(data.get("prompt_tokens", 0) or 0),
                     int(data.get("completion_tokens", 0) or 0),
@@ -457,10 +463,17 @@ class TaskProjectionStore:
             rows = await cur.fetchall()
         return [
             {
-                "span_id": r[0], "task_id": r[1], "seq": r[2], "kind": r[3],
-                "stage": r[4], "entity": r[5], "model": r[6],
-                "prompt_tokens": r[7], "completion_tokens": r[8],
-                "latency_ms": r[9], "ts": r[10],
+                "span_id": r[0],
+                "task_id": r[1],
+                "seq": r[2],
+                "kind": r[3],
+                "stage": r[4],
+                "entity": r[5],
+                "model": r[6],
+                "prompt_tokens": r[7],
+                "completion_tokens": r[8],
+                "latency_ms": r[9],
+                "ts": r[10],
             }
             for r in rows
         ]
@@ -481,7 +494,9 @@ class TaskProjectionStore:
                 "edited_blocks=excluded.edited_blocks, total_blocks=excluded.total_blocks, "
                 "data_json=excluded.data_json, updated_at=excluded.updated_at",
                 (
-                    task_id, int(edited_blocks), int(total_blocks),
+                    task_id,
+                    int(edited_blocks),
+                    int(total_blocks),
                     json.dumps(data, ensure_ascii=False) if data else None,
                     _now_iso(),
                 ),
@@ -501,16 +516,17 @@ class TaskProjectionStore:
             return None
         data = json.loads(row[3]) if row[3] else None
         return {
-            "report_id": row[0], "edited_blocks": row[1], "total_blocks": row[2],
-            "data": data, "updated_at": row[4],
+            "report_id": row[0],
+            "edited_blocks": row[1],
+            "total_blocks": row[2],
+            "data": data,
+            "updated_at": row[4],
             "revision_rate": (row[1] / row[2]) if row[2] else 0.0,
         }
 
     # ----------------------------------------------- v0.3.3 global evidence lib
 
-    async def index_evidences(
-        self, task_id: str, nodes: list[Any], task_created_at: str
-    ) -> None:
+    async def index_evidences(self, task_id: str, nodes: list[Any], task_created_at: str) -> None:
         """Flatten a task's SOCM evidence nodes into the global evidences table.
 
         v0.3.3: called from the runner completion hook. SQLite is a projection —
@@ -558,11 +574,17 @@ class TaskProjectionStore:
         self,
         *,
         brand: str | None = None,
+        brands: list[str] | None = None,
         source_type: str | None = None,
         min_confidence: float = 0.0,
         limit: int = 200,
     ) -> list[dict[str, Any]]:
-        """Query the global evidence lib with optional filters (v0.3.3)."""
+        """Query the global evidence lib with optional filters (v0.3.3).
+
+        v0.2.5 (memory inject): ``brands`` (list) does a case-insensitive
+        multi-brand match (``lower(brand) IN (...)``) for recall by competitor.
+        ``brand`` (single, exact) is kept for the /evidences route (backward-compat).
+        """
         await self.init()
         assert self._db is not None
         sql = (
@@ -574,6 +596,10 @@ class TaskProjectionStore:
         if brand:
             sql += " and brand = ?"
             params.append(brand)
+        if brands:
+            placeholders = ",".join("lower(?)" for _ in brands)
+            sql += f" and lower(brand) in ({placeholders})"
+            params.extend(brands)
         if source_type:
             sql += " and source_type = ?"
             params.append(source_type)
@@ -583,9 +609,18 @@ class TaskProjectionStore:
             rows = await cur.fetchall()
         return [
             {
-                "evidence_id": r[0], "task_id": r[1], "entity": r[2], "attribute": r[3],
-                "value": r[4], "finding": r[5], "source_url": r[6], "source_type": r[7],
-                "domain": r[8], "brand": r[9], "confidence": r[10], "captured_at": r[11],
+                "evidence_id": r[0],
+                "task_id": r[1],
+                "entity": r[2],
+                "attribute": r[3],
+                "value": r[4],
+                "finding": r[5],
+                "source_url": r[6],
+                "source_type": r[7],
+                "domain": r[8],
+                "brand": r[9],
+                "confidence": r[10],
+                "captured_at": r[11],
             }
             for r in rows
         ]
@@ -704,9 +739,7 @@ class TaskProjectionStore:
         await self.init()
         assert self._db is not None
         async with self._write_lock:
-            cur = await self._db.execute(
-                "delete from subscriptions where sub_id = ?", (sub_id,)
-            )
+            cur = await self._db.execute("delete from subscriptions where sub_id = ?", (sub_id,))
             await self._db.commit()
             return cur.rowcount > 0
 
@@ -795,9 +828,9 @@ def _classify_source(source: str) -> tuple[str, str]:
 
 
 def _now_iso() -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 __all__ = ["TaskProjectionStore"]
