@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 EXPECTED_PATHS = {
     "/api/v2/sessions",
     "/api/v2/sessions/{session_id}",
@@ -30,6 +29,8 @@ EXPECTED_PATHS = {
     "/api/v2/subscriptions",  # v0.3.3
     "/api/v2/subscriptions/{sub_id}",  # v0.3.3
     "/api/v2/subscriptions/{sub_id}/run",  # v0.3.3
+    "/api/v2/llm/ping",  # v0.3.4
+    "/api/v2/meta",  # v0.3.4
     "/api/v2/health",
 }
 
@@ -59,8 +60,9 @@ async def test_routes_registered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
     # v0.3.0: 14. v0.3.1: +3 (reports×2, stream) = 17. v0.3.2: +3 (trace, refine, feedback) = 20.
     # v0.3.3: +7 (clarify, evidences, dashboard, subscriptions×4) = 27.
+    # v0.3.4: +2 (llm/ping, meta) = 29.
     route_count = 0
     for path, methods in schema["paths"].items():
         if path.startswith("/api/v2/"):
             route_count += len(methods)
-    assert route_count == 27, f"expected 27 routes, got {route_count}"
+    assert route_count == 29, f"expected 29 routes, got {route_count}"

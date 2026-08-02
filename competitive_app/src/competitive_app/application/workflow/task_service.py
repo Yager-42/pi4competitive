@@ -6,10 +6,12 @@ stage delegates to CoverageEngine (ADR 0010 D-S8) which drives the iterative
 coverage-map search loop and persists SOCM. Stage outputs go to JSONL; task
 status/progress + coverage projection go to SQLite.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from typing import Any
 
@@ -29,6 +31,7 @@ class TaskConflictError(Exception):
 
 class TaskInputError(Exception):
     """Raised when task creation input is invalid (→ 422)."""
+
 
 class TaskService:
     def __init__(
@@ -51,6 +54,7 @@ class TaskService:
         evolution_cycle_runner: Any = None,
         post_task_observer: Any = None,
         sandbox_lifecycle: Any | None = None,
+        llm_configured: bool = False,
     ) -> None:
         self._store = store
         self._repo = repo
@@ -69,7 +73,51 @@ class TaskService:
         self._post_task_observer = post_task_observer
         self._evolution_cycle_runner = evolution_cycle_runner
         self._sandbox_lifecycle = sandbox_lifecycle
+        self._llm_configured = llm_configured
         self._runners: dict[str, tuple[ResearchRunner, asyncio.Event, Any]] = {}
+
+    async def ping_llm(self) -> dict[str, Any]:
+        """GET /api/v2/llm/ping — real LLM round-trip diagnostic (batch4 v0.3.4).
+
+        One ``completeSimple`` call with a trivial prompt. Returns
+        ``{ok, model, reply, latency_ms}`` on success; ``{ok: False, reason, message}``
+        on not-configured or call error. Does NOT pass ``response_format`` — the
+        reply is freeform text, not a JSON object (B-path scope is discover/derive).
+        Mirrors the discover call shape (single user message, proven to work).
+        """
+        if not self._llm_configured:
+            return {
+                "ok": False,
+                "reason": "not_configured",
+                "message": "LLM not configured (OPENAI_API_KEY/OPENAI_BASE_URL unset and not faux)",
+            }
+        if self._models is None or self._judge_model is None:
+            return {
+                "ok": False,
+                "reason": "not_configured",
+                "message": "models or judge_model not initialized",
+            }
+        context = {
+            "messages": [{"role": "user", "content": "Reply with a single word only, then stop."}]
+        }
+        t0 = time.monotonic()
+        try:
+            message = await self._models.completeSimple(self._judge_model, context)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "reason": "error", "message": f"{type(exc).__name__}: {exc}"}
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        text = _extract_assistant_text_for_refine(message).strip()
+        model_name = str(self._judge_model.get("id") or self._judge_model.get("name") or "")
+        if not text:
+            return {
+                "ok": False,
+                "reason": "error",
+                "message": "empty model reply",
+                "model": model_name,
+                "latency_ms": latency_ms,
+            }
+        return {"ok": True, "model": model_name, "reply": text[:200], "latency_ms": latency_ms}
+
     async def create_task(
         self,
         *,
@@ -117,7 +165,8 @@ class TaskService:
             "query": query,
             "status": "awaiting",
             "discovered": {
-                "subject": result["subject"], "domain": result["domain"],
+                "subject": result["subject"],
+                "domain": result["domain"],
                 "competitors": result["competitors"],
             },
             "questions": result["questions"],
@@ -154,7 +203,11 @@ class TaskService:
         metadata = task.get("metadata") or {}
         clarify = metadata.get("clarify") or {}
         query = clarify.get("query") or task.get("query") or ""
-        discovered = clarify.get("discovered") or {"subject": query, "domain": "", "competitors": []}
+        discovered = clarify.get("discovered") or {
+            "subject": query,
+            "domain": "",
+            "competitors": [],
+        }
         questions = clarify.get("questions") or []
         brief = await self._derive_brief(query, questions, discovered, answers)
         # Record answers + derived brief into metadata, then start research.
@@ -255,7 +308,11 @@ class TaskService:
         session = await self._open_session(session_id)
         self._registry.register_stream(task_id)  # v0.3.1 SSE: pre-register queue
         self._registry.start_task(
-            task_id, self, self._run_research(task_id, research_brief, session, session_id, start_stage=start_stage)
+            task_id,
+            self,
+            self._run_research(
+                task_id, research_brief, session, session_id, start_stage=start_stage
+            ),
         )
         return {"task_id": task_id, "status": "pending"}
 
@@ -363,7 +420,9 @@ class TaskService:
             from .stage_outputs import get_stage_output
 
             # v0.3.2: prefer refine stage_output (post-refine) over write (original).
-            out = await get_stage_output(session, "refine") or await get_stage_output(session, "write")
+            out = await get_stage_output(session, "refine") or await get_stage_output(
+                session, "write"
+            )
             out = out or {}
             markdown = out.get("report") or ""
             sections = out.get("sections") or []
@@ -447,9 +506,14 @@ class TaskService:
         ]
         # 6. append refine stage_output (D24: append, don't overwrite write)
         await append_stage_output(
-            session, "refine",
-            {"section_id": section_id, "report": new_report, "sections": new_sections,
-             "refined_at": _now_iso()},
+            session,
+            "refine",
+            {
+                "section_id": section_id,
+                "report": new_report,
+                "sections": new_sections,
+                "refined_at": _now_iso(),
+            },
         )
         await self._run_refinement_observation(task_id, section_id, annotations)
         return {"ok": True, "section_id": section_id, "report_id": task_id}
@@ -473,7 +537,8 @@ class TaskService:
         if result is None:
             return {"subject": query, "domain": "", "competitors": []}
         return {
-            "subject": result["subject"], "domain": result["domain"],
+            "subject": result["subject"],
+            "domain": result["domain"],
             "competitors": result["competitors"],
         }
 
@@ -503,7 +568,8 @@ class TaskService:
         context = {"messages": [{"role": "user", "content": prompt}]}
         try:
             message = await self._models.completeSimple(
-                self._judge_model, context,
+                self._judge_model,
+                context,
                 options={"response_format": {"type": "json_object"}},
             )
         except Exception:  # noqa: BLE001
@@ -516,8 +582,11 @@ class TaskService:
             return None
         subject = str(parsed.get("subject") or query).strip()
         domain = str(parsed.get("domain") or "").strip()
-        comps = [str(c).strip() for c in (parsed.get("competitors") or [])
-                 if str(c).strip() and str(c).strip() != subject]
+        comps = [
+            str(c).strip()
+            for c in (parsed.get("competitors") or [])
+            if str(c).strip() and str(c).strip() != subject
+        ]
         seen: set[str] = set()
         comps = [c for c in comps if not (c.lower() in seen or seen.add(c.lower()))][:12]
         questions = _build_clarify_questions(subject, comps)
@@ -548,7 +617,7 @@ class TaskService:
                 "Rules: target.name = the discovered subject; competitors MUST have at least 1 "
                 "(use the user's selected ones if any, else pick 1-3 from the candidates by "
                 "popularity, else recommend mainstream rivals for the domain); dimensions = the "
-                "user's selected dimensions, else default to [\"功能对比\", \"定价策略\"]; goal = expand "
+                'user\'s selected dimensions, else default to ["功能对比", "定价策略"]; goal = expand '
                 "into one clear research objective sentence.\n\n"
                 f"Original request: {query}\n"
                 f"Subject: {subject}\n"
@@ -562,21 +631,30 @@ class TaskService:
             context = {"messages": [{"role": "user", "content": prompt}]}
             try:
                 message = await self._models.completeSimple(
-                    self._judge_model, context,
+                    self._judge_model,
+                    context,
                     options={"response_format": {"type": "json_object"}},
                 )
                 text = _extract_assistant_text_for_refine(message)
                 parsed = _try_parse_json(text)
                 if isinstance(parsed, dict):
-                    brief = ResearchBrief.model_validate({
-                        "target": {
-                            "name": str((parsed.get("target") or {}).get("name") or subject)[:120],
-                            "category": str((parsed.get("target") or {}).get("category") or domain),
-                        },
-                        "goal": str(parsed.get("goal") or query),
-                        "competitors": _coerce_competitors(parsed.get("competitors"), discovered_comps),
-                        "dimensions": _coerce_dimensions(parsed.get("dimensions")),
-                    })
+                    brief = ResearchBrief.model_validate(
+                        {
+                            "target": {
+                                "name": str((parsed.get("target") or {}).get("name") or subject)[
+                                    :120
+                                ],
+                                "category": str(
+                                    (parsed.get("target") or {}).get("category") or domain
+                                ),
+                            },
+                            "goal": str(parsed.get("goal") or query),
+                            "competitors": _coerce_competitors(
+                                parsed.get("competitors"), discovered_comps
+                            ),
+                            "dimensions": _coerce_dimensions(parsed.get("dimensions")),
+                        }
+                    )
                     return brief
             except Exception:  # noqa: BLE001
                 pass  # fall through to minimal brief
@@ -600,8 +678,10 @@ class TaskService:
     ) -> dict[str, Any]:
         """GET /evidences — global evidence library (cross-task, from projection)."""
         items = await self._store.query_evidences(
-            brand=brand, source_type=source_type,
-            min_confidence=min_confidence, limit=limit,
+            brand=brand,
+            source_type=source_type,
+            min_confidence=min_confidence,
+            limit=limit,
         )
         facets = await self._store.evidence_facets()
         return {"items": items, "facets": facets}
@@ -679,8 +759,13 @@ class TaskService:
         if keywords:
             ranked = [n for n in ranked if _relevance(n) > 0] or ranked
         return [
-            {"entity": n.entity, "attribute": n.attribute, "value": n.value,
-             "source": n.source, "confidence": n.confidence}
+            {
+                "entity": n.entity,
+                "attribute": n.attribute,
+                "value": n.value,
+                "source": n.source,
+                "confidence": n.confidence,
+            }
             for n in ranked[:30]
         ]
 
@@ -692,9 +777,10 @@ class TaskService:
             return ""
         title = section.get("title", "")
         existing = section.get("body", "")
-        evidence_blob = "\n".join(
-            f"- [{e.get('source', '')}] {e.get('value', '')}" for e in evidence[:30]
-        ) or "(no additional evidence)"
+        evidence_blob = (
+            "\n".join(f"- [{e.get('source', '')}] {e.get('value', '')}" for e in evidence[:30])
+            or "(no additional evidence)"
+        )
         notes = "\n".join(f"- {a}" for a in annotations if a) or "(no annotations)"
         prompt = (
             "你是资深竞品分析师。用户对报告某章节提出了批注，请基于章节现有内容、可用证据与批注，"
@@ -810,9 +896,14 @@ class TaskService:
                 skill_composer=self._skill_composer,
             )
             self._runners[task_id] = (runner, abort_signal, agent)
-            result_status = await runner.run(start_stage=start_stage, stop_after_stage=stop_after_stage)
+            result_status = await runner.run(
+                start_stage=start_stage, stop_after_stage=stop_after_stage
+            )
             await self._post_task_eval(task_id, result_status, runner)
-            if self._evolution_cycle_runner is not None and result_status in {"completed", "failed"}:
+            if self._evolution_cycle_runner is not None and result_status in {
+                "completed",
+                "failed",
+            }:
                 await self._evolution_cycle_runner.run_cycle()
         except asyncio.CancelledError:
             if agent is not None:
@@ -830,7 +921,10 @@ class TaskService:
                     await self._sandbox_lifecycle.release(session_id=session_id)
                 except Exception:  # noqa: BLE001
                     pass
-    async def _run_refinement_observation(self, task_id: str, section_id: str, annotations: list[str]) -> None:
+
+    async def _run_refinement_observation(
+        self, task_id: str, section_id: str, annotations: list[str]
+    ) -> None:
         """Turn a successful feedback-driven refine into an evidence-gated capture.
 
         The refine operation is the demonstrated solution; feedback is the
@@ -878,8 +972,13 @@ class TaskService:
         try:
             bindings = await self._skill_snapshot.all_bindings(task_id)
             injected = [
-                {"skill_id": record.skill_id, "name": record.name, "description": record.description}
-                for records in bindings.values() for record in records
+                {
+                    "skill_id": record.skill_id,
+                    "name": record.name,
+                    "description": record.description,
+                }
+                for records in bindings.values()
+                for record in records
             ]
             messages = getattr(runner.agent.state, "messages", [])
             summary = json.dumps(messages, ensure_ascii=False, default=str)
@@ -892,6 +991,7 @@ class TaskService:
         except Exception:
             # Post-task metrics are observational and cannot fail the workflow.
             return
+
     def _first_non_ok_stage(self, projection: Any) -> str | None:
         if not isinstance(projection, dict):
             return None
@@ -1037,7 +1137,8 @@ def _extract_assistant_text_for_refine(response: Any) -> str:
                 if isinstance(content, list):
                     return "".join(
                         str(b.get("text") or b.get("content") or "")
-                        for b in content if isinstance(b, dict)
+                        for b in content
+                        if isinstance(b, dict)
                     )
             if event.get("type") == "text":
                 return str(event.get("text") or "")
@@ -1049,12 +1150,21 @@ def _now_iso() -> str:
     """v0.3.2: ISO timestamp for refine/feedback records."""
     import datetime
 
-    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+    return datetime.datetime.now(datetime.UTC).isoformat()
 
 
 # ----------------------------------------------------------- v0.3.3 clarify
 
-_FOCUS_OPTIONS = ["功能对比", "定价策略", "用户口碑", "市场份额", "技术架构", "SWOT", "商业模式", "舆情趋势"]
+_FOCUS_OPTIONS = [
+    "功能对比",
+    "定价策略",
+    "用户口碑",
+    "市场份额",
+    "技术架构",
+    "SWOT",
+    "商业模式",
+    "舆情趋势",
+]
 _MARKET_OPTIONS = ["中国大陆", "全球", "北美", "东南亚", "欧洲", "不限"]
 
 
@@ -1065,31 +1175,35 @@ def _build_clarify_questions(subject: str, competitors: list[str]) -> list[dict[
     """
     questions: list[dict[str, Any]] = []
     if competitors:
-        questions.append({
-            "id": "competitors",
-            "question": f"为「{subject}」自动发现了以下候选竞品，请勾选你希望重点对比的对象（可多选）：",
+        questions.append(
+            {
+                "id": "competitors",
+                "question": f"为「{subject}」自动发现了以下候选竞品，请勾选你希望重点对比的对象（可多选）：",
+                "type": "multi",
+                "options": competitors[:12],
+                "hint": "勾选后我们会确保每个竞品都被充分调研；如有遗漏可在下方补充。",
+            }
+        )
+    questions.append(
+        {
+            "id": "focus",
+            "question": "本次调研最看重哪些维度？（可多选）",
             "type": "multi",
-            "options": competitors[:12],
-            "hint": "勾选后我们会确保每个竞品都被充分调研；如有遗漏可在下方补充。",
-        })
-    questions.append({
-        "id": "focus",
-        "question": "本次调研最看重哪些维度？（可多选）",
-        "type": "multi",
-        "options": list(_FOCUS_OPTIONS),
-    })
-    questions.append({
-        "id": "market",
-        "question": "希望聚焦的目标市场或地区？",
-        "type": "single",
-        "options": list(_MARKET_OPTIONS),
-    })
+            "options": list(_FOCUS_OPTIONS),
+        }
+    )
+    questions.append(
+        {
+            "id": "market",
+            "question": "希望聚焦的目标市场或地区？",
+            "type": "single",
+            "options": list(_MARKET_OPTIONS),
+        }
+    )
     return questions
 
 
-def _format_clarify_answers(
-    questions: list[dict[str, Any]], answers: list[dict[str, Any]]
-) -> str:
+def _format_clarify_answers(questions: list[dict[str, Any]], answers: list[dict[str, Any]]) -> str:
     """Flatten answers (str | list[str]) to a text blob for the derive-brief LLM."""
     by_id = {a.get("id"): a.get("value") for a in answers if isinstance(a, dict)}
     lines: list[str] = []

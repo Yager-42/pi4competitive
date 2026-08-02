@@ -2,12 +2,12 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.3.3` |
+| **feature_contract_version** | `0.3.4` |
 | **status** | **frozen** |
-| **updated** | 2026-07-30 |
+| **updated** | 2026-08-02 |
 | **feature_id** | `competitive-app-http-v1` |
-| **roadmap_stage** | **P4** `competitive_app` —— 应用骨架 + HTTP 接口边界（task 行为由 research-workflow-v1 v0.2.3 三阶段提供） |
-| **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.6**（§3.2 / §6.3 / §7 / D8 / G1 / G2 / D24 / D25 + ADR 0010） |
+| **roadmap_stage** | **P4** `competitive_app` —— 应用骨架 + HTTP 接口边界（task 行为由 research-workflow-v1 v0.2.4 三阶段提供） |
+| **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.9**（§3.2 / §6.3 / §7 / D8 / G1 / G2 / D24 / D25 + ADR 0010/0011/0012） |
 | **roadmap** | [`ROADMAP.md`](../ROADMAP.md) §2 P4 / §4 业务能力引入 |
 | **plan** | [`docs/plans/P4_competitive_app_http.md`](../plans/P4_competitive_app_http.md) |
 | **path** | `docs/features/competitive_app_http_v1.md` |
@@ -87,9 +87,9 @@
 | 🟢 搬壳 + 真跑 | tasks（8） | **搬壳** | 入参 ResearchBrief；三阶段 runner（research-workflow-v1 v0.2.0） |
 | 🔴 不搬 | 旧仓 research 前置（2）+ session/events（1）+ task/events（1）+ 7 组运营（28） | **不搬** | grill 砍 / 未规划 |
 
-### 3.2 接口清单（locked）—— 共 27 路由，前缀 `/api/v2`
+### 3.2 接口清单（locked）—— 共 29 路由，前缀 `/api/v2`
 
-> v0.3.0 = 14 路由。v0.3.1 +3（reports×2 + SSE×1）。v0.3.2 +3（trace + refine + feedback）。v0.3.3 +7（clarify + evidences + dashboard + subscriptions×4）。不破坏 v0.3.0 路由。
+> v0.3.0 = 14 路由。v0.3.1 +3（reports×2 + SSE×1）。v0.3.2 +3（trace + refine + feedback）。v0.3.3 +7（clarify + evidences + dashboard + subscriptions×4）。v0.3.4 +2（llm/ping + meta）。不破坏 v0.3.0 路由。
 
 **B 组 — Agent 会话（5，🟢 真实）**
 
@@ -162,6 +162,13 @@
 | 方法 路径 | 作用 |
 |----------|------|
 | `GET /health` | 健康检查（active_workflows 计数） |
+
+**诊断（2，🟢 v0.3.4 新增）**
+
+| 方法 路径 | 作用 |
+|----------|------|
+| `GET /llm/ping` | LLM 往返探针：1 次 `completeSimple` trivial prompt → `{ok, model, reply, latency_ms}`；未配置 → `{ok:false, reason:"not_configured"}`；调用错 → `{ok:false, reason:"error", message}`。**不经** `response_format`（自由文本回复，非 B 路范围） |
+| `GET /meta` | 诊断快照：`{app{name,version}, contract_version, http_feature_version, pi_ai, pi_agent, llm{configured, model}, capabilities[{package, tools[]}], runtime, active_workflows}`。**不泄露** `OPENAI_BASE_URL`/`OPENAI_API_KEY` 值（只 `configured` bool + `model` 名）；`llm_configured` 在 wiring 统一算（faux 或 key+base_url 都设） |
 
 ### 3.3 不出现在本 feature 公开 API（locked）
 

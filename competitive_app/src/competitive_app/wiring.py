@@ -12,6 +12,7 @@ Startup failure layering (feature F-A23):
   - Capability package load failure does NOT crash (diagnostics recorded).
   - SQLite / JSONL infra failure raises → lifespan fails fast.
 """
+
 from __future__ import annotations
 
 import os
@@ -19,28 +20,27 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from earendil_works.pi_ai import create_models
-from earendil_works.pi_ai.providers.openai import openai_provider
-
 from earendil_works.pi_agent import AgentHarness, JsonlSessionRepo
 from earendil_works.pi_agent.harness.env.python_env import LocalFileSystem
 from earendil_works.pi_agent.package_manager import load_capability_packages
+from earendil_works.pi_ai import create_models
+from earendil_works.pi_ai.providers.openai import openai_provider
 
-from .adapter.out.persistence.socm_store import SocmStore
 from .adapter.out.persistence.learned_skill_store import SQLiteSkillStore
+from .adapter.out.persistence.socm_store import SocmStore
+from .adapter.out.persistence.task_projection_store import TaskProjectionStore
 from .adapter.out.persistence.workflow_skill_store import WorkflowSkillStore
 from .adapter.out.sandbox.approved_registry import ApprovedToolRegistry
-from .adapter.out.sandbox.lifecycle import SandboxLifecycle
 from .adapter.out.sandbox.docker.docker_sandbox_provider import DockerSandboxProvider
-from .adapter.out.sandbox.docker.local_container_backend import LocalContainerBackend
-from .adapter.out.sandbox.docker.local_container_backend import _ALLOWED_ENVIRONMENT
-from .adapter.out.sandbox.utils.sandbox_id import derive_sandbox_id
+from .adapter.out.sandbox.docker.local_container_backend import (
+    _ALLOWED_ENVIRONMENT,
+    LocalContainerBackend,
+)
+from .adapter.out.sandbox.lifecycle import SandboxLifecycle
 from .adapter.out.sandbox.sandbox_tool_executor import SandboxToolExecutor
-
-from .application.evolution.selector import SkillSelector
-from .application.evolution.skill_version_snapshot import SkillVersionSnapshot
-from .application.evolution.stage_skill_composer import StageSkillComposer
+from .adapter.out.sandbox.utils.sandbox_id import derive_sandbox_id
 from .application.evolution.adapters.pi_llm import PiLlmAdapter
+from .application.evolution.config import SkillConfig, load_skill_config
 from .application.evolution.cycle_runner import EvolutionCycleRunner
 from .application.evolution.eval.analyzers.skill_judgment_analyzer import SkillJudgmentAnalyzer
 from .application.evolution.eval.analyzers.task_quality_judge import TaskQualityJudge
@@ -48,15 +48,14 @@ from .application.evolution.eval.programmatic_bridge import ProgrammaticEvalBrid
 from .application.evolution.eval.registry import RegistryEvalBridge, build_default_registry
 from .application.evolution.evolution_manager import EvolutionManager
 from .application.evolution.focus.ive_focuser import IVEFocuser
-
-
-from .application.evolution.config import SkillConfig, load_skill_config
-from .application.evolution.gates.score_delta_gate import ScoreDeltaGate
 from .application.evolution.gates.git_ratchet import GitRatchet
+from .application.evolution.gates.score_delta_gate import ScoreDeltaGate
 from .application.evolution.post_task_observer import PostTaskObserver
+from .application.evolution.selector import SkillSelector
 from .application.evolution.skill_files import SkillFiles
+from .application.evolution.skill_version_snapshot import SkillVersionSnapshot
+from .application.evolution.stage_skill_composer import StageSkillComposer
 from .application.evolution.triggers.metric_monitor import MetricMonitorTrigger
-from .adapter.out.persistence.task_projection_store import TaskProjectionStore
 from .application.workflow.runtime_registry import RuntimeRegistry
 from .application.workflow.session_service import (
     HarnessFactory,
@@ -77,7 +76,6 @@ class SandboxAppConfig:
     root: str = "data/sandboxes"
 
 
-
 @dataclass
 class AppConfig:
     sessions_cwd: str = "competitive_app"
@@ -85,7 +83,11 @@ class AppConfig:
     app_db: str = "data/app.db"
     capability_packages_enabled: list[str] = field(
         default_factory=lambda: [
-            "echo_example", "search_tavily", "search_anysearch", "search_grok", "reasonix_prefix_cache"
+            "echo_example",
+            "search_tavily",
+            "search_anysearch",
+            "search_grok",
+            "reasonix_prefix_cache",
         ]
     )
     prompt_lock_timeout: float = 30.0
@@ -93,9 +95,6 @@ class AppConfig:
     use_faux: bool = False
     workflow_skill: SkillConfig = field(default_factory=load_skill_config)
     sandbox: SandboxAppConfig = field(default_factory=SandboxAppConfig)
-
-
-
 
 
 @dataclass
@@ -119,6 +118,7 @@ class ApplicationState:
     capability_report: Any | None = None
     capability_diagnostics: list[Any] = field(default_factory=list)
     sandbox: SandboxLifecycle | None = None
+    llm_configured: bool = False
 
     async def shutdown(self) -> None:
         await self.registry.shutdown()
@@ -129,6 +129,34 @@ class ApplicationState:
         if self.workflow_skill_store is not None:
             await self.workflow_skill_store.close()
         await self.store.close()
+
+    def get_meta(self) -> dict[str, Any]:
+        """GET /api/v2/meta — diagnostic snapshot (batch4 v0.3.4).
+
+        Versions + llm config + capabilities + runtime. Never leaks
+        ``OPENAI_BASE_URL`` / ``OPENAI_API_KEY`` values — only a configured bool
+        and the model id.
+        """
+        from earendil_works.pi_agent import __version__ as pi_agent_version
+        from earendil_works.pi_ai import __version__ as pi_ai_version
+
+        report = self.capability_report
+        capabilities: list[dict[str, Any]] = []
+        if report is not None:
+            for pkg in getattr(report, "packages", []) or []:
+                pkg_tools = [t.name for t in (getattr(pkg, "tools", []) or [])]
+                capabilities.append({"package": getattr(pkg, "name", ""), "tools": pkg_tools})
+        return {
+            "app": {"name": "CompetitorLens", "version": "0.1.0"},
+            "contract_version": "0.3.9",
+            "http_feature_version": "0.3.4",
+            "pi_ai": pi_ai_version,
+            "pi_agent": pi_agent_version,
+            "llm": {"configured": self.llm_configured, "model": self.config.default_model or None},
+            "capabilities": capabilities,
+            "runtime": "pi-agent",
+            "active_workflows": len(getattr(self.registry, "_tasks", {}) or {}),
+        }
 
 
 class _ModelResolver(ModelResolver):
@@ -244,14 +272,19 @@ class _HarnessFactory(HarnessFactory):
         Tools passed directly (NOT via ``capability_report``) — the shared
         ExtensionRuntime is never attached.
         """
-        from earendil_works.pi_agent.harness.session.memory_repo import InMemorySessionRepo
         from earendil_works.pi_agent.extensions import (
             attach_extension_runtime,
             create_extension_runtime,
             load_extension_from_factory,
         )
         from earendil_works.pi_agent.extensions.types import LoadExtensionsResult
-        from .application.workflow.extraction import EvidenceIntake, make_extraction_extension_factory
+        from earendil_works.pi_agent.harness.session.memory_repo import InMemorySessionRepo
+
+        from .application.workflow.extraction import (
+            EvidenceIntake,
+            make_extraction_extension_factory,
+        )
+
         repo = InMemorySessionRepo()
         session = await repo.create({"cwd": "ephemeral"})
         model = self._model_resolver.resolve(None)
@@ -281,7 +314,9 @@ class _HarnessFactory(HarnessFactory):
             )
             factory = make_extraction_extension_factory(intake)
             runtime = create_extension_runtime()
-            extension = await load_extension_from_factory(factory, "ephemeral", runtime, "<extraction>")
+            extension = await load_extension_from_factory(
+                factory, "ephemeral", runtime, "<extraction>"
+            )
             result = LoadExtensionsResult(extensions=[extension], errors=[], runtime=runtime)
             attach_extension_runtime(harness.agent, result, "ephemeral")
         return harness, intake
@@ -352,7 +387,9 @@ async def build_application_state(
     )
     skill_composer = StageSkillComposer()
     skill_files = SkillFiles(config.workflow_skill.root_dir, skill_store, workflow_skill_store)
-    post_task_observer = PostTaskObserver(observation_store=workflow_skill_store, skill_store=skill_store)
+    post_task_observer = PostTaskObserver(
+        observation_store=workflow_skill_store, skill_store=skill_store
+    )
     evolution_manager = None
     evolution_cycle_runner = None
     judgment_analyzer = None
@@ -427,7 +464,9 @@ async def build_application_state(
 
     # --- services ----------------------------------------------------------
     registry = RuntimeRegistry()
-    model_resolver = _ModelResolver(models, config.default_model, allow_synthesize=not config.use_faux)
+    model_resolver = _ModelResolver(
+        models, config.default_model, allow_synthesize=not config.use_faux
+    )
     harness_factory = _HarnessFactory(models, capability_report, model_resolver, tool_executor)
     session_service = SessionService(
         repo=repo,
@@ -438,15 +477,27 @@ async def build_application_state(
         prompt_lock_timeout=config.prompt_lock_timeout,
         sandbox_lifecycle=sandbox_lifecycle,
     )
-    capability_tools = list(getattr(capability_report, "tools", []) or []) if capability_report else []
+    capability_tools = (
+        list(getattr(capability_report, "tools", []) or []) if capability_report else []
+    )
     # F-R29: judge model for Extraction. JUDGE_MODEL env if set; else fall back
     # to the main model (judge is a stateless extractor — local F-R7 exemption).
     judge_model_id = os.environ.get("JUDGE_MODEL") or ""
     judge_model: dict[str, Any]
     try:
-        judge_model = model_resolver.resolve(judge_model_id) if judge_model_id else model_resolver.resolve(None)
+        judge_model = (
+            model_resolver.resolve(judge_model_id)
+            if judge_model_id
+            else model_resolver.resolve(None)
+        )
     except KeyError:
         judge_model = model_resolver.resolve(None)
+    # batch4 v0.3.4: whether a real LLM call can be made. Faux mode works
+    # without keys; real mode needs OPENAI_API_KEY + OPENAI_BASE_URL. Surfaced
+    # via /api/v2/meta + /api/v2/llm/ping (single source of truth here).
+    llm_configured = config.use_faux or (
+        bool(os.environ.get("OPENAI_API_KEY")) and bool(os.environ.get("OPENAI_BASE_URL"))
+    )
     if config.workflow_skill.enabled and config.workflow_skill.eval_config.enabled:
         try:
             llm_adapter = PiLlmAdapter(models, judge_model)
@@ -464,16 +515,29 @@ async def build_application_state(
             llm=None,
         )
         from .application.evolution.mutators.llm_mutator import LLMMutator
+
         focuser = IVEFocuser(llm_adapter)
-        mutator = LLMMutator(config.workflow_skill.root_dir,
-                             max_changed_lines=config.workflow_skill.evolve_mutate_budget,
-                             max_steps=config.workflow_skill.evolve_max_steps,
-                             llm=llm_adapter)
-        bridge = (RegistryEvalBridge(build_default_registry())
-                  if config.workflow_skill.eval_config.enabled else ProgrammaticEvalBridge())
+        mutator = LLMMutator(
+            config.workflow_skill.root_dir,
+            max_changed_lines=config.workflow_skill.evolve_mutate_budget,
+            max_steps=config.workflow_skill.evolve_max_steps,
+            llm=llm_adapter,
+        )
+        bridge = (
+            RegistryEvalBridge(build_default_registry())
+            if config.workflow_skill.eval_config.enabled
+            else ProgrammaticEvalBridge()
+        )
         evolution_manager = EvolutionManager(
-            skill_store, [trigger], focuser, mutator, bridge, ScoreDeltaGate(0.0),
-            llm=llm_adapter, skill_files=skill_files, scope_store=workflow_skill_store,
+            skill_store,
+            [trigger],
+            focuser,
+            mutator,
+            bridge,
+            ScoreDeltaGate(0.0),
+            llm=llm_adapter,
+            skill_files=skill_files,
+            scope_store=workflow_skill_store,
         )
         evolution_cycle_runner = EvolutionCycleRunner(
             evolution_manager, GitRatchet(), skill_store, skill_files
@@ -496,6 +560,7 @@ async def build_application_state(
         post_task_observer=post_task_observer if config.workflow_skill.enabled else None,
         evolution_cycle_runner=evolution_cycle_runner,
         sandbox_lifecycle=sandbox_lifecycle,
+        llm_configured=llm_configured,
     )
 
     return ApplicationState(
@@ -518,6 +583,7 @@ async def build_application_state(
         capability_report=capability_report,
         capability_diagnostics=diagnostics,
         sandbox=sandbox_lifecycle,
+        llm_configured=llm_configured,
     )
 
 
@@ -525,9 +591,7 @@ def load_config_from_env() -> AppConfig:
     """Read config from .env + env. Loads .env first (does not override real env)."""
     _load_dotenv(Path(__file__).resolve().parents[3] / ".env")
     enabled = os.environ.get("CAPABILITY_PACKAGES_ENABLED")
-    enabled_list = (
-        [s.strip() for s in enabled.split(",") if s.strip()] if enabled else None
-    )
+    enabled_list = [s.strip() for s in enabled.split(",") if s.strip()] if enabled else None
     config = AppConfig(
         sessions_cwd=os.environ.get("SESSIONS_CWD", "competitive_app"),
         sessions_root=os.environ.get("SESSIONS_ROOT", "data/sessions"),

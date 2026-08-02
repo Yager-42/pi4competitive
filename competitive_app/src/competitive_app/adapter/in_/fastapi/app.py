@@ -8,6 +8,7 @@ Lifespan failure layering (feature F-A23):
   - Capability package failure: recorded as diagnostics, does not crash.
   - SQLite / JSONL infra failure: raises → FastAPI startup fails fast.
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -20,6 +21,8 @@ from ....wiring import AppConfig, ApplicationState, build_application_state, loa
 from .routes_dashboard import router as dashboard_router
 from .routes_evidences import router as evidences_router
 from .routes_health import router as health_router
+from .routes_llm import router as llm_router
+from .routes_meta import router as meta_router
 from .routes_reports import router as reports_router
 from .routes_sessions import router as sessions_router
 from .routes_subscriptions import router as subscriptions_router
@@ -58,6 +61,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app.include_router(evidences_router)
     app.include_router(dashboard_router)
     app.include_router(subscriptions_router)
+    app.include_router(llm_router)
+    app.include_router(meta_router)
 
     @app.get("/")
     async def root() -> dict[str, str]:
