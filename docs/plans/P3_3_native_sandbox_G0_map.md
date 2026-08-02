@@ -167,6 +167,13 @@ OMIT with negative unsupported-config coverage: AWS/SigV4, body substitution, cr
 | npm arm64 `apply-seccomp` | `0bec512e784caf7d87f60783ece6480e1340b1ecd38f30b1d6d79d7e794cefb4`; static ELF aarch64; BuildID `749e4a9a28ebce5216f7eb7b5c23ab89b791ff32` |
 | npm x64 `apply-seccomp` | `8e0c58e1ccb0fed7c7d95295773204a2b7e7235c14feac934d7812e7fb2017ab`; static ELF x86-64; BuildID `85e97143c74bdc3dc031b762a6935575592fcdb9` |
 
+Destination (map update — permit rule): runtime vendor tree is
+`competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/`
+(`seccomp/{x64,arm64}/apply-seccomp` + `seccomp-src/` + `LICENSE`), resolved
+by `srt/seccomp.py` relative to the native package root; explicit
+`seccomp.applyPath` still overrides. The plan §3 layout was updated to match
+before any code landed.
+
 ### 5.2 Build and verification contract
 
 1. Runtime packages the exact npm-published binary for `x64` and `arm64`; startup verifies architecture, executable bit, and the SHA-256 above before Linux readiness.
