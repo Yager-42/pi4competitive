@@ -166,7 +166,7 @@ class BoundaryApprovalBroker:
             })
         return {"kind": "allow", "review": review, **({"grant": grant} if grant else {})}
 
-    def consume_grant(
+    def consumeGrant(
         self,
         request: BoundaryRequest,
         session_id: str,

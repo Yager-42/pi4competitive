@@ -154,7 +154,7 @@ Exact filenames may only change to match an established local module boundary; a
 | G0 | frozen source/license/baseline capture | **done — G0 map v0.1.0** |
 | A | Python auto-review types/grants/hard-deny/circuit/evidence core | **done — PR1 gate passed (O6–O10 + trust config; offline 532 passed)** |
 | B | Python SRT config/policy/Linux/macOS/seccomp/proxy port | **done — PR2 gate passed (O11–O15; offline 660 passed)** |
-| C | erichll runner/broker/network approval port | todo |
+| C | erichll runner/broker/network approval port | **done — PR3 gate passed (O16 + approval/config parity; offline 718 passed)** |
 | D | NativeProvider/Runtime + current worker/registry/RPC integration | todo |
 | E | App wiring/readiness/scope lifecycle + Linux/macOS config | todo |
 | F | remove Docker production code/dependencies/image/config | todo |

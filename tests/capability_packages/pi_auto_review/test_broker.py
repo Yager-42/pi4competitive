@@ -67,8 +67,8 @@ async def test_allow_issues_exact_grant_when_requested() -> None:
     assert decision["kind"] == "allow"
     grant = decision["grant"]
     assert grant is not None
-    assert broker.consume_grant(request, "s", grant["token"]) is True
-    assert broker.consume_grant(request, "s", grant["token"]) is False
+    assert broker.consumeGrant(request, "s", grant["token"]) is True
+    assert broker.consumeGrant(request, "s", grant["token"]) is False
 
 
 @pytest.mark.asyncio
@@ -199,9 +199,9 @@ async def test_audit_events_emitted_in_order() -> None:
     assert [event["type"] for event in events] == ["review_decision", "grant_issued"]
     assert events[0]["requestId"] == "r1"
     assert events[0]["surface"] == "network"
-    broker.consume_grant(request, "s", decision["grant"]["token"])
+    broker.consumeGrant(request, "s", decision["grant"]["token"])
     assert events[-1]["type"] == "grant_consumed"
-    broker.consume_grant(request, "s", "stale-token")
+    broker.consumeGrant(request, "s", "stale-token")
     assert events[-1]["type"] == "grant_rejected"
 
 
@@ -227,4 +227,4 @@ async def test_clear_resets_grants_and_breaker() -> None:
     request = _request()
     decision = await broker.review(request, {"sessionId": "s", "scopeKey": "k", "issueGrant": True})
     broker.clear()
-    assert broker.consume_grant(request, "s", decision["grant"]["token"]) is False
+    assert broker.consumeGrant(request, "s", decision["grant"]["token"]) is False
