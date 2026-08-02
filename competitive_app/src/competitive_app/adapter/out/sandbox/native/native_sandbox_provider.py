@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -86,11 +87,13 @@ class NativeSandboxProvider(SandboxProvider):
         environment: Mapping[str, str | None] | None = None,
         manifest_path: str | Path | None = None,
         runtime_factory: RuntimeFactory = NativeRuntime,
+        additional_allow_read: list[str] | None = None,
     ) -> None:
         self._sandbox_root = Path(sandbox_root)
         self._environment = _worker_environment(environment)
         self._manifest_path = Path(manifest_path) if manifest_path else None
         self._runtime_factory = runtime_factory
+        self._additional_allow_read = list(additional_allow_read or [])
         self._active: dict[str, Sandbox] = {}
         self._signals: dict[str, asyncio.Future] = {}
         self._scope_locks: dict[str, asyncio.Lock] = {}
@@ -115,13 +118,28 @@ class NativeSandboxProvider(SandboxProvider):
                 workspace = ensure_workspace(self._sandbox_root, scope_id)
             except SandboxPermissionError:
                 raise
+            # The worker may only read inside its workspace, so the trusted
+            # manifest is staged there on acquire (the SRT policy does not
+            # allow the sandbox root).
+            staged_manifest = None
+            if self._manifest_path is not None:
+                staged_manifest = workspace / "approved_tools.json"
+                try:
+                    shutil.copyfile(self._manifest_path, staged_manifest)
+                except OSError as error:
+                    raise SandboxPermissionError(
+                        "native manifest is unavailable",
+                        path=str(self._manifest_path),
+                        operation="workspace",
+                    ) from error
             loop = asyncio.get_running_loop()
             signal = loop.create_future()
             runtime = self._runtime_factory(
                 workspace,
                 env=self._environment,
-                manifest_path=self._manifest_path,
+                manifest_path=staged_manifest,
                 scope_signal=signal,
+                additional_allow_read=self._additional_allow_read,
             )
             sandbox = Sandbox(
                 scope_id,

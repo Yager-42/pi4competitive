@@ -4,7 +4,7 @@
 |-------|-------|
 | **plan_id** | `P3.3-agent-tool-native-sandbox` |
 | **plan_version** | `0.1.1` |
-| **status** | **active — G0 complete；A–F/V1–V4 not started** |
+| **status** | **active — A–E done；F/V1–V4 todo** |
 | **created** | 2026-08-02 |
 | **updated** | 2026-08-02 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage P3.3 |
@@ -158,7 +158,7 @@ Exact filenames may only change to match an established local module boundary; a
 | B | Python SRT config/policy/Linux/macOS/seccomp/proxy port | **done — PR2 gate passed (O11–O15; offline 660 passed)** |
 | C | erichll runner/broker/network approval port | **done — PR3 gate passed (O16 + approval/config parity; offline 718 passed)** |
 | D | NativeProvider/Runtime + current worker/registry/RPC integration | **done — O17–O18 passed; offline 738 passed** |
-| E | App wiring/readiness/scope lifecycle + Linux/macOS config | todo |
+| E | App wiring/readiness/scope lifecycle + Linux/macOS config | **done — O19–O21 passed；offline 743 passed** |
 | F | remove Docker production code/dependencies/image/config | todo |
 | V1 | offline contract/unit/parity tests | todo |
 | V2 | Linux amd64 real enforcement/e2e | todo |
@@ -227,3 +227,4 @@ No slice may wire a partial native sandbox that can fall back to Host or Docker.
 |---------|------|--------|
 | `0.1.0` | 2026-08-02 | Initial active plan from ADR 0012 / native feature v0.2.0; preserves current executor/RPC/scope, ports three frozen upstreams, replaces and removes Docker, and defines Linux/macOS real gates |
 | `0.1.1` | 2026-08-02 | G0 complete：pins Git/npm integrity/licenses；full pi-sandbox/auto-review/SRT file+test map；apply-seccomp source/binary hashes/build contract；Docker migration map；CodeGraph impact；O/S/L/M/P/R tests, commands, prerequisites；offline baseline 406 passed |
+| `0.1.2` | 2026-08-02 | Phase E complete：wiring/readiness manifest staging/startup verify、O20 universal-executor coverage（main/dynamic/extension/resume/ephemeral over real worker+capability）、offline 743 passed |

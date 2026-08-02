@@ -102,9 +102,11 @@ class NativeRuntime:
         broker: dict | None = None,
         no_change_timeout: float = NO_CHANGE_TIMEOUT_SECONDS,
         worker_invocation: dict | None = None,
+        additional_allow_read: list[str] | None = None,
     ) -> None:
         self._workspace = Path(workspace)
         self._env = dict(env or {})
+        self._additional_allow_read = list(additional_allow_read or [])
         self._manifest_path = Path(manifest_path) if manifest_path else None
         self._scope_signal = scope_signal
         self._broker = broker
@@ -134,7 +136,11 @@ class NativeRuntime:
             worker_env[MANIFEST_ENV] = str(self._manifest_path)
         policy = create_default_policy(
             str(self._workspace),
-            additional_allow_read=_additional_allow_read(self._env),
+            additional_allow_read=list(
+                dict.fromkeys(
+                    [*_additional_allow_read(self._env), *self._additional_allow_read]
+                )
+            ),
         )
         invocation = self._worker_invocation
 
