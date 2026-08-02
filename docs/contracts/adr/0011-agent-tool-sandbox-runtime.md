@@ -1,15 +1,17 @@
 # ADR 0011: P3.3 — production AgentTool Docker sandbox execution
 
-- **status:** accepted
+- **status:** partially superseded by ADR 0012（Docker-specific decisions historical；provider-neutral executor/RPC/scope preserved）
 - **date:** 2026-07-31
 - **contract_version_before:** 0.3.6
 - **contract_version_after:** 0.3.7
 - **extends:** ADR 0008（P3.1 extension runtime）与 ADR 0009（P3.2 capability enablement）
 - **does not supersede:** Pi `main` 同构基线、唯一 agent 内核、local-only capability package、DDD/Domain 无 IO、JSONL/SOCM/SQLite SoT 边界
-- **feature contract:** [`agent_tool_sandbox_v1.md`](../../features/agent_tool_sandbox_v1.md) **frozen v0.1.32，G1–G30 resolved**
+- **feature contract:** [`agent_tool_sandbox_v1.md`](../../features/agent_tool_sandbox_v1.md) **v0.1.33 superseded historical**
 - **sandbox code parent:** [`HezaoHezao/poirot`](https://github.com/HezaoHezao/poirot/tree/86bf279ad90c180f0ba696755620dd7d6661465e) @ `86bf279ad90c180f0ba696755620dd7d6661465e`
 
-> 本 ADR 已 accepted，并由架构契约 0.3.8、Roadmap P3.3 与 frozen feature v0.1.32 同步生效。implementation plan v0.1.2 已建立；运行时代码只能按 plan 推进。
+> Historical state: this ADR was accepted under architecture contract v0.3.8 with feature v0.1.32 and plan v0.1.2. It is no longer the active implementation authority.
+
+> **2026-08-02 supersession:** [`ADR 0012`](0012-native-agent-tool-sandbox-runtime.md) supersedes this ADR and Amendment 0011-A for Docker provider/backend/runtime/image/lifecycle/resource/live gates. The provider-neutral `AgentToolExecutor`, approved registry, JSON RPC, parent scope/workspace and no-host-fallback decisions remain inherited by ADR 0012. Do not continue the Docker implementation plan.
 
 ## Amendment 0011-A（2026-08-01，owner decision）
 
@@ -176,4 +178,4 @@ Poirot frozen SHA 是 sandbox 基础设施代码父本，不替代 Pi `main` 作
 - Feature：[`agent_tool_sandbox_v1.md`](../../features/agent_tool_sandbox_v1.md) **frozen v0.1.32**
 - Poirot source：`HezaoHezao/poirot@86bf279ad90c180f0ba696755620dd7d6661465e`
 - Pi forensics snapshot：`earendil-works/pi@471c3390fe015de9b7308fce0ada5bc7c3bb7d3c`（实施前重新对照 `main`）
-- Plan：[`P3_3_agent_tool_sandbox.md`](../../plans/P3_3_agent_tool_sandbox.md) **v0.1.2 active**
+- Historical plan：[`P3_3_agent_tool_sandbox.md`](../../plans/P3_3_agent_tool_sandbox.md) **v0.1.3 superseded**；active replacement = [`P3_3_agent_tool_native_sandbox.md`](../../plans/P3_3_agent_tool_native_sandbox.md) v0.1.1

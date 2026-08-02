@@ -2,39 +2,41 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.1.32` |
-| **status** | **frozen — G1–G30 resolved；ADR 0011 + 0011-A accepted；implementation plan v0.1.2 active** |
+| **feature_contract_version** | `0.1.33` |
+| **status** | **superseded historical — ADR 0012 / native feature v0.2.1 supersede all Docker-specific decisions；provider-neutral executor/RPC/scope decisions preserved** |
 | **created** | 2026-07-31 |
-| **updated** | 2026-08-01 |
+| **updated** | 2026-08-02 |
 | **feature_id** | `agent-tool-sandbox-v1` |
 | **roadmap_stage** | **P3.3 AgentTool sandbox**：P3.2 后、继续扩大依赖 AgentTool 的 P4 业务面前关闭 exit gate |
-| **architecture_contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.8**；ADR 0011 + 0011-A |
+| **architecture_contract** | historical v0.3.8；current [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.9** / ADR 0012 |
 | **depends_on** | [`agent-engine-extensions-v1`](agent_engine_extensions_v1.md) v0.3.0；P3 local capability loader；P4 `competitive_app` wiring / lifecycle |
 | **代码参考父本** | [`HezaoHezao/poirot`](https://github.com/HezaoHezao/poirot/tree/86bf279ad90c180f0ba696755620dd7d6661465e) frozen SHA [`86bf279`](https://github.com/HezaoHezao/poirot/commit/86bf279ad90c180f0ba696755620dd7d6661465e) |
 | **Pi 对照（调查快照）** | [`earendil-works/pi`](https://github.com/earendil-works/pi/tree/471c3390fe015de9b7308fce0ada5bc7c3bb7d3c) `main` @ `471c3390fe015de9b7308fce0ada5bc7c3bb7d3c`；仅为 2026-07-31 forensics，实施仍须重新对照当时 `main` |
 | **Pi 实施前复核** | `main` @ `784653468c42387f607d41ed5ca533100e7eb2fe`（2026-07-31 plan preflight）；`executePreparedToolCall` 仍直接调用 tool，实施 PR 仍须复核当时 `main` |
 | **许可证** | Poirot = MIT；`agent-sandbox` SDK = Apache-2.0；直接复制/实质改编文件必须保留 immutable source、copyright、license notice 与 host delta |
 | **path** | `docs/features/agent_tool_sandbox_v1.md` |
-| **plan** | [`P3_3_agent_tool_sandbox.md`](../plans/P3_3_agent_tool_sandbox.md) **v0.1.2 active**；实现只能按 plan 串行推进 |
+| **plan** | [`P3_3_agent_tool_sandbox.md`](../plans/P3_3_agent_tool_sandbox.md) **v0.1.3 superseded historical**；replacement [`P3_3_agent_tool_native_sandbox.md`](../plans/P3_3_agent_tool_native_sandbox.md) v0.1.1 active |
 
 ---
 
 ## 0. 效力、状态与阅读约定
 
-1. 本文是 `agent-tool-sandbox-v1` 的**冻结需求边界契约**；MUST/禁止项约束后续 implementation plan 与实现。
+> **Supersession notice:** ADR 0012 与 `agent-tool-native-sandbox-v1` v0.2.1 已 supersede 本文所有 Docker/AIO/Poirot runtime、image、container lifecycle、resource 与 Docker live-gate 决策。本文仅保留历史证据；provider-neutral executor、approved registry、JSON RPC、scope/workspace 与 no-host-fallback 由 ADR 0012 继续继承。不得再按本文推进 production Docker 实现。
+
+1. 本文是 `agent-tool-sandbox-v1` 的**历史冻结需求记录**；Docker-specific MUST/禁止项已被 ADR 0012 supersede，不再约束当前实现。
 2. 本文使用三类标记：
    - **FACT**：已从当前仓库、Pi upstream 或 Poirot frozen SHA 的代码确认；
    - **RESOLVED / 锁定**：G1–G30 已确认边界；
    - **COPY / ADAPT / OMIT / NEW-HOST**：Poirot transplant 分类。
-3. 架构效力来自 accepted ADR 0011 + 0011-A + [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) v0.3.8；Roadmap P3.3 负责实施顺序与 exit gate。
-4. implementation 只能按 [`P3_3_agent_tool_sandbox.md`](../plans/P3_3_agent_tool_sandbox.md) 的阶段与门禁推进；仍禁止：
+3. 本文历史效力来自 ADR 0011 + 0011-A / contract v0.3.8；当前效力来自 ADR 0012 / contract v0.3.9 / native feature v0.2.1。
+4. 禁止继续按 [`P3_3_agent_tool_sandbox.md`](../plans/P3_3_agent_tool_sandbox.md) 推进；当前实现只能按 [`P3_3_agent_tool_native_sandbox.md`](../plans/P3_3_agent_tool_native_sandbox.md) 推进，且仍禁止：
    - 修改 `packages/agent` 的 tool execution 语义；
    - 把 Poirot sandbox 代码直接落仓；
    - 新增 Docker/SDK 生产依赖；
    - 用“Local sandbox”或路径检查冒充进程隔离；
    - 为赶进度保留 sandbox 失败后宿主执行的 fallback。
-5. implementation plan 已逐文件标明 `COPY / ADAPT / OMIT / NEW-HOST`；模块职责、输入输出与生命周期可映射时必须优先 `COPY`，不得无理由改写。
-6. 范围硬上限：Poirot 没有且用户未明确要求、现有架构/生产语义/已锁定决定也不强制的能力，一律 `OMIT`；“更安全”“以后可能需要”或通用最佳实践本身不能扩大本 feature。
+5. 下文 Poirot `COPY / ADAPT / OMIT / NEW-HOST` map 仅记录已完成 Docker 工作的来源，不再指导 native implementation。
+6. Native implementation 的范围与 transplant map 以 replacement feature/plan 为准。
 
 ---
 
@@ -1243,6 +1245,7 @@ G20 grilling correction 后进一步锁定：Poirot 没有且用户未明确提�
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| `0.1.33` | 2026-08-02 | ADR 0012 supersession patch：本文转 historical；Docker-specific 决策失效；provider-neutral executor/RPC/scope 由 native feature v0.2.0 继承；旧 plan v0.1.3 superseded |
 | `0.1.31` | 2026-07-31 | 无边界语义 patch：建立 `P3_3_agent_tool_sandbox.md` v0.1.0 todo，逐文件落实 transplant map、A–F 串行阶段与 O/S/L 双平台 exit gate；记录 Pi `main@7846534` 和 `agent-sandbox==0.0.30` async bash offset-long-poll 源码 preflight；implementation 尚未开始 |
 | `0.1.32` | 2026-08-01 | 无边界语义 patch（ADR 0011-A）：arm64 验收 daemon 措辞从字面 "Docker Desktop" 放宽为 arm64 macOS Docker daemon（orbstack 实测接受为 F4 证据）；G18 §9.2.5 与 plan/契约指针同步；Linux amd64 证据仍强制，live skip 仍不能关闭阶段；执行语义/加固/digest/no-fallback 不变 |
 | `0.1.30` | 2026-07-31 | 用户接受 ADR 0011 并冻结 feature：G1–G30、Poirot SHA、transplant map、Pi/App ownership、Docker-only universal execution、scope/workspace/lifecycle、RPC、hardening/network/secret/error/rollout/performance 边界正式生效；架构契约 v0.3.7 + Roadmap P3.3 同步；implementation plan 尚未建立，禁止修改运行时代码 |

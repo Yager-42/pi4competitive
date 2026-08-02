@@ -3,14 +3,14 @@
 | Field | Value |
 |-------|-------|
 | **plan_id** | `P3.3-agent-tool-sandbox` |
-| **plan_version** | `0.1.2` |
-| **status** | **active — A–E + F1/F2/F4/F5 done；F3（Linux amd64）证据待外部 host（ADR 0011-A：arm64 daemon 接受 orbstack 实测）** |
+| **plan_version** | `0.1.3` |
+| **status** | **superseded historical — ADR 0012 replaces Docker plan；F3 cancelled as obsolete** |
 | **created** | 2026-07-31 |
-| **updated** | 2026-08-01 |
+| **updated** | 2026-08-02 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P3.3** |
-| **contract** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) **v0.3.8** |
-| **feature** | [`docs/features/agent_tool_sandbox_v1.md`](../features/agent_tool_sandbox_v1.md) **v0.1.32 frozen** — G1–G30 |
-| **ADR** | [`0011-agent-tool-sandbox-runtime.md`](../contracts/adr/0011-agent-tool-sandbox-runtime.md) **accepted + Amendment 0011-A（2026-08-01）** |
+| **contract** | historical v0.3.8；current contract v0.3.9 / ADR 0012 |
+| **feature** | [`docs/features/agent_tool_sandbox_v1.md`](../features/agent_tool_sandbox_v1.md) **v0.1.33 superseded historical** |
+| **ADR** | historical ADR 0011 + 0011-A；superseded by [`0012-native-agent-tool-sandbox-runtime.md`](../contracts/adr/0012-native-agent-tool-sandbox-runtime.md) |
 | **depends_on** | **P3.2 done**；P3 local loader；P3.1 extension runtime；现有 P4 session/task/wiring |
 | **Pi source** | `earendil-works/pi` `main` @ `784653468c42387f607d41ed5ca533100e7eb2fe`（2026-07-31 preflight；每个 Pi PR 实施前再确认） |
 | **sandbox source** | `HezaoHezao/poirot@86bf279ad90c180f0ba696755620dd7d6661465e` |
@@ -20,6 +20,8 @@
 | **non_goal** | LocalRuntime；tool-name bypass；artifact delivery；remote/K8s/E2B；rollout switch；audit store；egress subsystem；性能 SLA/telemetry/tuning |
 
 ---
+
+> Do not continue this plan. The active replacement is [`P3_3_agent_tool_native_sandbox.md`](P3_3_agent_tool_native_sandbox.md) v0.1.1 with completed G0 map v0.1.0. Existing completed A–E work is migration input；Docker F3 and Docker closeout are no longer exit gates.
 
 ## 0. Purpose and approach
 
@@ -555,6 +557,7 @@ No slice may ship a production path that silently uses Direct. Before PR4, the n
 
 | Version | Date | Change |
 |---------|------|--------|
+| `0.1.3` | 2026-08-02 | ADR 0012 superseded this Docker plan；F3 cancelled；native replacement plan v0.1.0 becomes active；completed provider-neutral seam/RPC/registry/scope work is retained as migration input |
 | `0.1.0` | 2026-07-31 | Initial implementation plan from frozen feature v0.1.31/ADR 0011：records Pi `main@7846534` preflight, exact Poirot COPY/ADAPT/OMIT/NEW-HOST map, SDK bash offset-long-poll carrier, A–F serial phases, O/S/L close gates and two-platform evidence table；implementation not started |
 | `0.1.1` | 2026-08-01 | **A–E + F1/F2/F5 完成**：status board 全量翻转（G0–F5）；real-Docker production e2e/abort/task-delete smoke 与 S1–S12 12/12 记录；E-phase offline contract tests（`test_composition.py` 19 项 + `test_docker_provider.py` 10 项 + `test_backend.py` 24 项）与 live `test_live_sandbox_security.py`；全仓 offline 406 passed；记录 buildIdentity=provenance 决策、启动握手、`_remap_generated_module` sys.modules host delta、E5 doubles-pair/unwind；F3/F4 双平台证据仍待外部 host |
 | `0.1.2` | 2026-08-01 | **ADR 0011-A（owner decision）**：arm64 daemon 验收接受 orbstack 实测为 F4 证据（Linux 内核容器行为与 Docker Desktop 无实质差异）；F4 状态翻 done、证据表记录实测；F3（Linux amd64）仍待外部 host；同步契约 0.3.8 / feature v0.1.32 / Roadmap 0.1.42 |
