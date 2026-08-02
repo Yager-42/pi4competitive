@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **contract_version** | `0.3.8` |
-| **status** | **active**（0.3.8 = ADR 0011-A：arm64 daemon 验收接受 orbstack 实测；变更仍须 ADR + 升版本） |
-| **updated** | 2026-08-01 |
-| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、**P3.3 AgentTool sandbox（ADR 0011 + 0011-A）**、P4 旧仓参考身份、SearchOS 引擎架构参考身份（ADR 0010） |
+| **contract_version** | `0.3.9` |
+| **status** | **active**（0.3.9 = ADR 0012：pi_ai response_format 透传 JSON 强制；0.3.8 = ADR 0011-A：arm64 daemon 验收接受 orbstack 实测；0.3.6 + ADR 0010 research-workflow v0.2.0 SearchOS coverage 引擎复现；变更仍须 ADR + 升版本） |
+| **updated** | 2026-08-02 |
+| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、**P3.3 AgentTool sandbox（ADR 0011 + 0011-A）**、**pi_ai response_format 透传（ADR 0012）**、P4 旧仓参考身份、SearchOS 引擎架构参考身份（ADR 0010） |
 | **roadmap** | 实现顺序与阶段门禁见 [`docs/ROADMAP.md`](../ROADMAP.md) |
 | **out of scope for this doc** | 业务特性 backlog 细则、各业务 JSON Schema 字段表（另文） |
 
@@ -401,3 +401,4 @@ P3.3 的 provider-neutral executor seam 属 `packages/agent`；Poirot sandbox fa
 | **0.3.7** | 2026-07-31 | **ADR 0011**：新增 P3.3 production AgentTool Docker sandbox；D1 单一 Python 控制面 + Docker tool 数据面；D6/D9/D14/D16、拓扑、技术栈、SoT/门禁/术语同步；Pi provider-neutral executor seam + App Poirot adapter 双层所有权；feature `agent-tool-sandbox-v1` frozen v0.1.30 |
 | **0.3.8** | 2026-08-01 | **ADR 0011-A**：arm64 验收 daemon 措辞从字面 "Docker Desktop" 放宽为 arm64 macOS Docker daemon（orbstack 实测接受为 F4 证据）；理由：容器行为由 Linux 内核决定，daemon 产品无实质差异；Linux amd64 证据仍强制；G13 同步更新；D*/G* 其余不变 |
 | *(0.3.7 patch)* | 2026-07-31 | 建立 P3.3 implementation plan v0.1.0；feature 无语义 patch 至 v0.1.31；同步 plan/exit-gate 指针，**不改 D*/G*、不升 contract_version** |
+| **0.3.9** | 2026-08-01 | **ADR 0012**：pi_ai openai-completions response_format 透传(JSON 强制)——`build_openai_completions_payload` 加最小透传(`options.response_format` → payload,不动 StreamOptions TypedDict/语义);上游 pi@c55ae2f `buildParams` 无此字段,pi4 补为移植偏差(理由:gateway 实测支持 response_format,JSON 强制是 clarify discover/derive 结构化抽取基础);pi_ai 0.81.1→0.81.2;只给返 JSON **object** 的调用加(discover/derive),judge 返 array 不加(JSON mode 只允许 object 顶层),refine 返 markdown 不加;契约测试 `test_deps.py` ADR_SANCTIONED 合并 P3.3(packages/agent 7)+ 本批(packages/ai 3)守"packages/ 冻结,偏差需 ADR+显式列入";feature `research-workflow-v1` v0.2.3→v0.2.4 patch |

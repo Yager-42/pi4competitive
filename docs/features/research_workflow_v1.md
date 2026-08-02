@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.2.3` |
+| **feature_contract_version** | `0.2.4` |
 | **status** | **frozen** |
 | **updated** | 2026-07-30 |
 | **feature_id** | `research-workflow-v1` |
@@ -326,7 +326,7 @@ resume 时：重开 JSONL session（恢复对话）+ 读 `search_state.json`（�
 
 | 项 | 值 |
 |----|-----|
-| 冻结版本 | `0.2.3` |
+| 冻结版本 | `0.2.4` |
 | 冻结日期 | 2026-07-30（v0.2.3 patch；v0.2.2 frozen 2026-07-30） |
 | grill | 31 决策收敛（§8 F-R1..F-R31；v0.1.1 的 F-R1..F-R24 + v0.2.0 的 F-R25..F-R31）+ v0.2.1 补丁（D-S3'/D-S6'/D-S8'/D-S2a/D-S2b，见 ADR 0010 Patch v0.2.1）+ v0.2.2 补丁（write sections + trace span，见 §9.1）+ v0.2.3 补丁（evidence 物化投影 + clarify brief 推导，见 §9.1） |
 | 验收 | §6 Offline O1–O15 + Live L1–L2 |
@@ -344,3 +344,4 @@ resume 时：重开 JSONL session（恢复对话）+ 读 `search_state.json`（�
 | 0.2.1 | 2026-07-29 | **patch frozen（ADR 0010 Patch v0.2.1）**：搜索质量第一步修复——接通 `mark_unknown`（UNKNOWN 状态可达）+ junk/低置信过滤（`_is_junk_value` / `SEARCH_MIN_CONFIDENCE`）+ actionable/satisfied 谓词（`SEARCH_MAX_CELL_ATTEMPTS` / `WEAK_CONFIDENCE`）+ judge prompt 强约束禁占位 + 多源抽取 + plan 结构化 `queries`/`source_hints`（D-S2a）+ subtask 按 `SEARCH_SUBTASK_CHUNK` 拆细（D-S2b）；局部反转 D-S3/D-S6/D-S8 的"一轮单源"默认；对比实验验证两题三阶段搜索质量均显著优于六阶段（源权威性 87%/31% vs 47%/13%、0 junk）；不动 D*/G* 核心、不碰 packages/ai\|agent |
 | 0.2.2 | 2026-07-30 | **patch frozen（对齐 VerdaAI 第二批）**：write 产物加 `sections` 字段（后端从 report 按 `##` 切，refine 支持；report 保留向后兼容）+ trace span 记录（plan/subagent/judge/write LLM 调用包夹 emit span → SQLite `task_spans`；轻量：token/latency，无 prompt/response 全文；span 不推 SSE）+ refine stage_output type（append，守 D24；reader 优先 refine 回落 write）；配合 `competitive-app-http-v1` v0.3.2（trace/refine/feedback 接口）；不动 D*/G* 核心、不碰 packages/ai\|agent |
 | 0.2.3 | 2026-07-30 | **patch frozen（对齐 VerdaAI 第三批 + 澄清问卷）**：evidence 全量物化投影——任务完成时从 SOCM `evidence_graph.nodes` 扁平化 ACTIVE 节点入 SQLite `evidences` 表（D-S4 投影语义扩展：coverage 计数→evidence 明细；先删后插保 resume 一致；cascade delete 同事务；`brand=entity`/`source_type` 三态派生）；clarify brief 推导——`POST /tasks {query}` 经 1 次 LLM 发现竞品 + 硬编码模板 3 问（融合 VerdaAI：LLM 只发现竞品、问题模板硬编码稳定不漂移）→ `POST /tasks/{id}/clarify` 第 2 次 LLM 推 `ResearchBrief`（强制 competitors≥1，失败 fallback 最小 brief，生问题失败退化直跑）；session 延迟到 clarify 完成才建（F-R14 在启动那一刻成立）；clarify 产物落 `metadata_json`（不建 session、不加表）；配合 `competitive-app-http-v1` v0.3.3（clarify/evidences/dashboard/subscriptions 接口）；不动 D*/G* 核心、不碰 packages/ai\|agent |
+| 0.2.4 | 2026-07-31 | **patch frozen（ADR 0012 配合）**：clarify discover/derive 的 completeSimple 调用加 `options={response_format:{type:json_object}}` 强制 JSON 输出——根治 glm-5.2/deepseek-v4-flash 经 gateway 非确定性偶返散文 → discover 退化 → 宽松 brief → plan 60 cell 大 schema → search 卡死 的因果链；pi_ai `build_openai_completions_payload` 加 response_format 最小透传（ADR 0012,pi4 移植偏差,上游 buildParams 无此字段）;pi_ai 0.81.1→0.81.2;contract 0.3.8→0.3.9;judge(返 array)不加 JSON mode 只允许 object 顶层;refine(返 markdown)不加;不动 D*/G* 核心、配合 ADR 0012 |

@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.42` |
+| **roadmap_version** | `0.1.43` |
 | **status** | active |
 | **updated** | 2026-08-01 |
 | **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.8** |
@@ -270,3 +270,4 @@ continue P4              保留既有实现；恢复依赖 AgentTool 的业务�
 | 0.1.40 | 2026-07-31 | 建立 [`P3_3_agent_tool_sandbox.md`](plans/P3_3_agent_tool_sandbox.md) v0.1.0 todo：逐文件 COPY/ADAPT/OMIT/NEW-HOST map；A Pi seam → B RPC/worker → C Poirot facade → D Docker/image → E App wiring → F 双平台验证；锁定 SDK async bash offset-long-poll carrier；feature 无语义 patch 至 v0.1.31；G0 source/baseline preflight done，implementation 未开始 |
 | 0.1.41 | 2026-08-01 | **P3.3 A–E 全部完成 + F1/F2/F5 green（plan v0.1.1 active）**：A Pi provider-neutral executor seam/Direct parity/target lineage；B `agent-tool-rpc.v1` 严格 codec + 已批准 registry + 单请求 worker；C Poirot facade/contracts/path guards 移植（17 COPY/ADAPT 全部 SHA/MIT 标注）；D Docker backend/runtime/provider + derived multi-arch worker image dev-3（digest `sha256:16a07d29…`）+ real-image smoke；E App wiring（`sandbox.image` digest + `sandbox.root` 两字段配置、parent-session scope 传播、outer-run 生命周期、abort→destroy、task delete→delete_workspace、E1.4 失败 unwind、E5 doubles-only 无 env/CLI bypass）；F1 全仓 offline 406 passed；F2 real-Docker S1–S12 12/12（orbstack arm64）；F5 CodeGraph impact/affected + license/transplant 审计；plan 记录 buildIdentity=provenance 决策与 `_remap_generated_module` sys.modules host delta；**F3（Linux amd64）/F4（Docker Desktop arm64）证据待外部 host，P3.3 未关闭，P4 AgentTool-dependent expansion 保持暂停** |
 | 0.1.42 | 2026-08-01 | **ADR 0011-A / contract 0.3.8 / feature v0.1.32 / plan v0.1.2**：arm64 daemon 验收措辞从字面 "Docker Desktop" 放宽为 arm64 macOS Docker daemon——orbstack 实测（S1–S12 12/12 + production e2e）被 owner 接受为 F4 证据（Linux 内核容器行为与 Docker Desktop 无实质差异）；F4 done；**F3（Linux amd64）证据仍待外部 host（需 buildx 构建 amd64 变体 + 外部主机跑 live）**；P3.3 保持 open，P4 AgentTool-dependent expansion 保持暂停 |
+| 0.1.43 | 2026-08-01 | **ADR 0012 + pi_ai response_format 透传（B 路,治 clarify discover 退化根因）**：reports/{id} live 验证卡住根因——glm-5.2/deepseek-v4-flash 经 chatanywhere gateway 非确定性偶返散文 → `_try_parse_json` None → Q3-A 退化 → 宽松 brief → plan 60 cell 大 schema → search 卡死。B 路治根:pi_ai `build_openai_completions_payload` 加 `options.response_format` 最小透传(JSON 强制,上游 pi@c55ae2f buildParams 无此字段=移植偏差,ADR 0012 记);pi_ai 0.81.1→0.81.2;contract 0.3.8→0.3.9;clarify discover/derive(completeSimple)传 `options={response_format:{type:json_object}}`;judge(返 array)不加(JSON mode 只允许 object 顶层),refine(返 markdown)不加;契约测试 test_deps.py ADR_SANCTIONED 合并 P3.3(packages/agent 7)+ 本批(packages/ai 3)守"packages/ 冻结,偏差需 ADR+显式列入";research-workflow v0.2.3→v0.2.4 patch;gateway 实测支持 response_format(200+纯JSON);P1+competitive_app 全绿无回归 |

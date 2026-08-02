@@ -174,6 +174,10 @@ def build_openai_completions_payload(
     tools = tools_to_openai(context.get("tools"))  # type: ignore[arg-type]
     if tools:
         payload["tools"] = tools
+    # ADR 0012: response_format 透传(JSON 强制)。上游 buildParams 无此字段,pi4 补最小透传
+    # (total=False 额外键;调用方传 {response_format:{type:json_object}} 强制合法 JSON 输出)。
+    if options.get("response_format") is not None:
+        payload["response_format"] = options["response_format"]
     return payload
 
 

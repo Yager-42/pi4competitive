@@ -96,6 +96,18 @@ def test_openai_completions_payload_tools_shape() -> None:
     assert payload["tools"][0]["type"] == "function"
     assert payload["tools"][0]["function"]["name"] == "lookup"
 
+def test_openai_completions_payload_response_format_passthrough() -> None:
+    """ADR 0011: response_format 透传(options 有 → payload 有;无 → 无)。"""
+    model = {"id": "gpt-test", "api": "openai-completions", "provider": "openai"}
+    ctx = {"messages": [{"role": "user", "content": "hi", "timestamp": 0}]}
+    rf = {"type": "json_object"}
+    # 有 response_format → 透传进 payload
+    payload = build_openai_completions_payload(model, ctx, {"response_format": rf})
+    assert payload["response_format"] == rf
+    # 无 response_format → payload 不含该键(向后兼容,不引入)
+    payload_none = build_openai_completions_payload(model, ctx)
+    assert "response_format" not in payload_none
+
 def test_cache_retention_resolution(monkeypatch) -> None:
     monkeypatch.setenv("PI_CACHE_RETENTION", "long")
     assert _cache_retention({}) == "long"

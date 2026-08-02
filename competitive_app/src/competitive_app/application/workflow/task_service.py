@@ -502,7 +502,10 @@ class TaskService:
         )
         context = {"messages": [{"role": "user", "content": prompt}]}
         try:
-            message = await self._models.completeSimple(self._judge_model, context)
+            message = await self._models.completeSimple(
+                self._judge_model, context,
+                options={"response_format": {"type": "json_object"}},
+            )
         except Exception:  # noqa: BLE001
             return None
         if message is None:
@@ -558,7 +561,10 @@ class TaskService:
             )
             context = {"messages": [{"role": "user", "content": prompt}]}
             try:
-                message = await self._models.completeSimple(self._judge_model, context)
+                message = await self._models.completeSimple(
+                    self._judge_model, context,
+                    options={"response_format": {"type": "json_object"}},
+                )
                 text = _extract_assistant_text_for_refine(message)
                 parsed = _try_parse_json(text)
                 if isinstance(parsed, dict):

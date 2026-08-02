@@ -77,12 +77,15 @@ def test_application_does_not_import_fastapi() -> None:
 def test_workflow_code_in_competitive_app_not_packages() -> None:
     """F-R3/D8: three-stage workflow lives in competitive_app, not packages/agent.
 
-    P3.3 host delta: the provider-neutral AgentTool executor seam (plan A1–A4)
-    is a documented packages/agent change; nothing else may touch packages/.
+    packages/ is the frozen isomorphic port (CLAUDE.md constraint 1). Touching it
+    is a deviation requiring an ADR + contract version bump + being listed here in
+    ADR_SANCTIONED (forces the deviation to be explicit + ADR-governed). Files NOT
+    in this set → test fails → must add ADR + entry before merging.
     """
     import subprocess
 
-    P3_3_SEAM_FILES = {
+    ADR_SANCTIONED = {
+        # ADR 0011 — P3.3 provider-neutral AgentTool executor seam (packages/agent 7 files).
         "packages/agent/src/earendil_works/pi_agent/__init__.py",
         "packages/agent/src/earendil_works/pi_agent/agent.py",
         "packages/agent/src/earendil_works/pi_agent/agent_loop.py",
@@ -90,6 +93,12 @@ def test_workflow_code_in_competitive_app_not_packages() -> None:
         "packages/agent/src/earendil_works/pi_agent/harness/agent_harness.py",
         "packages/agent/src/earendil_works/pi_agent/tool_execution.py",
         "packages/agent/src/earendil_works/pi_agent/types.py",
+        # ADR 0012 — pi_ai openai-completions response_format passthrough (JSON 强制).
+        # pi_ai 0.81.1→0.81.2; contract 0.3.8→0.3.9. discover/derive (competitive_app)
+        # pass options.response_format; builder transparently forwards it.
+        "packages/ai/pyproject.toml",
+        "packages/ai/src/earendil_works/pi_ai/__init__.py",
+        "packages/ai/src/earendil_works/pi_ai/api/transform_messages.py",
     }
     result = subprocess.run(
         ["git", "diff", "--name-only", "HEAD", "--", "packages/"],
@@ -106,8 +115,10 @@ def test_workflow_code_in_competitive_app_not_packages() -> None:
     )
     new_files = {line for line in untracked.stdout.splitlines() if line}
     changed = tracked | new_files
-    assert changed <= P3_3_SEAM_FILES, (
-        f"packages/ must not be modified by research-workflow-v1; changed: {sorted(changed)}"
+    unsanctioned = changed - ADR_SANCTIONED
+    assert not unsanctioned, (
+        f"packages/ changed without ADR sanction; unsanctioned: {sorted(unsanctioned)}. "
+        f"Add an ADR + list the files in ADR_SANCTIONED (test_deps.py)."
     )
 
 

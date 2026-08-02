@@ -54,3 +54,6 @@ frontend/.vite/
 frontend/.env.local
 frontend/*.tsbuildinfo
 frontend/node_modules/.tmp/
+
+# competitive_app runtime data (sessions/sandbox)
+competitive_app/data/
