@@ -1,14 +1,18 @@
-"""Sandbox AgentToolExecutor — run approved capability tools in the Docker worker.
+"""Sandbox AgentToolExecutor — run approved capability tools in the native worker.
 
 NEW-HOST: no Poirot counterpart.  This adapter binds Pi's provider-neutral
 ``AgentToolExecutor`` seam (``pi_agent.tool_execution``) to the production
-``DockerSandboxProvider``: the model never supplies a target, the registry is
-the sole source of tool bindings, and every execution happens inside the
-hardened worker image.
+sandbox provider: the model never supplies a target, the registry is the
+sole source of tool bindings, and every execution happens inside the
+hardened sandbox.
 
 Lifecycle contract (plan E3): ``execute`` acquires lazily and never releases.
 The outer session/task run owns the single release; a run that made no tool
-call creates no container.
+call creates no scope.
+
+P3.3 Phase D (G0 map §6.1): the per-call ``signal`` is propagated to the
+sandbox so a native invocation aborts by killing its broker tree; the
+Docker product path destroyed the scope instead.
 """
 from __future__ import annotations
 
@@ -33,7 +37,7 @@ class SandboxToolExecutionError(SandboxError):
 
 
 class SandboxToolExecutor:
-    """Execute approved tools inside one hardened sandbox container per scope."""
+    """Execute approved tools inside one hardened sandbox per scope."""
 
     def __init__(
         self,
@@ -58,7 +62,6 @@ class SandboxToolExecutor:
         signal: Any | None,
         on_update: Callable[[AgentToolResult], None],
     ) -> AgentToolResult:
-        del signal  # worker-local abort signal; product abort destroys the scope
         binding = self._registry.binding_for(tool)
         request = RpcRequest(
             protocol_version=PROTOCOL_VERSION,
@@ -79,7 +82,7 @@ class SandboxToolExecutor:
                 )
 
         sandbox = await self._provider.acquire(scope_id)
-        terminal = await sandbox.execute_worker(request, deliver)
+        terminal = await sandbox.execute_worker(request, deliver, signal=signal)
         if terminal.type == "error":
             error = terminal.error or {}
             raise SandboxToolExecutionError(

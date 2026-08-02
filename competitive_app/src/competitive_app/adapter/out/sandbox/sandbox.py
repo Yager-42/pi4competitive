@@ -4,13 +4,16 @@ Transplant source: HezaoHezao/poirot
 Path: poirot/backend/agents/sandbox/sandbox.py
 SHA: 86bf279ad90c180f0ba696755620dd7d6661465e
 License: MIT (see deploy/tool-sandbox/licenses/POIROT-MIT.txt)
-Host delta: validate → translate → execute → mask is narrowed to the fixed
-JSON worker command; file facade methods are omitted (ADAPT).
+Host delta (P3.3 Phase D, G0 map §6.1): validate -> translate -> execute ->
+mask is narrowed to the fixed JSON worker command; file facade methods are
+omitted; ``execute_worker`` additionally forwards the optional per-call
+abort ``signal`` to the runtime so a native invocation can be killed
+(Docker product abort destroys the scope instead and ignores it).
 """
 from __future__ import annotations
 
 import inspect
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .contracts import PathTranslator, SandboxRuntime, SecurityGuard
@@ -58,6 +61,8 @@ class Sandbox:
         self,
         request: RpcRequest,
         on_frame: Callable[[RpcFrame], Awaitable[None] | None],
+        *,
+        signal: Any | None = None,
     ) -> RpcFrame:
         self._guard.validate_command(FIXED_WORKER_COMMAND)
         command = self._translator.translate_command(FIXED_WORKER_COMMAND)
@@ -77,7 +82,9 @@ class Sandbox:
             if inspect.isawaitable(result):
                 await result
 
-        terminal = await self._runtime.execute_worker(request, deliver, command=command)
+        terminal = await self._runtime.execute_worker(
+            request, deliver, command=command, signal=signal
+        )
         return terminal
 
     async def close(self) -> None:

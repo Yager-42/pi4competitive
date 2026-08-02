@@ -93,7 +93,7 @@ class _FakeSandbox:
         self.terminal: RpcFrame | None = None
         self.closed = False
 
-    async def execute_worker(self, request: Any, on_frame: Any) -> RpcFrame:
+    async def execute_worker(self, request: Any, on_frame: Any, *, signal: Any = None) -> RpcFrame:
         self.requests.append(request)
         for frame in self.frames:
             result = on_frame(frame)

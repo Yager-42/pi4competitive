@@ -116,6 +116,8 @@ competitive_app/src/competitive_app/adapter/out/sandbox/
     broker.py
     native_runtime.py
     native_sandbox_provider.py
+    workspace.py                     # ADAPT of docker_path_guard workspace helpers
+    paths.py                         # identity translator + fixed-command guard
     srt/
       manager.py
       policy.py
@@ -155,7 +157,7 @@ Exact filenames may only change to match an established local module boundary; a
 | A | Python auto-review types/grants/hard-deny/circuit/evidence core | **done — PR1 gate passed (O6–O10 + trust config; offline 532 passed)** |
 | B | Python SRT config/policy/Linux/macOS/seccomp/proxy port | **done — PR2 gate passed (O11–O15; offline 660 passed)** |
 | C | erichll runner/broker/network approval port | **done — PR3 gate passed (O16 + approval/config parity; offline 718 passed)** |
-| D | NativeProvider/Runtime + current worker/registry/RPC integration | todo |
+| D | NativeProvider/Runtime + current worker/registry/RPC integration | **done — O17–O18 passed; offline 738 passed** |
 | E | App wiring/readiness/scope lifecycle + Linux/macOS config | todo |
 | F | remove Docker production code/dependencies/image/config | todo |
 | V1 | offline contract/unit/parity tests | todo |

@@ -299,7 +299,10 @@ def run_worker(
 
 
 def main() -> None:
-    raise SystemExit(run_worker())
+    # P3.3 D: native runs pass the trusted manifest via env (Docker bakes it
+    # at /opt/pi4competitive); the default stays for the historical image.
+    manifest_path = os.environ.get("PI4COMPETITIVE_MANIFEST_PATH") or DEFAULT_MANIFEST_PATH
+    raise SystemExit(run_worker(manifest_path=manifest_path))
 
 
 if __name__ == "__main__":

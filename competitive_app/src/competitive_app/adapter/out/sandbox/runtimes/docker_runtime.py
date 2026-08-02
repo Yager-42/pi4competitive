@@ -57,7 +57,9 @@ class DockerRuntime:
         on_frame: FrameCallback,
         *,
         command: str,
+        signal: Any | None = None,
     ) -> RpcFrame:
+        del signal  # Docker product abort destroys the scope instead (P3.3 D)
         if self._closed:
             raise SandboxRuntimeError("sandbox runtime is closed")
         if not command or "\n" in command or "\r" in command:

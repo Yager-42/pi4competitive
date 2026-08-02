@@ -24,6 +24,7 @@ import json
 import os
 import signal
 import socket
+import inspect
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -252,7 +253,6 @@ async def run_sandboxed_command(
                 broker.stdin.close()
         except (ConnectionError, OSError):
             pass
-
     async def _pump(name: str, callback: Callable[[bytes], None] | None) -> None:
         stream = broker.stdout if name == "stdout" else broker.stderr
         while True:
@@ -262,7 +262,9 @@ async def run_sandboxed_command(
             if options.on_data is not None:
                 options.on_data(chunk)
             if callback is not None:
-                callback(chunk)
+                result = callback(chunk)
+                if inspect.isawaitable(result):
+                    await result
 
     try:
         try:
@@ -290,7 +292,16 @@ async def run_sandboxed_command(
         ipc_task.cancel()
         stdout_task.cancel()
         stderr_task.cancel()
-        await asyncio.gather(ipc_task, stdout_task, stderr_task, return_exceptions=True)
+        pump_results = await asyncio.gather(
+            ipc_task, stdout_task, stderr_task, return_exceptions=True
+        )
+        # Callback/parse errors raised inside a pump must surface (the
+        # worker has already exited; the finally clause cleans up).
+        for pump_result in pump_results:
+            if isinstance(pump_result, BaseException) and not isinstance(
+                pump_result, asyncio.CancelledError
+            ):
+                raise pump_result
 
         if options.signal is not None and options.signal.done():
             raise RuntimeError("aborted")

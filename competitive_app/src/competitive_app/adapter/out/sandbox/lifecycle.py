@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts.sandbox_provider import SandboxProvider
-from .guards.docker_path_guard import remove_workspace
+from .native.workspace import remove_workspace
 from .protocol import RpcFrame
 from .sandbox import Sandbox
 from .utils.sandbox_id import derive_sandbox_id

@@ -192,6 +192,9 @@ before any code landed.
 | `approved_registry.py`, `protocol.py` | KEEP |
 | `worker.py`, `sandbox_tool_executor.py`, `lifecycle.py`, `exceptions.py`, `types.py` | ADAPT to native paths/signal/active invocation/readiness |
 | `contracts/sandbox_provider.py`, `contracts/sandbox_runtime.py` | ADAPT provider-neutral native lifecycle/worker contract |
+| `native/native_runtime.py`, `native/native_sandbox_provider.py` | NEW-HOST (Phase D): SandboxRuntime + SandboxProvider over the broker runner; per-scope abort signal, workspace lifecycle, worker env allowlist |
+| `native/workspace.py` | ADAPT of `guards/docker_path_guard.py` workspace helpers (canonical root/ensure/remove); Docker path validation stays with the deleted guard |
+| `native/paths.py` | NEW-HOST (Phase D): identity PathTranslator + fixed-worker-command SecurityGuard for the runtime-only Sandbox facade |
 | `sandbox.py` | ADAPT to runtime-only native handle; remove Docker translator/guard composition |
 | `utils/sandbox_id.py` | KEEP behavior; update provenance comment only if needed |
 | `tests/.../test_approved_registry.py`, `test_protocol.py`, `test_worker.py`, `test_facade.py`, `test_composition.py` | KEEP/ADAPT |

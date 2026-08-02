@@ -77,7 +77,7 @@ async def test_sandbox_facade_preserves_validate_translate_execute_mask_order() 
             return output.replace("secret", "masked")
 
     class Runtime:
-        async def execute_worker(self, request, on_frame, *, command):  # type: ignore[no-untyped-def]
+        async def execute_worker(self, request, on_frame, *, command, signal=None):  # type: ignore[no-untyped-def]
             calls.append(f"execute:{command}")
             frame = RpcFrame(1, request.scope_id, request.tool_call_id, 1, "result", result={"content": [{"type": "text", "text": "secret"}]})
             await on_frame(frame)
