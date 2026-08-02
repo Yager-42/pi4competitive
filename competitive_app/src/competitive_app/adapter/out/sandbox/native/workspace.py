@@ -3,7 +3,7 @@
 Source: HezaoHezao/poirot
 Path: poirot/backend/agents/sandbox/guards/docker_path_guard.py
 SHA: 86bf279ad90c180f0ba696755620dd7d6661465e
-License: MIT (see deploy/tool-sandbox/licenses/POIROT-MIT.txt)
+License: MIT (see native/vendor/licenses/POIROT-MIT.txt)
 
 Host delta (P3.3 Phase D, G0 map §6.1): the canonical-root/ensure/remove
 workspace guards are Docker-path-agnostic and are ported verbatim; the

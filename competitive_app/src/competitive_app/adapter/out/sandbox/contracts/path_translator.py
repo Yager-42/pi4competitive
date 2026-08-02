@@ -3,7 +3,7 @@
 Transplant source: HezaoHezao/poirot
 Path: poirot/backend/agents/sandbox/contracts/path_translator.py
 SHA: 86bf279ad90c180f0ba696755620dd7d6661465e
-License: MIT (see deploy/tool-sandbox/licenses/POIROT-MIT.txt)
+License: MIT (see native/vendor/licenses/POIROT-MIT.txt)
 Host delta: import/package path only (COPY).
 """
 from __future__ import annotations

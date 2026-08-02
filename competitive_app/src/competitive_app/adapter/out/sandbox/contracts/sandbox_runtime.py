@@ -3,7 +3,7 @@
 Transplant source: HezaoHezao/poirot
 Path: poirot/backend/agents/sandbox/contracts/sandbox_runtime.py
 SHA: 86bf279ad90c180f0ba696755620dd7d6661465e
-License: MIT (see deploy/tool-sandbox/licenses/POIROT-MIT.txt)
+License: MIT (see native/vendor/licenses/POIROT-MIT.txt)
 Host delta: narrowed to async AgentTool worker frames; file facade and PID
 kill APIs are intentionally omitted (ADAPT).
 """

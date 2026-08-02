@@ -3,8 +3,8 @@
 | Field | Value |
 |-------|-------|
 | **plan_id** | `P3.3-agent-tool-native-sandbox` |
-| **plan_version** | `0.1.1` |
-| **status** | **active — A–E done；F/V1–V4 todo** |
+| **plan_version** | `0.1.3` |
+| **status** | **active — A–F + V1 done；V2/V3 real gates todo** |
 | **created** | 2026-08-02 |
 | **updated** | 2026-08-02 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage P3.3 |
@@ -159,8 +159,8 @@ Exact filenames may only change to match an established local module boundary; a
 | C | erichll runner/broker/network approval port | **done — PR3 gate passed (O16 + approval/config parity; offline 718 passed)** |
 | D | NativeProvider/Runtime + current worker/registry/RPC integration | **done — O17–O18 passed; offline 738 passed** |
 | E | App wiring/readiness/scope lifecycle + Linux/macOS config | **done — O19–O21 passed；offline 743 passed** |
-| F | remove Docker production code/dependencies/image/config | todo |
-| V1 | offline contract/unit/parity tests | todo |
+| F | remove Docker production code/dependencies/image/config | **done — G0 §6.2 executed；agent-sandbox dep removed；offline 715 passed** |
+| V1 | offline contract/unit/parity tests | **done — O1–O22 green；offline 715 passed** |
 | V2 | Linux amd64 real enforcement/e2e | todo |
 | V3 | arm64 macOS real enforcement/e2e | todo |
 | V4 | baseline/resource/license/CodeGraph audit and closeout | todo |
@@ -228,3 +228,4 @@ No slice may wire a partial native sandbox that can fall back to Host or Docker.
 | `0.1.0` | 2026-08-02 | Initial active plan from ADR 0012 / native feature v0.2.0; preserves current executor/RPC/scope, ports three frozen upstreams, replaces and removes Docker, and defines Linux/macOS real gates |
 | `0.1.1` | 2026-08-02 | G0 complete：pins Git/npm integrity/licenses；full pi-sandbox/auto-review/SRT file+test map；apply-seccomp source/binary hashes/build contract；Docker migration map；CodeGraph impact；O/S/L/M/P/R tests, commands, prerequisites；offline baseline 406 passed |
 | `0.1.2` | 2026-08-02 | Phase E complete：wiring/readiness manifest staging/startup verify、O20 universal-executor coverage（main/dynamic/extension/resume/ephemeral over real worker+capability）、offline 743 passed |
+| `0.1.3` | 2026-08-02 | Phase F complete：G0 §6.2 all rows executed — docker/、runtimes/、translators/、guards/、deploy/tool-sandbox/ deleted；agent-sandbox==0.0.30 removed from pyproject/uv.lock；licenses moved to native/vendor/licenses；retained headers repointed；test_backend/test_docker_provider/Docker live suite deleted；facade/contract tests adapted；O22 native contract suite added；wiring E1.4 unwind widened to cover manifest-write failure；V1 green offline 715 passed |

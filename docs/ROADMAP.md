@@ -26,7 +26,7 @@
 | **业务能力（研究流程、报告等）** | 搜索 capability v1 **frozen** | 边界：[`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.12**；其余 workflow/报告另开 |
 | **agent engine extensions** | **done** | feature **v0.3.0**（P3.1 completed baseline + P3.2 delta）；计划 **v0.2.4 completed** |
 | **P3.2 Pi extension capability enablement** | **done** | feature **v0.1.0 frozen**；extension runtime delta **v0.3.0 frozen**；plan [`P3_2_pi_extension_capability_enablement.md`](plans/P3_2_pi_extension_capability_enablement.md) **v0.1.2 completed**；ADR 0009 |
-| **P3.3 AgentTool sandbox** | **in_progress（G0 complete；implementation not started）** | native feature **v0.2.1 frozen**；plan **v0.1.1 active** + G0 map v0.1.0；ADR 0012 / contract v0.3.9；Docker plan historical |
+| **P3.3 AgentTool sandbox** | **in_progress（A–F + V1 done；V2/V3 real gates todo）** | native feature **v0.2.1 frozen**；plan **v0.1.2 active** + G0 map v0.1.0；ADR 0012 / contract v0.3.9；Docker plan historical |
 | **capability 里具体有哪些搜抓包** | **frozen** + 实现计划 | 搜索 feature 契约；计划 [`docs/plans/P4_search_capability_packages.md`](plans/P4_search_capability_packages.md) |
 | **workflow Skill 自进化** | **implemented / verified** | feature **frozen v0.2.1**；plan [`P4_workflow_skill_self_evolution.md`](plans/P4_workflow_skill_self_evolution.md) **v0.1.2 completed**；O1–O16、S1–S4、真实 provider L1–L4 green |
 
@@ -135,7 +135,7 @@ continue P4              保留既有实现；恢复依赖 AgentTool 的业务�
 |----|------|
 | **目标** | `competitive_app` production 的所有 `AgentTool.execute()` 在 Linux bubblewrap/seccomp 或 macOS Seatbelt native sandbox worker 中运行；无 host/Direct/Local/Docker fallback（ADR 0012） |
 | **依赖** | **P3.2 done**；保留已实现 Pi executor/RPC/scope；feature [`agent_tool_native_sandbox_v1.md`](features/agent_tool_native_sandbox_v1.md) **v0.2.1 frozen** |
-| **实现计划** | [`P3_3_agent_tool_native_sandbox.md`](plans/P3_3_agent_tool_native_sandbox.md) **v0.1.1 active** + [`G0 map`](plans/P3_3_native_sandbox_G0_map.md) **v0.1.0 complete**；A–F/V1–V4 串行 |
+| **实现计划** | [`P3_3_agent_tool_native_sandbox.md`](plans/P3_3_agent_tool_native_sandbox.md) **v0.1.2 active** + [`G0 map`](plans/P3_3_native_sandbox_G0_map.md) **v0.1.0 complete**；A–E done、F done（Docker production code/deps/image/config 已删）、V1 done（offline 715 passed）、V2/V3/V4 串行 |
 | **所有权** | `packages/agent` 含 provider-neutral executor + generic approval service seam；`capability_packages/pi_auto_review` 含 reviewer policy；native provider/runtime/SRT broker/OS trap IO 在 App sandbox + wiring；Domain 无 IO |
 | **代码父本** | `pi-sandbox@0.4.2` + SRT `0.0.67` + `pi-auto-review@0.3.2` frozen；当前 Pi/App/DDD 边界下 COPY-semantics-first |
 | **必含** | production universal executor；parent-session scope/workspace；per-call broker/SRT manager；Linux/macOS；JSON RPC/update/abort/parallel；exact network approval；eager readiness；no-fallback |

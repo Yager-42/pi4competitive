@@ -3,7 +3,7 @@
 Transplant source: HezaoHezao/poirot
 Path: poirot/backend/agents/sandbox/utils/sandbox_id.py
 SHA: 86bf279ad90c180f0ba696755620dd7d6661465e
-License: MIT (see deploy/tool-sandbox/licenses/POIROT-MIT.txt)
+License: MIT (see native/vendor/licenses/POIROT-MIT.txt)
 Host delta: version + local-default tenant + parent session recipe and full
 64-hex validation instead of the parent 8-hex prefix (ADAPT).
 """

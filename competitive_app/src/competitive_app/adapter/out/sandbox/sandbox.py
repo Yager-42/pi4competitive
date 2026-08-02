@@ -3,7 +3,7 @@
 Transplant source: HezaoHezao/poirot
 Path: poirot/backend/agents/sandbox/sandbox.py
 SHA: 86bf279ad90c180f0ba696755620dd7d6661465e
-License: MIT (see deploy/tool-sandbox/licenses/POIROT-MIT.txt)
+License: MIT (see native/vendor/licenses/POIROT-MIT.txt)
 Host delta (P3.3 Phase D, G0 map §6.1): validate -> translate -> execute ->
 mask is narrowed to the fixed JSON worker command; file facade methods are
 omitted; ``execute_worker`` additionally forwards the optional per-call

@@ -392,33 +392,35 @@ async def build_application_state(
     # doubles are accepted for tests (E5); there is no env/YAML/CLI switch
     # that disables or replaces the sandbox.
     if tool_executor is None:
-        sandbox_tools = (
-            list(getattr(capability_report, "tools", []) or []) if capability_report else []
-        )
-        sandbox_registry = ApprovedToolRegistry.from_tools(sandbox_tools)
-        sandbox_root = Path(config.sandbox.root)
-        manifest_path = Path(config.sandbox.manifest) if config.sandbox.manifest else sandbox_root / "approved_tools.json"
-        manifest = _write_native_manifest(sandbox_registry, manifest_path)
-        environment = {name: os.environ.get(name) for name in NATIVE_WORKER_ENVIRONMENT}
-        provider = NativeSandboxProvider(
-            sandbox_root=sandbox_root,
-            environment=environment,
-            manifest_path=manifest_path,
-            additional_allow_read=_native_sandbox_additional_allow_read(config.sandbox.config),
-        )
-        sandbox_executor = SandboxToolExecutor(registry=sandbox_registry, provider=provider)
-        lifecycle = SandboxLifecycle(
-            provider=provider,
-            registry=sandbox_registry,
-            executor=sandbox_executor,
-            sandbox_root=sandbox_root,
-        )
+        provider: Any | None = None
         try:
+            sandbox_tools = (
+                list(getattr(capability_report, "tools", []) or []) if capability_report else []
+            )
+            sandbox_registry = ApprovedToolRegistry.from_tools(sandbox_tools)
+            sandbox_root = Path(config.sandbox.root)
+            manifest_path = Path(config.sandbox.manifest) if config.sandbox.manifest else sandbox_root / "approved_tools.json"
+            manifest = _write_native_manifest(sandbox_registry, manifest_path)
+            environment = {name: os.environ.get(name) for name in NATIVE_WORKER_ENVIRONMENT}
+            provider = NativeSandboxProvider(
+                sandbox_root=sandbox_root,
+                environment=environment,
+                manifest_path=manifest_path,
+                additional_allow_read=_native_sandbox_additional_allow_read(config.sandbox.config),
+            )
+            sandbox_executor = SandboxToolExecutor(registry=sandbox_registry, provider=provider)
+            lifecycle = SandboxLifecycle(
+                provider=provider,
+                registry=sandbox_registry,
+                executor=sandbox_executor,
+                sandbox_root=sandbox_root,
+            )
             await provider.start()
             await lifecycle.verify_startup(build_identity=manifest.build_identity)
         except Exception:
-            await provider.shutdown()
             # E1.4: unwind already-open App resources (stores) before re-raising.
+            if provider is not None:
+                await provider.shutdown()
             await store.close()
             await skill_store.close()
             await workflow_skill_store.close()

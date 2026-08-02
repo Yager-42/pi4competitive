@@ -3,7 +3,7 @@
 Transplant source: HezaoHezao/poirot
 Path: poirot/backend/agents/sandbox/contracts/sandbox_provider.py
 SHA: 86bf279ad90c180f0ba696755620dd7d6661465e
-License: MIT (see deploy/tool-sandbox/licenses/POIROT-MIT.txt)
+License: MIT (see native/vendor/licenses/POIROT-MIT.txt)
 Host delta: async acquire/release/destroy_scope/shutdown and parent scope
 identity; no per-call lease/refcount (ADAPT).
 """

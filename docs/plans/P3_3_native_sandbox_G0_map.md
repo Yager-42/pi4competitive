@@ -5,11 +5,21 @@
 | **map_version** | `0.1.0` |
 | **status** | **frozen G0 evidence — complete** |
 | **date** | 2026-08-02 |
-| **plan** | [`P3_3_agent_tool_native_sandbox.md`](P3_3_agent_tool_native_sandbox.md) v0.1.1 |
+| **plan** | [`P3_3_agent_tool_native_sandbox.md`](P3_3_agent_tool_native_sandbox.md) v0.1.3 |
 | **ADR** | [`0012-native-agent-tool-sandbox-runtime.md`](../contracts/adr/0012-native-agent-tool-sandbox-runtime.md) |
 | **feature** | [`agent_tool_native_sandbox_v1.md`](../features/agent_tool_native_sandbox_v1.md) v0.2.1 |
 
 This file is the binding G0 appendix. Implementation may not silently change a source classification, destination, test ID, helper artifact, or removal decision; update this map first and record the host delta in the active plan.
+
+> Execution status (2026-08-02, Phase F): §6.1 keep/adapt rows landed in
+> phases C–E; §6.2 deletion rows were all executed — `docker/`, `runtimes/`,
+> `translators/`, `guards/`, `deploy/tool-sandbox/` removed, the three
+> orphaned contracts files deleted after an rg gate showed no non-Docker
+> caller, `agent-sandbox==0.0.30` removed from pyproject/uv.lock, and the
+> Poirot license text moved to `native/vendor/licenses/` with every
+> retained header repointed (the agent-sandbox license text had no
+> retained referent and was removed with the dependency). Decisions below
+> remain frozen; this note records execution only.
 
 ## 1. Immutable Source Manifest
 
