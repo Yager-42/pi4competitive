@@ -2,26 +2,26 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.2.1` |
-| **status** | **frozen — G1–G10 resolved；ADR 0012 accepted；implementation plan v0.1.1 active；G0 complete** |
+| **feature_contract_version** | `0.2.2` |
+| **status** | **frozen — G1–G10 resolved；ADR 0012/0013 accepted；implementation plan v0.1.6 complete（P3.3 done）；G0 complete** |
 | **created** | 2026-08-02 |
-| **updated** | 2026-08-02 |
+| **updated** | 2026-08-03 |
 | **feature_id** | `agent-tool-native-sandbox-v1` |
 | **roadmap_stage** | P3.3 native AgentTool sandbox replacement；exit gate 关闭前不得扩大 AgentTool-dependent P4 |
-| **architecture contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) v0.3.9；ADR 0012 |
+| **architecture contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) v0.3.10；ADR 0012/0013 |
 | **supersedes** | [`agent-tool-sandbox-v1`](agent_tool_sandbox_v1.md) v0.1.33 historical 的全部 Docker-specific runtime/provider/backend/image/lifecycle/resource 决策；保留其 provider-neutral universal executor、approved target、RPC、scope 与 workspace 契约 |
 | **adapter parent** | [`erichll/pi-packages`](https://github.com/erichll/pi-packages/tree/10c8eeb8269ee478ff7383c7e6139301aa9665f9/packages/pi-sandbox) `@erichll/pi-sandbox@0.4.2` @ `10c8eeb8269ee478ff7383c7e6139301aa9665f9` |
 | **isolation parent** | `@anthropic-ai/sandbox-runtime@0.0.67`（Apache-2.0；实际 OS 隔离父本） |
 | **approval parent** | [`erichll/pi-packages`](https://github.com/erichll/pi-packages/tree/10c8eeb8269ee478ff7383c7e6139301aa9665f9/packages/pi-auto-review) `@erichll/pi-auto-review@0.3.2` @ 同一 frozen SHA（MIT） |
 | **depends_on** | `agent-engine-extensions-v1` v0.3.0；P3 local capability loader；当前 P3.3 `AgentToolExecutor` / approved registry / JSON worker bridge |
 | **path** | `docs/features/agent_tool_native_sandbox_v1.md` |
-| **plan** | [`P3_3_agent_tool_native_sandbox.md`](../plans/P3_3_agent_tool_native_sandbox.md) v0.1.1 active；[`G0 map`](../plans/P3_3_native_sandbox_G0_map.md) v0.1.0 complete |
+| **plan** | [`P3_3_agent_tool_native_sandbox.md`](../plans/P3_3_agent_tool_native_sandbox.md) v0.1.6 complete；[`G0 map`](../plans/P3_3_native_sandbox_G0_map.md) v0.1.0 complete |
 
 ---
 
 ## 0. 效力与变更门禁
 
-1. 本文是 `agent-tool-native-sandbox-v1` 的冻结 feature 边界；实现必须服从 ADR 0012、架构契约 v0.3.9 与 active plan。
+1. 本文是 `agent-tool-native-sandbox-v1` 的冻结 feature 边界；实现必须服从 ADR 0012/0013、架构契约 v0.3.10 与 active plan。
 2. ADR 0012 supersede ADR 0011/0011-A 的 Docker-specific 决策；旧 Docker feature/plan 仅作历史记录。
 3. implementation plan 必须逐文件记录 `COPY / ADAPT / OMIT / NEW-HOST`，并按 Linux/macOS real gate 串行推进。
 4. 本文使用：

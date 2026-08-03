@@ -5,7 +5,7 @@
 | **roadmap_version** | `0.1.44` |
 | **status** | active |
 | **updated** | 2026-08-02 |
-| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.9** |
+| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.10** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
 ---
@@ -21,7 +21,7 @@
 
 | 话题 | 状态 | 建议 |
 |------|------|------|
-| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 **v0.3.9**） | **不必再聊**；要改走 ADR |
+| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 **v0.3.10**） | **不必再聊**；要改走 ADR |
 | **实现顺序与完成标准** | 见本文阶段 | 按 roadmap 执行；细节可在阶段开工时补 checklist |
 | **业务能力（研究流程、报告等）** | 搜索 capability v1 **frozen** | 边界：[`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.12**；其余 workflow/报告另开 |
 | **agent engine extensions** | **done** | feature **v0.3.0**（P3.1 completed baseline + P3.2 delta）；计划 **v0.2.4 completed** |

@@ -3,14 +3,14 @@
 | Field | Value |
 |-------|-------|
 | **plan_id** | `P3.3-agent-tool-native-sandbox` |
-| **plan_version** | `0.1.4` |
+| **plan_version** | `0.1.6` |
 | **status** | **complete — A–F + V1 + V3（macOS real gate）+ V4（audits/baseline/closeout）done；V2 optional per ADR 0013（未运行，Linux deploy 前必过）** |
 | **created** | 2026-08-02 |
 | **updated** | 2026-08-03 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage P3.3 |
-| **contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) v0.3.9 |
+| **contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) v0.3.10 |
 | **ADR** | [`0012-native-agent-tool-sandbox-runtime.md`](../contracts/adr/0012-native-agent-tool-sandbox-runtime.md) accepted |
-| **feature** | [`agent_tool_native_sandbox_v1.md`](../features/agent_tool_native_sandbox_v1.md) frozen v0.2.1 |
+| **feature** | [`agent_tool_native_sandbox_v1.md`](../features/agent_tool_native_sandbox_v1.md) frozen v0.2.2 |
 | **supersedes plan** | [`P3_3_agent_tool_sandbox.md`](P3_3_agent_tool_sandbox.md) v0.1.2（historical Docker plan） |
 | **sources** | `pi-sandbox@0.4.2` + SRT `0.0.67` + `pi-auto-review@0.3.2` |
 | **G0 map** | [`P3_3_native_sandbox_G0_map.md`](P3_3_native_sandbox_G0_map.md) v0.1.0 frozen/complete |
@@ -163,7 +163,7 @@ Exact filenames may only change to match an established local module boundary; a
 | V1 | offline contract/unit/parity tests | **done — O1–O22 green；offline 715 passed** |
 | V2 | Linux amd64 real enforcement/e2e | **optional（ADR 0013）**— Linux 主机/CI 可用时运行同一 S1–S9 套件；不阻塞 closeout；任何 Linux production 部署声明前必过 |
 | V3 | arm64 macOS real enforcement/e2e | **done — S1–S9 + e2e 11 tests green（real broker + real policy, sandbox-exec）；gate 修复 2 个 production 缺陷：interpreter symlink exec（policy.py/macos.py）、AF family 映射（network_policy.py）；offline 727 passed** |
-| V4 | baseline/resource/license/CodeGraph audit and closeout | todo |
+| V4 | baseline/resource/license/CodeGraph audit and closeout | **done — plan §5.4 evidence vs ADR 0012 Docker（cold 0.109 s vs 1.386 s；steady P50 108.9 ms/P95 110.4 ms；10-way parallel 0.85 s、in-flight 10 brokers 361 MiB；residual 0；disk 2.0 MB vs 12.1 GB image）；license 补回 pi-sandbox Apache + pi-auto-review MIT（SHA 对齐 G0 pin，O22 全量断言）；header 全绿；CodeGraph sync（460 files/5719 nodes）；§7 全勾选；offline 727 passed** |
 
 ## 5. Verification gates
 

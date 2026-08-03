@@ -5,9 +5,9 @@
 | **map_version** | `0.1.0` |
 | **status** | **frozen G0 evidence — complete** |
 | **date** | 2026-08-02 |
-| **plan** | [`P3_3_agent_tool_native_sandbox.md`](P3_3_agent_tool_native_sandbox.md) v0.1.3 |
+| **plan** | [`P3_3_agent_tool_native_sandbox.md`](P3_3_agent_tool_native_sandbox.md) v0.1.6 |
 | **ADR** | [`0012-native-agent-tool-sandbox-runtime.md`](../contracts/adr/0012-native-agent-tool-sandbox-runtime.md) |
-| **feature** | [`agent_tool_native_sandbox_v1.md`](../features/agent_tool_native_sandbox_v1.md) v0.2.1 |
+| **feature** | [`agent_tool_native_sandbox_v1.md`](../features/agent_tool_native_sandbox_v1.md) v0.2.2 |
 
 This file is the binding G0 appendix. Implementation may not silently change a source classification, destination, test ID, helper artifact, or removal decision; update this map first and record the host delta in the active plan.
 

@@ -113,7 +113,7 @@
 | 语言 | TypeScript/JavaScript → Python behavior-equivalent port；production 无 Node/npm runtime |
 | 落点 | Agent executor + generic approval service seam 在 `packages/agent`；reviewer policy 在 local capability；native provider/runtime/SRT broker/trap adapter 在 App sandbox；composition 在 wiring/lifespan |
 | 规则 | 当前 Pi/App/DDD 所有权下应抄尽抄；能映射即 COPY-semantics，确有 Python/host interface delta 才 ADAPT |
-| 详细边界 | [`agent_tool_native_sandbox_v1.md`](../features/agent_tool_native_sandbox_v1.md) frozen v0.2.1；[`P3_3_agent_tool_native_sandbox.md`](../plans/P3_3_agent_tool_native_sandbox.md) v0.1.1 active；G0 map v0.1.0；ADR 0012 |
+| 详细边界 | [`agent_tool_native_sandbox_v1.md`](../features/agent_tool_native_sandbox_v1.md) frozen v0.2.2；[`P3_3_agent_tool_native_sandbox.md`](../plans/P3_3_agent_tool_native_sandbox.md) v0.1.1 active；G0 map v0.1.0；ADR 0012 |
 
 ---
 
@@ -351,7 +351,7 @@ P3.3 的 provider-neutral executor 与 generic boundary-approval service seam �
 | G10 | **禁止**实现远程 package 下载作为默认路径 |
 | G11 | `competitive_app` production 所有 `AgentTool.execute()` 走 native sandbox executor；任何故障均无 host/Direct/Local/Docker fallback |
 | G12 | `packages/agent` 仅 provider-neutral executor/generic approval seam；reviewer policy 在 local capability；native SRT/OS trap implementation 在 App out adapter/wiring；Domain 无 sandbox IO |
-| G13 | P3.3 关闭须通过 feature v0.2.1 / native plan v0.1.1 / G0 map v0.1.0 的 O/S/L/M/P/R gates；真实 Linux amd64 + arm64 macOS enforcement、App e2e、baseline/removal/license 均不可 skip |
+| G13 | P3.3 关闭须通过 feature v0.2.2 / native plan v0.1.6 / G0 map v0.1.0 的 O/S/L/M/P/R gates；arm64 macOS real enforcement、App e2e、offline parity、baseline/removal/license 不可 skip；Linux amd64 real enforcement 为可选项（ADR 0013，Linux production 部署声明前必过，不阻塞关闭） |
 
 ---
 
