@@ -89,6 +89,7 @@ def test_workflow_code_in_competitive_app_not_packages() -> None:
         "packages/agent/src/earendil_works/pi_agent/__init__.py",
         "packages/agent/src/earendil_works/pi_agent/agent.py",
         "packages/agent/src/earendil_works/pi_agent/agent_loop.py",
+        "packages/agent/src/earendil_works/pi_agent/boundary_approval.py",
         "packages/agent/src/earendil_works/pi_agent/extensions/wrapper.py",
         "packages/agent/src/earendil_works/pi_agent/harness/agent_harness.py",
         "packages/agent/src/earendil_works/pi_agent/tool_execution.py",

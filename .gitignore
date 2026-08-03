@@ -34,6 +34,14 @@ sq-t2-3stage/
 
 # Vendor upstream checkout (fetched locally for port)
 vendor/
+!competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/
+competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/*
+!competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/**/
+!competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/seccomp/
+!competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/seccomp/**/apply-seccomp
+!competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/seccomp-src/
+!competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/seccomp-src/*.c
+!competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/LICENSE
 
 # OS / IDE
 .DS_Store

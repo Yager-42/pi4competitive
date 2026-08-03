@@ -33,6 +33,9 @@ addopts = ["--import-mode=importlib"]
 markers = [
   "live: tests that call real provider APIs",
   "slow: long-running tests",
+  "native_sandbox: P3.3 native AgentTool sandbox tests (offline + real)",
+  "linux: Linux-only native sandbox real enforcement tests",
+  "macos: macOS-only native sandbox real enforcement tests",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]
 

@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from competitive_app.adapter.out.sandbox.contracts import PathTranslator, SecurityGuard
 from competitive_app.adapter.out.sandbox.exceptions import SandboxPermissionError
-from competitive_app.adapter.out.sandbox.guards import AuditGuard, DockerPathGuard, ensure_workspace
+from competitive_app.adapter.out.sandbox.native.paths import (
+    NativePathTranslator,
+    NativeSecurityGuard,
+)
+from competitive_app.adapter.out.sandbox.native.workspace import ensure_workspace
 from competitive_app.adapter.out.sandbox.protocol import RpcFrame, RpcRequest
-from competitive_app.adapter.out.sandbox.sandbox import Sandbox
-from competitive_app.adapter.out.sandbox.translators import DockerPathTranslator
+from competitive_app.adapter.out.sandbox.sandbox import FIXED_WORKER_COMMAND, Sandbox
 from competitive_app.adapter.out.sandbox.utils import derive_sandbox_id
 
 
@@ -24,7 +26,7 @@ def test_scope_id_is_stable_full_width_and_workspace_is_direct_child(tmp_path: P
     assert workspace.name == scope
 
 
-def test_workspace_rejects_symlink_and_virtual_path_escape(tmp_path: Path) -> None:
+def test_workspace_rejects_symlink_escape(tmp_path: Path) -> None:
     root = tmp_path / "sandboxes"
     root.mkdir()
     outside = tmp_path / "outside"
@@ -34,29 +36,25 @@ def test_workspace_rejects_symlink_and_virtual_path_escape(tmp_path: Path) -> No
     with pytest.raises(SandboxPermissionError, match="symlink"):
         ensure_workspace(root, scope)
 
-    guard = DockerPathGuard()
-    guard.validate_path("/mnt/poirot/user-data/ok", write=True)
-    for path in ("/etc/passwd", "/mnt/poirot/user-data/../escape", "/mnt/poirot/user-data//escape"):
-        with pytest.raises(SandboxPermissionError):
-            guard.validate_path(path, write=False)
-    with pytest.raises(SandboxPermissionError):
-        guard.validate_command("echo bad > /etc/passwd")
+
+def test_native_guard_only_accepts_fixed_worker_command() -> None:
+    guard = NativeSecurityGuard()
+    # Host paths are the SRT policy boundary, not the facade guard.
+    guard.validate_path("/etc/passwd", write=True)
+    guard.validate_command(FIXED_WORKER_COMMAND)
+    for command in ("docker run evil", "rm -rf /", "python other.py"):
+        with pytest.raises(SandboxPermissionError, match="fixed worker command"):
+            guard.validate_command(command)
 
 
-def test_docker_translator_reverse_mapping(tmp_path: Path) -> None:
-    scope = derive_sandbox_id("session")
-    translator = DockerPathTranslator(tmp_path, scope)
-    assert translator.translate_path("/mnt/poirot/user-data/a") == "/mnt/poirot/user-data/a"
-    assert translator.reverse_translate("/mnt/poirot/user-data/a") == str(tmp_path / scope / "a")
-    with pytest.raises(ValueError):
-        translator.reverse_translate("/etc/passwd")
-
-
-def test_audit_guard_blocks_destructive_commands() -> None:
-    inner = DockerPathGuard()
-    guard = AuditGuard(inner)
-    with pytest.raises(SandboxPermissionError, match="dangerous command"):
-        guard.validate_command("rm -rf /")
+def test_native_translator_is_identity() -> None:
+    translator = NativePathTranslator()
+    assert translator.translate_path("/a/b") == "/a/b"
+    assert translator.reverse_translate("/a/b") == "/a/b"
+    assert translator.translate_command("x") == "x"
+    assert translator.mask_output("secret") == "secret"
+    assert isinstance(translator, PathTranslator)
+    assert isinstance(NativeSecurityGuard(), SecurityGuard)
 
 
 @pytest.mark.asyncio
@@ -77,7 +75,7 @@ async def test_sandbox_facade_preserves_validate_translate_execute_mask_order() 
             return output.replace("secret", "masked")
 
     class Runtime:
-        async def execute_worker(self, request, on_frame, *, command):  # type: ignore[no-untyped-def]
+        async def execute_worker(self, request, on_frame, *, command, signal=None):  # type: ignore[no-untyped-def]
             calls.append(f"execute:{command}")
             frame = RpcFrame(1, request.scope_id, request.tool_call_id, 1, "result", result={"content": [{"type": "text", "text": "secret"}]})
             await on_frame(frame)

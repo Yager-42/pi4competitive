@@ -93,7 +93,7 @@ class _FakeSandbox:
         self.terminal: RpcFrame | None = None
         self.closed = False
 
-    async def execute_worker(self, request: Any, on_frame: Any) -> RpcFrame:
+    async def execute_worker(self, request: Any, on_frame: Any, *, signal: Any = None) -> RpcFrame:
         self.requests.append(request)
         for frame in self.frames:
             result = on_frame(frame)
@@ -415,11 +415,7 @@ class _ManifestBackend:
         return self._payload
 
 
-# ----------------------------------------------------- wiring fail-closed (O13)
-
-
-def _image() -> str:
-    return "registry.example/pi4competitive-tool-worker@sha256:" + "0" * 64
+# -------------------------------------------------- wiring fail-closed (O21)
 
 
 def _minimal_config(tmp_path: Path) -> Any:
@@ -430,19 +426,31 @@ def _minimal_config(tmp_path: Path) -> Any:
         sessions_root=str(tmp_path / "sessions"),
         app_db=str(tmp_path / "app.db"),
         use_faux=True,
-        sandbox=SandboxAppConfig(image=_image(), root=str(tmp_path / "sandboxes")),
+        sandbox=SandboxAppConfig(root=str(tmp_path / "sandboxes")),
         capability_packages_enabled=["echo_example"],
     )
 
 
-class _FakeDockerProvider:
-    instances: list["_FakeDockerProvider"] = []
+class _FakeNativeProvider:
+    """Native provider twin: records composition kwargs, serves the canary."""
 
-    def __init__(self, **kwargs: Any) -> None:
+    instances: list["_FakeNativeProvider"] = []
+
+    def __init__(
+        self,
+        *,
+        sandbox_root: Any,
+        environment: dict[str, str],
+        manifest_path: Any = None,
+        **kwargs: Any,
+    ) -> None:
         del kwargs
+        self.sandbox_root = sandbox_root
+        self.environment = environment
+        self.manifest_path = manifest_path
         self.shutdown_called = False
         self.started = False
-        _FakeDockerProvider.instances.append(self)
+        _FakeNativeProvider.instances.append(self)
 
     async def start(self) -> None:
         self.started = True
@@ -465,46 +473,52 @@ class _FakeDockerProvider:
         self.shutdown_called = True
 
 
-class _FakeDockerBackend:
-    """Backend twin: identity + baked manifest built to match host tools."""
+@pytest.mark.asyncio
+async def test_wiring_native_composition_writes_manifest_and_runs_canary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from competitive_app import wiring as wiring_mod
+    from competitive_app.adapter.out.sandbox.approved_registry import load_approved_manifest
+    from competitive_app.adapter.out.sandbox.utils.sandbox_id import derive_sandbox_id
 
-    def __init__(self, *, fail_identity: bool = False, manifest_payload: bytes | None = None) -> None:
-        self._fail_identity = fail_identity
-        self._manifest_payload = manifest_payload
+    monkeypatch.setattr(wiring_mod, "NativeSandboxProvider", _FakeNativeProvider)
+    _FakeNativeProvider.instances.clear()
+    state = await wiring_mod.build_application_state(_minimal_config(tmp_path))
+    assert state.sandbox is not None
+    assert state.sandbox.scope_for("session-1") == derive_sandbox_id("session-1")
 
-    def verify_image_identity(self) -> str:
-        if self._fail_identity:
-            raise RuntimeError("sandbox image not found locally or daemon unavailable")
-        return "sha256:" + "f" * 64
+    provider = _FakeNativeProvider.instances[0]
+    assert provider.started is True
+    assert not provider.shutdown_called
+    assert Path(provider.manifest_path).is_file()
+    manifest = load_approved_manifest(provider.manifest_path)
+    assert "echo" in manifest.bindings  # registry subset handshake source
+    assert manifest.build_identity.startswith("competitive-app-")
 
-    def read_baked_manifest(self) -> bytes:
-        return self._manifest_payload or b"{}"
+    # The provider saw the allowlisted env surface, never the full process env.
+    assert "TAVILY_API_KEY" in provider.environment
+    assert provider.environment.get("DATABASE_URL") is None
+    await state.shutdown()
+    assert provider.shutdown_called is True
 
 
 @pytest.mark.asyncio
-async def test_wiring_missing_image_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_wiring_manifest_write_failure_unwinds_provider(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from competitive_app import wiring as wiring_mod
 
+    monkeypatch.setattr(wiring_mod, "NativeSandboxProvider", _FakeNativeProvider)
+    _FakeNativeProvider.instances.clear()
     config = _minimal_config(tmp_path)
-    config.sandbox.image = ""
-    monkeypatch.setattr(wiring_mod, "LocalContainerBackend", _FakeDockerBackend)
-    monkeypatch.setattr(wiring_mod, "DockerSandboxProvider", _FakeDockerProvider)
-    with pytest.raises(ValueError, match="no production fallback"):
+    config.sandbox.manifest = str(tmp_path / "missing-dir" / "approved_tools.json")
+    # writing under a non-existent parent succeeds via mkdir; force failure by
+    # making the target a directory
+    (tmp_path / "missing-dir").mkdir()
+    (tmp_path / "missing-dir" / "approved_tools.json").mkdir()
+    with pytest.raises((IsADirectoryError, PermissionError)):
         await wiring_mod.build_application_state(config)
-
-
-@pytest.mark.asyncio
-async def test_wiring_identity_failure_fails_startup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from competitive_app import wiring as wiring_mod
-
-    monkeypatch.setattr(
-        wiring_mod, "LocalContainerBackend", lambda **_kw: _FakeDockerBackend(fail_identity=True)
-    )
-    monkeypatch.setattr(wiring_mod, "DockerSandboxProvider", _FakeDockerProvider)
-    _FakeDockerProvider.instances.clear()
-    with pytest.raises(RuntimeError, match="daemon unavailable"):
-        await wiring_mod.build_application_state(_minimal_config(tmp_path))
-    assert _FakeDockerProvider.instances == []  # provider never constructed
+    assert _FakeNativeProvider.instances == []  # provider never constructed
 
 
 @pytest.mark.asyncio
@@ -512,59 +526,39 @@ async def test_wiring_startup_failure_unwinds_provider(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     from competitive_app import wiring as wiring_mod
-    from competitive_app.adapter.out.sandbox.approved_registry import ApprovedToolRegistry
-    from competitive_app.adapter.out.sandbox.protocol import PROTOCOL_NAME, PROTOCOL_VERSION
-    from competitive_app.adapter.out.sandbox.utils.sandbox_id import derive_sandbox_id
+    from competitive_app.adapter.out.sandbox.approved_registry import ApprovedRegistryError
 
-    # baked manifest that mismatches the host registry → verify_startup raises
-    payload = json.dumps(
-        {
-            "protocol": PROTOCOL_NAME,
-            "protocolVersion": PROTOCOL_VERSION,
-            "buildIdentity": "image-build",
-            "tools": {
-                "echo": {"module": "some.other.module", "qualname": "_echo"},
-            },
-        }
-    ).encode("utf-8")
-    monkeypatch.setattr(
-        wiring_mod, "LocalContainerBackend", lambda **_kw: _FakeDockerBackend(manifest_payload=payload)
-    )
-    monkeypatch.setattr(wiring_mod, "DockerSandboxProvider", _FakeDockerProvider)
-    _FakeDockerProvider.instances.clear()
-    with pytest.raises(ApprovedRegistryError, match="worker manifest target mismatch"):
+    class _BrokenProvider(_FakeNativeProvider):
+        async def start(self) -> None:
+            raise RuntimeError("sandbox readiness failed")
+
+    monkeypatch.setattr(wiring_mod, "NativeSandboxProvider", _BrokenProvider)
+    _FakeNativeProvider.instances.clear()
+    with pytest.raises(RuntimeError, match="readiness failed"):
         await wiring_mod.build_application_state(_minimal_config(tmp_path))
-    assert len(_FakeDockerProvider.instances) == 1
-    assert _FakeDockerProvider.instances[0].shutdown_called is True  # unwound, no degraded state
+    assert len(_FakeNativeProvider.instances) == 1
+    assert _FakeNativeProvider.instances[0].shutdown_called is True  # unwound, no degraded state
 
 
 @pytest.mark.asyncio
-async def test_wiring_production_composition_succeeds_and_runs_canary(
+async def test_wiring_canary_failure_still_destroys_scope(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     from competitive_app import wiring as wiring_mod
-    from competitive_app.adapter.out.sandbox.approved_registry import ApprovedToolRegistry
-    from competitive_app.adapter.out.sandbox.protocol import PROTOCOL_NAME, PROTOCOL_VERSION
     from competitive_app.adapter.out.sandbox.utils.sandbox_id import derive_sandbox_id
 
-    report = await wiring_mod.load_capability_packages(enabled=["echo_example"])
-    registry = ApprovedToolRegistry.from_tools(list(report.tools))
-    payload = json.dumps(
-        {
-            "protocol": PROTOCOL_NAME,
-            "protocolVersion": PROTOCOL_VERSION,
-            "buildIdentity": "image-build",
-            "tools": {name: b.to_mapping() for name, b in registry.bindings.items()},
-        }
-    ).encode("utf-8")
-    monkeypatch.setattr(
-        wiring_mod, "LocalContainerBackend", lambda **_kw: _FakeDockerBackend(manifest_payload=payload)
-    )
-    monkeypatch.setattr(wiring_mod, "DockerSandboxProvider", _FakeDockerProvider)
-    state = await wiring_mod.build_application_state(_minimal_config(tmp_path))
-    assert state.sandbox is not None
-    assert state.sandbox.scope_for("session-1") == derive_sandbox_id("session-1")
-    await state.shutdown()
+    class _FailingCanaryProvider(_FakeNativeProvider):
+        async def acquire(self, scope_id: str) -> Any:
+            sandbox = _FakeSandbox(scope_id)
+            sandbox.terminal = _frame("error", 1, error={"code": "boom", "safeMessage": "boom"})
+            return sandbox
+
+    monkeypatch.setattr(wiring_mod, "NativeSandboxProvider", _FailingCanaryProvider)
+    _FakeNativeProvider.instances.clear()
+    with pytest.raises(Exception, match="canary"):
+        await wiring_mod.build_application_state(_minimal_config(tmp_path))
+    assert len(_FakeNativeProvider.instances) == 1
+    assert _FakeNativeProvider.instances[0].shutdown_called is True
 
 
 @pytest.mark.asyncio
@@ -580,7 +574,7 @@ async def test_wiring_doubles_must_be_paired(monkeypatch: pytest.MonkeyPatch, tm
 
 @pytest.mark.asyncio
 async def test_wiring_accepts_python_only_doubles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """E5: explicit Python-only doubles bypass Docker; default path never does."""
+    """E5: explicit Python-only doubles bypass the native composition."""
     from competitive_app import wiring as wiring_mod
 
     class _Exec:

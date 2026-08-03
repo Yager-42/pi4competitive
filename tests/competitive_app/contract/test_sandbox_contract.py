@@ -26,6 +26,7 @@ def test_worker_targets_import_without_pi_control_plane() -> None:
         )
         assert result.stdout.strip() == "False", (module, result.stderr)
 
+
 def test_transplanted_sandbox_files_record_source_and_license() -> None:
     transplanted = (
         "exceptions.py",
@@ -35,15 +36,7 @@ def test_transplanted_sandbox_files_record_source_and_license() -> None:
         "contracts/security_guard.py",
         "contracts/sandbox_runtime.py",
         "contracts/sandbox_provider.py",
-        "contracts/sandbox_backend.py",
-        "translators/docker_path_translator.py",
-        "guards/audit_guard.py",
-        "guards/docker_path_guard.py",
-        "docker/cross_process_lock.py",
-        "docker/executor.py",
-        "docker/docker_sandbox_provider.py",
-        "docker/local_container_backend.py",
-        "runtimes/docker_runtime.py",
+        "native/workspace.py",
         "utils/sandbox_id.py",
     )
     for relative in transplanted:

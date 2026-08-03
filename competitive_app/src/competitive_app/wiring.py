@@ -15,6 +15,7 @@ Startup failure layering (feature F-A23):
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,13 +31,18 @@ from .adapter.out.persistence.learned_skill_store import SQLiteSkillStore
 from .adapter.out.persistence.socm_store import SocmStore
 from .adapter.out.persistence.task_projection_store import TaskProjectionStore
 from .adapter.out.persistence.workflow_skill_store import WorkflowSkillStore
-from .adapter.out.sandbox.approved_registry import ApprovedToolRegistry
-from .adapter.out.sandbox.docker.docker_sandbox_provider import DockerSandboxProvider
-from .adapter.out.sandbox.docker.local_container_backend import (
-    _ALLOWED_ENVIRONMENT,
-    LocalContainerBackend,
+from .adapter.out.sandbox.approved_registry import (
+    ApprovedToolManifest,
+    ApprovedToolRegistry,
+    manifest_to_mapping,
 )
 from .adapter.out.sandbox.lifecycle import SandboxLifecycle
+from .adapter.out.sandbox.native.native_sandbox_provider import (
+    NATIVE_WORKER_ENVIRONMENT,
+    NativeSandboxProvider,
+)
+from .adapter.out.sandbox.protocol import PROTOCOL_NAME, PROTOCOL_VERSION
+from .adapter.out.sandbox.utils.sandbox_id import derive_sandbox_id
 from .adapter.out.sandbox.sandbox_tool_executor import SandboxToolExecutor
 from .adapter.out.sandbox.utils.sandbox_id import derive_sandbox_id
 from .application.evolution.adapters.pi_llm import PiLlmAdapter
@@ -67,13 +73,15 @@ from .application.workflow.task_service import TaskService
 
 @dataclass
 class SandboxAppConfig:
-    """Production sandbox config: derived image digest + canonical root only.
+    """Native sandbox config: canonical workspace root + manifest path.
 
-    E1: exactly two fields — no enabled/provider/tuning switches exist.
+    P3.3 E: exactly two fields — no image/provider/tuning switches exist;
+    the trusted worker manifest lives beside the workspace root.
     """
 
-    image: str = ""
     root: str = "data/sandboxes"
+    manifest: str = ""  # empty => <root>/approved_tools.json
+    config: str = ""  # empty => ~/.pi/agent/extensions/pi-sandbox/config.json (if present)
 
 
 @dataclass
@@ -334,7 +342,7 @@ async def build_application_state(
     key or capability package failure (feature F-A23).
 
     E1/E5: omitted ``tool_executor``/``sandbox_lifecycle`` ALWAYS build the
-    production Docker sandbox (image digest + canonical root required, startup
+    production native sandbox (workspace root + manifest required, startup
     verification included, failure unwinds before re-raising).  Explicit
     Python-only doubles are accepted for tests; no env/YAML/CLI switch exists
     that disables or replaces the sandbox.
@@ -414,47 +422,41 @@ async def build_application_state(
     except Exception as exc:  # noqa: BLE001
         diagnostics = [{"level": "error", "message": f"capability load failed: {exc}"}]
 
-    # --- production sandbox composition (E1) ------------------------------
-    # Default/omitted arguments always build Docker.  Explicit Python-only
-    # executor + lifecycle doubles are accepted for tests (E5); there is no
-    # env/YAML/CLI switch that disables or replaces the sandbox.
+    # --- production sandbox composition (P3.3 E) ---------------------------
+    # Default/omitted arguments always build the native sandbox (no image,
+    # no Docker, no fallback).  Explicit Python-only executor + lifecycle
+    # doubles are accepted for tests (E5); there is no env/YAML/CLI switch
+    # that disables or replaces the sandbox.
     if tool_executor is None:
-        if not config.sandbox.image:
-            raise ValueError(
-                "SANDBOX_IMAGE must be a pinned registry digest; no production fallback exists"
-            )
-        sandbox_tools = (
-            list(getattr(capability_report, "tools", []) or []) if capability_report else []
-        )
-        sandbox_registry = ApprovedToolRegistry.from_tools(sandbox_tools)
-        environment = {name: os.environ.get(name) for name in _ALLOWED_ENVIRONMENT}
-        sandbox_root = Path(config.sandbox.root)
-        backend = LocalContainerBackend(
-            image=config.sandbox.image,
-            sandbox_root=sandbox_root,
-            environment=environment,
-        )
-        backend.verify_image_identity()
-        provider = DockerSandboxProvider(
-            image=config.sandbox.image,
-            sandbox_root=sandbox_root,
-            environment=environment,
-            backend=backend,
-        )
-        sandbox_executor = SandboxToolExecutor(registry=sandbox_registry, provider=provider)
-        lifecycle = SandboxLifecycle(
-            provider=provider,
-            registry=sandbox_registry,
-            executor=sandbox_executor,
-            sandbox_root=sandbox_root,
-            backend=backend,
-        )
+        provider: Any | None = None
         try:
+            sandbox_tools = (
+                list(getattr(capability_report, "tools", []) or []) if capability_report else []
+            )
+            sandbox_registry = ApprovedToolRegistry.from_tools(sandbox_tools)
+            sandbox_root = Path(config.sandbox.root)
+            manifest_path = Path(config.sandbox.manifest) if config.sandbox.manifest else sandbox_root / "approved_tools.json"
+            manifest = _write_native_manifest(sandbox_registry, manifest_path)
+            environment = {name: os.environ.get(name) for name in NATIVE_WORKER_ENVIRONMENT}
+            provider = NativeSandboxProvider(
+                sandbox_root=sandbox_root,
+                environment=environment,
+                manifest_path=manifest_path,
+                additional_allow_read=_native_sandbox_additional_allow_read(config.sandbox.config),
+            )
+            sandbox_executor = SandboxToolExecutor(registry=sandbox_registry, provider=provider)
+            lifecycle = SandboxLifecycle(
+                provider=provider,
+                registry=sandbox_registry,
+                executor=sandbox_executor,
+                sandbox_root=sandbox_root,
+            )
             await provider.start()
-            await lifecycle.verify_startup(build_identity=config.sandbox.image)
+            await lifecycle.verify_startup(build_identity=manifest.build_identity)
         except Exception:
-            await provider.shutdown()
             # E1.4: unwind already-open App resources (stores) before re-raising.
+            if provider is not None:
+                await provider.shutdown()
             await store.close()
             await skill_store.close()
             await workflow_skill_store.close()
@@ -587,6 +589,48 @@ async def build_application_state(
     )
 
 
+def _native_sandbox_additional_allow_read(path: str) -> list[str]:
+    """Trusted pi-sandbox config overlays (upstream ``getPiSandboxConfigPath``
+    at ``~/.pi/agent/extensions/pi-sandbox/config.json``). Absent or empty
+    configs yield no extra allow-read paths; anything present is parsed by
+    the strict native schema (unsupported fields fail startup, never
+    silently weaken)."
+    """
+    if not path:
+        return []
+    config_path = Path(path).expanduser()
+    if not config_path.is_file():
+        return []
+    from .adapter.out.sandbox.native.config import parse_pi_sandbox_config
+
+    parsed = parse_pi_sandbox_config(json.loads(config_path.read_text(encoding="utf-8")))
+    return list(parsed["filesystem"]["additionalAllowRead"])
+
+
+def _write_native_manifest(
+    registry: ApprovedToolRegistry,
+    path: str | Path,
+) -> ApprovedToolManifest:
+    """Write the trusted worker manifest next to the workspace root.
+
+    The worker validates and executes ONLY tools present in this file; the
+    host registry must be an exact subset of it (the canary then proves the
+    round trip). The build identity records the App version.
+    """
+    from . import __version__
+
+    manifest = ApprovedToolManifest(
+        protocol=PROTOCOL_NAME,
+        protocol_version=PROTOCOL_VERSION,
+        build_identity=f"competitive-app-{__version__}",
+        bindings=registry.bindings,
+    )
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest_to_mapping(manifest)), encoding="utf-8")
+    return manifest
+
+
 def load_config_from_env() -> AppConfig:
     """Read config from .env + env. Loads .env first (does not override real env)."""
     _load_dotenv(Path(__file__).resolve().parents[3] / ".env")
@@ -600,8 +644,9 @@ def load_config_from_env() -> AppConfig:
         default_model=os.environ.get("OPENAI_MODEL", ""),
         use_faux=os.environ.get("USE_FAUX", "").lower() in ("1", "true", "yes"),
         sandbox=SandboxAppConfig(
-            image=os.environ.get("SANDBOX_IMAGE", ""),
             root=os.environ.get("SANDBOX_ROOT", "data/sandboxes"),
+            manifest=os.environ.get("SANDBOX_MANIFEST", ""),
+            config=os.environ.get("SANDBOX_CONFIG", ""),
         ),
     )
     if enabled_list is not None:

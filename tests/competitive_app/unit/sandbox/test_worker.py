@@ -18,6 +18,7 @@ from competitive_app.adapter.out.sandbox.worker import (
     BakedToolManifest,
     WorkerError,
     execute_request,
+    main as worker_main,
     run_worker,
 )
 
@@ -123,3 +124,43 @@ def test_worker_reads_one_request_and_emits_jsonl(tmp_path: Path) -> None:
     frames = [decode_frame(line) for line in output.getvalue().splitlines()]
     assert code == 0
     assert len(frames) == 2
+
+
+def test_worker_main_resolves_manifest_path_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """P3.3 D: the native runtime passes the trusted manifest via env."""
+    module = _install_fixture_module()
+    manifest_path = tmp_path / "native-approved-tools.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "protocol": "agent-tool-rpc.v1",
+                "protocolVersion": 1,
+                "buildIdentity": "native-1",
+                "tools": {"echo": {"module": module, "qualname": "_worker_tool"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PI4COMPETITIVE_MANIFEST_PATH", str(manifest_path))
+    request = encode_request(_request(module))
+    output = io.BytesIO()
+    code = worker_main_with_streams(request, output)
+    assert code == 0
+    frames = [decode_frame(line) for line in output.getvalue().splitlines()]
+    assert len(frames) == 2
+
+
+def worker_main_with_streams(request: bytes, output: io.BytesIO) -> int:
+    """Drive worker.main() with injected stdio (subprocess-free)."""
+    original_stdin, original_stdout = sys.stdin, sys.stdout
+    sys.stdin = io.TextIOWrapper(io.BytesIO(request + b"\n"))
+    stdout_wrapper = io.TextIOWrapper(output)
+    sys.stdout = stdout_wrapper
+    try:
+        try:
+            worker_main()
+        except SystemExit as exit_error:
+            return int(exit_error.code or 0)
+    finally:
+        sys.stdin, sys.stdout = original_stdin, original_stdout
+        stdout_wrapper.detach()  # do not let the wrapper close the BytesIO
