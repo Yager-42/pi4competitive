@@ -2,8 +2,8 @@
 
 | Field | Value |
 |-------|--------|
-| **plan_version** | `0.1.4` |
-| **status** | **completed** |
+| **plan_version** | `0.1.5` |
+| **status** | **completed**（v0.1.5 勘误，实现不变） |
 | **created** | 2026-08-03 |
 | **updated** | 2026-08-03 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P4** `competitive_app` |
@@ -12,7 +12,7 @@
 | **depends_on** | **P4 `competitive_app` HTTP + research-workflow done**（wiring / task_service / _HarnessFactory 现役） |
 | **reference** | poirot `config/fallback_model.py` + `journal/`（MIT，设计/数据层抄源）；ragent `FirstPacketAwaiter`/`ProbeBufferingCallback`（首包探测思想） |
 | **target** | `competitive_app/application/model/` + `competitive_app/adapter/out/observability/` + `competitive_app/application/workflow/journal_bridge.py` + `packages/ai`（仅 ADR 0015） |
-| **tests** | `tests/competitive_app/unit/test_fallback_stream.py`、`test_fallback_router.py`、`test_run_journal.py`、`test_journal_bridge.py` + `tests/packages/ai/unit/test_http_stream_error.py`（或现有单测文件内） |
+| **tests** | `tests/competitive_app/unit/test_fallback_stream.py`、`test_fallback_router.py`、`test_run_journal.py`、`test_journal_bridge.py`、`test_journal_stream.py` + `tests/packages/ai/unit/test_http_stream_error.py`（或现有单测文件内） |
 | **non_goal** | 角色化路由（G4 否决）；LangChain/LangGraph；跨 run 聚合 API；改已冻结 HTTP 路由语义；`packages/agent` 任何改动 |
 
 ---
@@ -42,7 +42,7 @@
 
 | ID | Must |
 |----|------|
-| Feature v0.2.0 | G1–G14 / B1–B13 — **no inventing open scope** |
+| Feature v0.2.1 | G1–G14 / B1–B13 — **no inventing open scope** |
 | ADR 0015 | `AssistantMessage.error` NotRequired；仅 `stopReason=="error"`；`errorMessage` 保留；产点仅 `_http_stream.error_message()` |
 | D15 / D4 | `packages/ai` 除 ADR 0015 外零改动；`packages/agent` 零改动 |
 | §2.2 / §6 | 无 LangChain/LangGraph；LLM 仅 pi_ai/pi_agent |
@@ -85,7 +85,7 @@
 
 | 文件 | 抄法 | COPY / ADAPT |
 |------|------|-------------|
-| `competitive_app/application/model/fallback_stream.py` | poirot `fallback_model.py` **骨架逐行 COPY**：`for offset in range(n): idx=(active+offset)%n` 轮转、`_active` 记忆、全链失败抛最后错误的控制流与注释**原样保留**。**ADAPT 点清单（仅 3 处）**：①调用面 `self.models[idx].invoke(...)` → pi 事件流消费（首包探测 + 全程缓冲，ragent 思想）；②错误判定 `except → _should_fallback(exc)` → 读 `error` 字段（ADR 0015），分类表照抄（timeout/connection/429/5xx → 降级；400/401/403/404 → 不降级）；③`bind_tools` 删除（pi streamSimple 自带 tools）。首包探测为 G7 新增语义，叠加在 ① 内（`asyncio.wait_for` + signal 取消；`LLM_FALLBACK_FIRST_PACKET_MS` 默认 60000） | COPY 骨架 + 3 ADAPT |
+| `competitive_app/application/model/fallback_stream.py` | poirot `fallback_model.py` **骨架逐行 COPY**：`for offset in range(n): idx=(active+offset)%n` 轮转、`_active` 记忆、全链失败抛最后错误的控制流与注释**原样保留**。**ADAPT 点清单（仅 4 处）**：①调用面 `self.models[idx].invoke(...)` → pi 事件流消费（首包探测 + 全程缓冲，ragent 思想）；②错误判定 `except → _should_fallback(exc)` → 读 `error` 字段（ADR 0015），分类表照抄（timeout/connection/429/5xx → 降级；400/401/403/404 → 不降级）；③`bind_tools` 删除（pi streamSimple 自带 tools）；④全链失败 `raise last_exc` → 返回最后 error 消息（G8/B7，pi 语义不抛异常）。首包探测为 G7 新增语义，叠加在 ① 内（`asyncio.wait_for` + signal 取消；`LLM_FALLBACK_FIRST_PACKET_MS` 默认 60000） | COPY 骨架 + 4 ADAPT |
 | `competitive_app/application/model/router.py` | poirot `provider_config.py` **COPY**：`ProviderConfig` frozen dataclass / `ProviderConfigError` / `discover_available_providers`（enabled+key 判定 + priority 排序）逐字搬；`route_chain_for` 的"空链/兜底追加"结构保留但**输入换成 env 链**（G4 否决角色表，`LLM_FALLBACK_PROVIDERS` 逗号分隔，未设 → `[主模型]`）；**ADAPT 点**：①`build_chat_model`（LangChain 构造）→ pi `create_models`+`setProvider` 映射（框架面）；②`provider_profile` 表 → pi provider 工厂注册表 | COPY + 2 ADAPT |
 | `competitive_app/application/model/__init__.py` | 导出（新建，非抄） | — |
 | `tests/competitive_app/unit/test_fallback_stream.py` + `test_fallback_router.py` | poirot `test_model_router.py` **行为断言语义照抄**：`test_fallback_on_transient_error`（`_active` 记忆）/`test_client_error_propagates_without_fallback`/`test_all_failures_raises_last`/`test_should_fallback_*` 逐一平移；**ADAPT**：`FakeListChatModel`（LangChain 测试替身）→ pi scripted 事件流替身；判定断言从异常改 `error` 字段 | 语义 COPY + 替身 ADAPT |
@@ -108,7 +108,7 @@
 | `competitive_app/wiring.py` | 组装：`create_models()` + 链上各 provider `setProvider()`；`FallbackRouter.build_chain()` → `FallbackStream` 包装 stream_fn（`LLM_FALLBACK_DISABLED=1` 直通）；journal 注入 harness/runner |
 | `competitive_app/application/model/journal_stream.py` | **host delta（v0.1.3 补注）**：本 port 的 `agent_loop.py` 不调用 `config.onPayload`/`onResponse`（上游 TS 有，Python port 未接）→ `before_provider_request`/`after_provider_response` extension 事件永不触发。`llm.request`/`llm.response` 改由 **JournalStream**（StreamFn 兼容包装，stream_fn 单点）产出：调用入口写 `llm.request`（model/provider），流终态（done/error）写 `llm.response`（status ok/error + errorType）；事件透传；lazy setup 同 `_FallbackCall`。JournalBridge 的 `before_provider_request` 处理器保留（上游补钩子后可直接接）。judge 的 `completeSimple` 不经 stream_fn → 无 `llm.*`（其 `trace.span` 已覆盖） |
 | `competitive_app/application/workflow/coverage_engine.py` + `extraction.py` | 直连 append 点：`help.requested`/`help.exhausted`（失败路径）、`skill.select`/`skill.apply`（capability 应用处）、`report.generated`（report 完成）、`budget`（getContextUsage 调用点） |
-| `.env.example`（config/） | 新增 `LLM_FALLBACK_PROVIDERS` / `LLM_FALLBACK_FIRST_PACKET_MS` / `LLM_FALLBACK_DISABLED` 注释项 |
+| `.env.example`（仓库根） | 新增 `LLM_FALLBACK_PROVIDERS` / `LLM_FALLBACK_FIRST_PACKET_MS` / `LLM_FALLBACK_DISABLED` / `RUNS_ROOT` 注释项 |
 
 **验收**：一次 `_run_research` 后 `events.jsonl` 含完整序列（feature §6.4）；SSE 消费者零回归（事件对象不变）。
 
@@ -146,7 +146,7 @@
 
 | 测试 | 验证的真实链路 |
 |------|----------------|
-| `test_live_fallback_switch` | 链 = [坏 key provider（首包必败）, 真 key provider] → 首包失败自动切 → 真实 LLM 成功返回 → journal 含 `llm.fallback_start`/`llm.fallback_switch`；`_active` 记忆生效（下一轮直接从好 provider 起，无再降级） |
+| `test_live_fallback_switch` | 链 = [首包必败 provider, 真 key provider] → 首包失败自动切 → 真实 LLM 成功返回 → journal 含 `llm.fallback_start`/`llm.fallback_switch`；`_active` 记忆生效（下一轮直接从好 provider 起，无再降级）。注（v0.1.5 勘误）：坏 key=401 按 B2 **不降级**，故"首包必败"实现为**死 endpoint**（connection 错误；系统代理环境下呈现为 5xx，仍属可降级） |
 | `test_live_journal_llm_events` | 真实 LLM 调用一轮 → `events.jsonl` 含 `llm.request`/`llm.response`（payload.model = 实际 model id）+ 事件时间序正确 |
 | 全流程（可选增强，不 gate 本 feature） | 一次真实 research task 完成后 events.jsonl 全序列 + task_spans 三写；无 key 环境跳过不阻塞 |
 
@@ -173,3 +173,4 @@
 | 0.1.2 | 2026-08-03 | **测试两层化**：§3 重写为 Offline（unit 正常+鲁棒 双用例 + faux 集成）/ Live（`@pytest.mark.live` 门控，真实链路降级切换 + journal 事件）两层；阶段 6 加 live 验收条目；live 纪律（只证链路跑通，结果正确性归 offline） |
 | 0.1.3 | 2026-08-03 | **实现补注（host delta）**：阶段 5 补 `journal_stream.py` 行——本 port agent loop 无 onPayload/onResponse 钩子，`llm.request`/`llm.response` 产点 = JournalStream（stream_fn 单点），JournalBridge 对应处理器保留待上游钩子；fallback 链按 feature §3.2 原样使用（无链修正） |
 | 0.1.4 | 2026-08-03 | **completed**：六阶段全部落地并验证——ADR 0015（pi_ai 0.81.3 / contract 0.3.12）；journal 数据层 COPY poirot 100%；FallbackRouter/FallbackStream（首包探测 + 全程缓冲 + `_active`）；JournalBridge + JournalStream（llm.* 产点，host delta）；wiring 三写 + runs 生命周期 + delete 级联；faux 集成 + live 2 条（真实降级切换 + journal 事件）全绿；全量 580 passed / 0 failed（含预存在 P3.3-era live 测试修复 2 处：L4 `evolution_cycle_runner` 引用、live env 裸 `os.environ` 残留污染）；`packages/agent` 零 diff |
+| 0.1.5 | 2026-08-03 | **收尾核对勘误（实现零改动）**：§1 约束 Feature v0.2.0 → **v0.2.1**；阶段 3 fallback_stream ADAPT 清单 3 处 → **4 处**（补④全链失败 `raise last_exc` → 返回 error 消息 G8/B7，与文件头声明一致）；阶段 5 `.env.example` 路径（config/ → 仓库根）+ 补 `RUNS_ROOT` 项；header tests 字段补 `test_journal_stream.py`；§3.2 `test_live_fallback_switch` 措辞勘误（坏 key=401 按 B2 不降级，"首包必败"实现为死 endpoint）。COPY diff 核对通过：journal 两文件仅 import/头注释差异；fallback_stream/router 骨架与 poirot 逐行同构 |
