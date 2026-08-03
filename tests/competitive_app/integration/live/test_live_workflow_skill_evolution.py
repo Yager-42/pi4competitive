@@ -269,7 +269,7 @@ async def test_live_workflow_skill_fix_cycle_runs_after_task_completion(tmp_path
         for index in range(5):
             await state.skill_store.record_selection(candidate_id)
             await state.skill_store.record_outcome(candidate_id, f"rollback-{index}", False, False)
-        await state.evolution_cycle_runner.run_cycle()
+        await state.task_service._evolution_cycle_runner.run_cycle()
         rolled = await state.skill_store.get_active("live-fix")
         assert rolled and rolled.skill_id == parent.skill_id
         manifest = (root / "package.json").read_text(encoding="utf-8")
