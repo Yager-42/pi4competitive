@@ -241,7 +241,7 @@ P3.3 closes only after the Docker provider/backend/runtime/image/SDK/config are 
 | PR1 | G0 + A approval core | transplanted approval tests + license map |
 | PR2 | B SRT platform core | offline argv/profile/policy parity tests |
 | PR3 | C + D runner/provider/RPC integration | protocol, abort, parallel, fail-closed tests |
-| PR4 | E wiring/readiness + real Linux/macOS gates | both-platform e2e green |
+| PR4 | E wiring/readiness + real gates | macOS real gate e2e green（required）；Linux real gate optional per ADR 0013（Linux 主机可用时运行） |
 | PR5 | F removal + V4 closeout | no production Docker refs/deps; full regression green |
 
 No slice may wire a partial native sandbox that can fall back to Host or Docker. Production wiring switches only when its required platform readiness tests are present; the final merge removes Docker completely.
