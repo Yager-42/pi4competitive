@@ -27,7 +27,7 @@ This file is for humans and coding agents working in this repo.
 | [`docs/plans/P4_search_capability_packages.md`](docs/plans/P4_search_capability_packages.md) | search capability packages v1 (**completed** implementation; feature frozen) |
 | [`docs/plans/P4_competitive_app_http.md`](docs/plans/P4_competitive_app_http.md) | P4 competitive_app HTTP 骨架（v0.2.0；14 路由） |
 | [`docs/plans/P4_research_workflow_v2.md`](docs/plans/P4_research_workflow_v2.md) | P4 三阶段研究 workflow v0.2.0（SearchOS coverage 引擎；ADR 0010；plan 随 PR2 起补）；v1 plan `P4_research_workflow.md` completed v0.1.1 |
-| [`docs/plans/P4_llm_fallback_observability.md`](docs/plans/P4_llm_fallback_observability.md) | P4 fallback + observability plan（**v0.1.2 active**；六阶段；COPY 纪律；Offline/Live 两层测试） |
+| [`docs/plans/P4_llm_fallback_observability.md`](docs/plans/P4_llm_fallback_observability.md) | P4 fallback + observability plan（**v0.1.4 completed**；六阶段；COPY 纪律；Offline/Live 两层测试；ADR 0015） |
 | [`docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md`](docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md) | ADR: port subset, omit install/npm/git/home |
 | [`docs/contracts/adr/0007-legacy-repo-capability-reference.md`](docs/contracts/adr/0007-legacy-repo-capability-reference.md) | ADR: 旧仓 = `competitive-agent`（能力参考 only） |
 | [`docs/contracts/adr/0008-agent-engine-extensions-runtime.md`](docs/contracts/adr/0008-agent-engine-extensions-runtime.md) | ADR: P3.1 extension runtime S-engine |

@@ -2,8 +2,8 @@
 
 | Field | Value |
 |-------|--------|
-| **plan_version** | `0.1.3` |
-| **status** | **active** |
+| **plan_version** | `0.1.4` |
+| **status** | **completed** |
 | **created** | 2026-08-03 |
 | **updated** | 2026-08-03 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage **P4** `competitive_app` |
@@ -172,3 +172,4 @@
 | 0.1.1 | 2026-08-03 | **COPY 纪律强化**：§0/§1 加 COPY 为主 + ADAPT 点清单机制（契约 §1.6 规则）；阶段 2 标 COPY 100%（含测试整搬）；阶段 3 逐文件列 COPY/ADAPT 等级与 ADAPT 点清单（fallback_stream 3 点 / router 2 点）；阶段 4 JournalBridge 明示"机制重写 + 行为语义 COPY"；§4 加 COPY 纪律执行风险与 diff 核对验收 |
 | 0.1.2 | 2026-08-03 | **测试两层化**：§3 重写为 Offline（unit 正常+鲁棒 双用例 + faux 集成）/ Live（`@pytest.mark.live` 门控，真实链路降级切换 + journal 事件）两层；阶段 6 加 live 验收条目；live 纪律（只证链路跑通，结果正确性归 offline） |
 | 0.1.3 | 2026-08-03 | **实现补注（host delta）**：阶段 5 补 `journal_stream.py` 行——本 port agent loop 无 onPayload/onResponse 钩子，`llm.request`/`llm.response` 产点 = JournalStream（stream_fn 单点），JournalBridge 对应处理器保留待上游钩子；fallback 链按 feature §3.2 原样使用（无链修正） |
+| 0.1.4 | 2026-08-03 | **completed**：六阶段全部落地并验证——ADR 0015（pi_ai 0.81.3 / contract 0.3.12）；journal 数据层 COPY poirot 100%；FallbackRouter/FallbackStream（首包探测 + 全程缓冲 + `_active`）；JournalBridge + JournalStream（llm.* 产点，host delta）；wiring 三写 + runs 生命周期 + delete 级联；faux 集成 + live 2 条（真实降级切换 + journal 事件）全绿；全量 580 passed / 0 failed（含预存在 P3.3-era live 测试修复 2 处：L4 `evolution_cycle_runner` 引用、live env 裸 `os.environ` 残留污染）；`packages/agent` 零 diff |
