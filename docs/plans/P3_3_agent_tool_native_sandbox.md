@@ -3,10 +3,10 @@
 | Field | Value |
 |-------|-------|
 | **plan_id** | `P3.3-agent-tool-native-sandbox` |
-| **plan_version** | `0.1.3` |
-| **status** | **active — A–F + V1 done；V2/V3 real gates todo** |
+| **plan_version** | `0.1.4` |
+| **status** | **active — A–F + V1 + V3（macOS real gate）done；V2 optional per ADR 0013；V4 audits in progress** |
 | **created** | 2026-08-02 |
-| **updated** | 2026-08-02 |
+| **updated** | 2026-08-03 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage P3.3 |
 | **contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) v0.3.9 |
 | **ADR** | [`0012-native-agent-tool-sandbox-runtime.md`](../contracts/adr/0012-native-agent-tool-sandbox-runtime.md) accepted |
@@ -161,8 +161,8 @@ Exact filenames may only change to match an established local module boundary; a
 | E | App wiring/readiness/scope lifecycle + Linux/macOS config | **done — O19–O21 passed；offline 743 passed** |
 | F | remove Docker production code/dependencies/image/config | **done — G0 §6.2 executed；agent-sandbox dep removed；offline 715 passed** |
 | V1 | offline contract/unit/parity tests | **done — O1–O22 green；offline 715 passed** |
-| V2 | Linux amd64 real enforcement/e2e | todo |
-| V3 | arm64 macOS real enforcement/e2e | todo |
+| V2 | Linux amd64 real enforcement/e2e | **optional（ADR 0013）**— Linux 主机/CI 可用时运行同一 S1–S9 套件；不阻塞 closeout；任何 Linux production 部署声明前必过 |
+| V3 | arm64 macOS real enforcement/e2e | **done — S1–S9 + e2e 11 tests green（real broker + real policy, sandbox-exec）；gate 修复 2 个 production 缺陷：interpreter symlink exec（policy.py/macos.py）、AF family 映射（network_policy.py）；offline 727 passed** |
 | V4 | baseline/resource/license/CodeGraph audit and closeout | todo |
 
 ## 5. Verification gates
@@ -180,18 +180,39 @@ Exact filenames may only change to match an established local module boundary; a
 
 ### 5.2 Linux real
 
-- bubblewrap mount/network/PID namespace and nested seccomp active;
-- workspace allow; home/App/session/DB/other scope deny;
-- network default deny, public exact grant allow, private/mixed DNS deny;
-- parallel calls overlap with independent brokers;
+- bubblewrap mount/network/PID namespace 和 nested seccomp active；
+- workspace allow；home/App/session/DB/other scope deny；
+- network default deny, public exact grant allow, private/mixed DNS deny；
+- parallel calls overlap with independent brokers；
 - timeout/abort/scope abort leave no process/proxy orphan.
 
 ### 5.3 macOS real
 
-- Seatbelt profile active with equivalent filesystem/network decisions;
-- same approval, parallel, timeout, abort and cleanup behavior;
+- Seatbelt profile active with equivalent filesystem/network decisions；
+- same approval, parallel, timeout, abort and cleanup behavior；
 - no unsupported-path Host fallback.
 
+- **V3 executed 2026-08-03（arm64 macOS, sandbox-exec 真实执行）**：S1–S9 +
+  parallel/abort e2e 11 tests green（`tests/competitive_app/integration/live/
+  test_macos_sandbox_enforcement.py`，驱动 real broker + real
+  `create_default_policy`）。gate 期间发现并修复两个 production 缺陷：
+  - `srt/macos.py` + `policy.py`：venv interpreter 经 symlink 链落在
+    `denyRead=[home]` 之下，Seatbelt 解析 symlink 后 execvp EPERM —
+    `policy.py` 将 interpreter symlink 链每一跳 dirname + 最终 bin/base
+    加入 allowRead；`macos.py` 对 allowWithinDeny 被 deny 的每个祖先目录
+    补发 literal `file-read-metadata`（wildcard allow 无法 re-grant exec）。
+  - `native/network_policy.py`：`_default_resolver` 返回 AF_INET/AF_INET6
+    (2/30) 而 `is_public_address` 期望 ipaddress version (4/6)，导致
+    validate 恒 None、broker 永不发出 network-request（approval 通路
+    静默失效）— 现映射为 4/6，回归测试走 real resolver（fake
+    getaddrinfo，offline）。
+
+
+> **ADR 0013（contract v0.3.10）**：§5.2 Linux real gate 为**可选项** —
+> Linux amd64 主机/CI 可用时运行；任何 Linux production 部署声明前必须
+> 通过；不阻塞 P3.3 closeout。§5.3 macOS real gate 保持正式必过。
+> Linux production 真实行为（bubblewrap/seccomp 生效）在可选 gate 通过前
+> 记录为未验证残余风险（feature §11.2）。
 ### 5.4 Comparison and removal
 
 Record cold/steady/10-way parallel/idle RSS+PIDs/disk against the frozen Docker baseline. No artificial latency SLA. P3.3 closes only after Docker provider/backend/runtime/image/SDK/config are removed and dependency/license audits are green.
@@ -213,7 +234,10 @@ No slice may wire a partial native sandbox that can fall back to Host or Docker.
 - [ ] Frozen source archives/SHAs/package versions/licenses recorded.
 - [ ] COPY/ADAPT/OMIT map matches actual files and host deltas.
 - [ ] Python approval core matches exact grant/hard-deny/failure-mode semantics.
-- [ ] Linux and macOS SRT paths pass real enforcement gates.
+- [ ] macOS SRT path passes the real enforcement gate (V3, arm64) — **required**.
+- [ ] Linux SRT path real enforcement gate is **optional** (ADR 0013): runs
+      when a Linux host/CI is available; required before any Linux production
+      deployment claim; does not block closeout.
 - [ ] Universal AgentTool execution, RPC, registry, scope/workspace remain green.
 - [ ] Abort/timeout/parallel leave no orphan.
 - [ ] Worker environment remains the seven-item allowlist.
@@ -229,3 +253,5 @@ No slice may wire a partial native sandbox that can fall back to Host or Docker.
 | `0.1.1` | 2026-08-02 | G0 complete：pins Git/npm integrity/licenses；full pi-sandbox/auto-review/SRT file+test map；apply-seccomp source/binary hashes/build contract；Docker migration map；CodeGraph impact；O/S/L/M/P/R tests, commands, prerequisites；offline baseline 406 passed |
 | `0.1.2` | 2026-08-02 | Phase E complete：wiring/readiness manifest staging/startup verify、O20 universal-executor coverage（main/dynamic/extension/resume/ephemeral over real worker+capability）、offline 743 passed |
 | `0.1.3` | 2026-08-02 | Phase F complete：G0 §6.2 all rows executed — docker/、runtimes/、translators/、guards/、deploy/tool-sandbox/ deleted；agent-sandbox==0.0.30 removed from pyproject/uv.lock；licenses moved to native/vendor/licenses；retained headers repointed；test_backend/test_docker_provider/Docker live suite deleted；facade/contract tests adapted；O22 native contract suite added；wiring E1.4 unwind widened to cover manifest-write failure；V1 green offline 715 passed |
+| `0.1.4` | 2026-08-03 | **ADR 0013**：V2 Linux real gate 改为可选项（不阻塞 closeout；Linux production 部署前必过；apply-seccomp 供应链契约不变）；V3 macOS real gate 正式必过（进行中）；roadmap/feature/contract 同步 v0.3.10 |
+| `0.1.5` | 2026-08-03 | **V3 macOS real gate done**：S1–S9 + parallel/abort e2e 11 tests green（real broker/policy/sandbox-exec）；修复 interpreter symlink-exec（policy.py 加 symlink 链 allowRead；macos.py 补 literal file-read-metadata 祖先目录）与 network_policy AF family 映射（approval 通路回归）；offline 727 passed；V4 audits 进行中 |

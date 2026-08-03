@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **contract_version** | `0.3.9` |
-| **status** | **active**（0.3.9 = ADR 0012：native-only AgentTool sandbox；Linux/macOS；Python port erichll/SRT/auto-review） |
-| **updated** | 2026-08-02 |
-| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、**P3.3 native AgentTool sandbox（ADR 0012）**、P4 旧仓参考身份、SearchOS 引擎架构参考身份（ADR 0010） |
+| **contract_version** | `0.3.10` |
+| **status** | **active**（0.3.10 = ADR 0013：Linux real-enforcement gate 可选；macOS gate 必过；0.3.9 = ADR 0012 native-only Linux/macOS AgentTool sandbox；Python port erichll/SRT/auto-review） |
+| **updated** | 2026-08-03 |
+| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、**P3.3 native AgentTool sandbox（ADR 0012/0013）**、P4 旧仓参考身份、SearchOS 引擎架构参考身份（ADR 0010） |
 | **roadmap** | 实现顺序与阶段门禁见 [`docs/ROADMAP.md`](../ROADMAP.md) |
 | **out of scope for this doc** | 业务特性 backlog 细则、各业务 JSON Schema 字段表（另文） |
 
@@ -24,7 +24,7 @@
 
 | ID | 主题 | 决定 | 禁止 |
 |----|------|------|------|
-| D1 | 进程拓扑 | **单一 Python 控制面**（FastAPI/Pi/LLM/Session）+ **per-call native Python AgentTool 数据面**（Linux bubblewrap/seccomp；macOS Seatbelt；ADR 0012） | 第二 Agent/LLM/workflow 控制面；Node+FastAPI 双 Pi；Docker production backend/fallback |
+| D1 | 进程拓扑 | **单一 Python 控制面**（FastAPI/Pi/LLM/Session）+ **per-call native Python AgentTool 数据面**（Linux bubblewrap/seccomp；macOS Seatbelt；ADR 0012；Linux real gate 可选 per ADR 0013） | 第二 Agent/LLM/workflow 控制面；Node+FastAPI 双 Pi；Docker production backend/fallback |
 | D2 | Agent 基座 | **Python 移植官方 Pi**（main）作基座 | npm 当运行时；灵感式 loop |
 | D3 | agent 深度 | **C 档**：main `packages/agent` core+harness 目标面 | demo loop + App 再造 session |
 | D4 | 复刻方式 | **TS→Python 同构**（行为+模块边界+包组织） | 自创简化架构冒充 port |
@@ -49,7 +49,7 @@
 | D23 | 模型/密钥配置 | **配置文件 + env 覆盖（C）**；密钥不入 git | 密钥提交仓库 |
 | D24 | Agent Session 默认存储 | **JSONL** 作对话/tool SoT；搜索状态（SOCM）可落 JSON（`search_state.json`），属搜索 SoT 非对话 SoT（ADR 0010 D-S4） | 仅内存当默认 SoT |
 | D25 | JSONL 落盘路径 | 默认 **`data/sessions/`**（`data/` 不入库） | 默认写系统临时目录导致无法稳定 resume |
-| D26 | 架构冻结 | v0.3.1 baseline；0.3.2+ 按 ADR 演进（含 0006–**0012**） | 仅聊天改架构不改本文 |
+| D26 | 架构冻结 | v0.3.1 baseline；0.3.2+ 按 ADR 演进（含 0006–**0013**） | 仅聊天改架构不改本文 |
 
 ### 1.1 已废弃
 
@@ -415,4 +415,5 @@ P3.3 的 provider-neutral executor 与 generic boundary-approval service seam �
 | **0.3.8** | 2026-08-01 | **ADR 0011-A**：arm64 验收 daemon 措辞从字面 "Docker Desktop" 放宽为 arm64 macOS Docker daemon（orbstack 实测接受为 F4 证据）；理由：容器行为由 Linux 内核决定，daemon 产品无实质差异；Linux amd64 证据仍强制；G13 同步更新；D*/G* 其余不变 |
 | **0.3.9** | 2026-08-02 | **ADR 0012**：supersede ADR 0011/0011-A 的 Docker-specific decisions；P3.3 改为 Linux/macOS native-only AgentTool sandbox；Python port pi-sandbox/SRT/pi-auto-review；保留 provider-neutral executor/RPC/scope；更新 D1/D6/D9/D14/D26、拓扑、技术栈、门禁与术语 |
 | *(0.3.9 patch)* | 2026-08-02 | P3.3 native G0 complete：feature v0.2.1 / plan v0.1.1 / G0 map v0.1.0；冻结三父本 integrity/license、SRT/full transplant、seccomp supply chain、Docker removal、CodeGraph 与 O/S/L/M/P/R tests；无架构决策变化，不升 contract_version |
+| **0.3.10** | 2026-08-03 | **ADR 0013**：Linux real-enforcement gate（V2/S1–S9）改为可选项 — Linux 主机可用时运行、不阻塞 P3.3 closeout，任何 Linux production 部署声明前必须通过；arm64 macOS real gate（V3）保持正式必过；offline parity（O1–O22/V1）全平台 binding；残余风险入 feature §11/plan §5.2；D1 措辞更新；无 production 代码变更 |
 | *(0.3.7 patch)* | 2026-07-31 | 建立 P3.3 implementation plan v0.1.0；feature 无语义 patch 至 v0.1.31；同步 plan/exit-gate 指针，**不改 D*/G*、不升 contract_version** |

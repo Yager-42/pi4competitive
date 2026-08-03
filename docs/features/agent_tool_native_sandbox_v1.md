@@ -51,7 +51,7 @@
 | G1 | 以 `@erichll/pi-sandbox@0.4.2` 为 adapter/security-semantics 父本 | RESOLVED |
 | G2 | 在当前自实现 Python Pi Agent 中使用；不引入第二 Agent loop | RESOLVED |
 | G3 | 用 Python 等价移植，不以 Node/npm 作为 production runtime | RESOLVED |
-| G4 | Linux 与 macOS 都是正式支持平台；按 erichll 分别使用 bubblewrap/seccomp 与 Seatbelt，保证对外能力和 fail-closed 行为一致 | RESOLVED |
+| G4 | 平台承诺 | Linux 与 macOS 都 production-capable；macOS real gate 必过；Linux real gate 可选（ADR 0013）— Linux 主机可用时运行，任何 Linux production 部署声明前必须通过 | RESOLVED |
 | G5 | `pi-sandbox` 依赖的 `pi-auto-review@0.3.2` 审批能力一并做 Python 等价移植 | RESOLVED |
 | G6 | 复制服从当前 Pi/App/DDD 所有权和依赖方向；能映射则尽量 COPY-semantics，冲突时才 ADAPT/OMIT | RESOLVED |
 | G7 | v1 等价移植 erichll/SRT 已有能力，不额外引入 cgroup 或自制 resource monitor；保留其 timeout/process-tree cleanup | RESOLVED |
@@ -147,8 +147,8 @@ Linux 和 macOS 都属于 production 支持范围，不把 macOS 降级为仅开
 
 - Linux 等价移植 erichll/SRT 的 bubblewrap mount/network/PID namespace 与 seccomp 路径；
 - macOS 等价移植 erichll/SRT 的 Seatbelt profile 与 sandbox-exec 路径；
-- 两个平台必须通过相同的 filesystem、network、approval、timeout、abort、cleanup、并行和 fail-closed 行为测试；
-- 验收要求对外能力一致，不要求不同内核使用字面相同的隔离原语；平台固有差异必须记录，但不能成为 macOS 绕过或宿主 fallback 的理由。
+- **macOS（arm64）real enforcement 是正式必过 gate**；**Linux real enforcement 是可选项**（ADR 0013）：Linux amd64 主机/CI 可用时运行同一 S1–S9 套件，结果作为 Linux production 部署前提；不阻塞 P3.3 closeout；
+- 两个平台的离线 parity、fail-closed 与 no-host-fallback 要求一致；平台固有差异必须记录，但不能成为 macOS 绕过或宿主 fallback 的理由。
 
 ## 4. Upstream 移植边界
 
@@ -340,17 +340,18 @@ startup readiness 必须真实验证：helper 可执行、unprivileged namespace
 
 ### 10.2 Real OS enforcement
 
-- workspace read/write allow；scope escape deny；
+- **macOS（arm64）必过**：Seatbelt profile 真实生效，workspace read/write allow；scope escape deny；
 - home、`.env`、session、DB、App config、tool bundle write deny；
 - symlink/path traversal 不扩大可见边界；
 - network default deny；批准只作用于精确 endpoint；private/metadata/DNS mixed result deny；
 - timeout/abort 杀死完整 process tree，无 orphan；
 - broker/SRT/proxy crash 不触发 Host execution；
 - 同 scope 和跨 scope 并行均真实执行且隔离正确。
+- **Linux（amd64）可选**（ADR 0013）：同一 S1–S9 套件在 Linux 主机运行时 green；Linux production 部署前必须执行。
 
 ### 10.3 Performance/resource evidence
 
-必须与当前 Docker 基线在同一台 arm64 macOS host 和一台 Linux amd64 host 对比：
+必须与 ADR 0012 记录的 Docker 基线对比（优先同一台 arm64 macOS host；Linux amd64 host 可用时补充对比）：
 
 - cold first tool call；
 - steady tool call；
@@ -364,7 +365,7 @@ G8 不锁定人为数值 SLA。验收必须提交同机 cold/steady/parallel/idl
 ## 11. 已知残余风险
 
 1. erichll/SRT 没有 Docker 当前提供的 CPU、memory、PID 和 filesystem size quota。
-2. Linux 与 macOS 使用不同的内核隔离原语；Seatbelt 没有 Linux PID/user/mount namespace，但两者都必须满足本 feature 锁定的对外行为与 fail-closed 契约。
+2. Linux 与 macOS 使用不同的内核隔离原语；Seatbelt 没有 Linux PID/user/mount namespace，但两者都必须满足本 feature 锁定的对外行为与 fail-closed 契约。**ADR 0013 后：Linux real enforcement 未执行前，Linux production 真实行为（bubblewrap/seccomp 生效）为未验证状态**；macOS 真实行为已由必过 gate 验证。
 3. SRT 是 research preview；Python port 需要独立追踪 upstream security fixes。
 4. Linux filesystem deny 对不存在的深层动态 secret path 受 literal mount/path 能力限制。
 5. bubblewrap/Seatbelt/seccomp 是宿主内核边界，不等同于 VM/microVM kernel isolation。
@@ -377,7 +378,7 @@ G8 不锁定人为数值 SLA。验收必须提交同机 cold/steady/parallel/idl
 | G1 | sandbox adapter 父本 | erichll `0.4.2` frozen SHA | RESOLVED |
 | G2 | 接入哪套 Agent | 当前 Python Pi Agent，保留唯一 Agent loop | RESOLVED |
 | G3 | 是否允许 Node/npm production runtime | 不允许；Python 移植 erichll + required SRT subset | RESOLVED |
-| G4 | production 平台承诺 | Linux 与 macOS 都正式支持；分别等价翻译 erichll 的 Linux/macOS 路径，能力与失败语义一致 | RESOLVED |
+| G4 | production 平台承诺 | Linux 与 macOS 都 production-capable；macOS real gate 必过；Linux real gate 可选（ADR 0013），Linux production 部署声明前必须通过 | RESOLVED |
 | G5 | 无 UI server 的 network approval | Python 等价移植 `pi-auto-review@0.3.2` sandbox 核心；复用 Pi model registry；无有效 exact grant 即 deny | RESOLVED |
 | G6 | 如何理解“在当前架构契约约束下抄” | 保持 Pi/App/DDD 能力归属和依赖方向；不等于保留 Docker-specific 决策；沿用现有七项 provider env allowlist | RESOLVED |
 | G7 | resource quota 缺失是否阻止替换 Docker | 不阻止；v1 等价移植 erichll/SRT，保留 timeout/process-tree cleanup，不新增 cgroup/monitor；quota 缺失列为残余风险 | RESOLVED |
@@ -387,12 +388,12 @@ G8 不锁定人为数值 SLA。验收必须提交同机 cold/steady/parallel/idl
 
 ## 13. Freeze / implementation gate
 
-G1–G10、ADR 0012、architecture contract v0.3.9 与 Roadmap/plan 同步已完成；G0 source/test/removal evidence 已冻结。实现只能按 plan v0.1.1 + G0 map 推进；全部 native gate、Docker production removal 与文档/license 审计完成前不得关闭 P3.3。
+G1–G10、ADR 0012/0013、architecture contract v0.3.10 与 Roadmap/plan 同步已完成；G0 source/test/removal evidence 已冻结。实现只能按 plan v0.1.4 + G0 map 推进；macOS real gate（V3）、offline parity（V1）、Docker production removal 与文档/license 审计（V4）完成前不得关闭 P3.3；Linux real gate（V2）为可选项，不阻塞关闭。
 
 ## 14. 修订记录
 
 | Version | Date | Change |
 |---------|------|--------|
+| `0.2.2` | 2026-08-03 | **ADR 0013**：Linux real-enforcement gate 改为可选项（V2 不阻塞 closeout，Linux production 部署前必过）；macOS real gate 保持正式必过；§3.2/G4/§10.2/§10.3/§11/§13 措辞修订；contract v0.3.10 |
 | `0.2.1` | 2026-08-02 | No behavior change：G0 evidence complete；link frozen source/integrity/license/seccomp/removal/CodeGraph/test map；plan v0.1.1 active |
-| `0.2.0` | 2026-08-02 | ADR 0012 accepted；冻结 G1–G10；native-only Linux/macOS production；Python 等价移植 pi-sandbox/SRT/pi-auto-review；保留 provider-neutral executor/RPC/scope，supersede Docker-specific decisions；active plan v0.1.0 |
-| `0.1.5-draft` | 2026-08-02 | Grilling resolved G1–G10；明确 native-only、无 Docker runtime/fallback，等待 ADR/contract bump |
+

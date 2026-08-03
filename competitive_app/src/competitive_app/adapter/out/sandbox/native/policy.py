@@ -13,7 +13,10 @@ Host delta (roots):
 - ``SANDBOX_RUNTIME_ROOT`` (upstream: SRT package dir) -> the native
   package dir (where ``srt/`` lives).
 - ``dirname(process.execPath)`` (node bin dir) -> ``dirname(sys.executable)``
-  (interpreter bin dir).
+  (interpreter bin dir); host delta (macOS V3 gate): the interpreter's FULL
+  symlink chain (intermediate link dirs + final binary/base dirs) is
+  additionally read-allowed because venv binaries symlink into a base
+  install that may live under the denied home.
 - ``homedir()`` -> ``Path.home()``; ``resolve``/``join``/``parse`` keep
   POSIX semantics (no Windows branches — native scope is Linux/macOS).
 - Workspace walk uses ``os.scandir`` (bounded, ``WORKSPACE_SECRET_SCAN_MAX_DEPTH``
@@ -30,6 +33,43 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 INTERPRETER_ROOT = Path(sys.prefix)
 SANDBOX_RUNTIME_ROOT = PACKAGE_ROOT
 INTERPRETER_BIN_DIR = Path(sys.executable).parent
+# venv interpreter binaries are symlinks into a base install that often
+# lives under the user home (uv/pyenv). Seatbelt evaluates each symlink hop
+# as it is traversed, so denyRead=home blocks the worker exec unless the
+# whole chain (intermediate link dirs AND the final binary/base dirs) is
+# read-allowable (macOS V3 gate).
+INTERPRETER_BIN_DIR_RESOLVED = Path(os.path.realpath(sys.executable)).parent
+INTERPRETER_BASE_ROOT = Path(os.path.realpath(sys.executable)).parent.parent
+
+
+def _interpreter_symlink_chain_roots() -> list[str]:
+    """Distinct dirs the interpreter binary is reachable through.
+
+    Walks the symlink chain one hop at a time (``resolve()`` collapses all
+    hops, but Seatbelt evaluates every intermediate link path), then adds
+    the final binary dir and base prefix. Empty when the interpreter is a
+    real binary (no venv indirection).
+    """
+    roots: list[str] = []
+    seen: set[str] = set()
+    current = sys.executable
+    for _ in range(32):
+        if not os.path.islink(current):
+            break
+        target = os.path.normpath(
+            os.path.join(os.path.dirname(current), os.readlink(current))
+        )
+        hop_dir = os.path.dirname(target)
+        if hop_dir not in seen:
+            seen.add(hop_dir)
+            roots.append(hop_dir)
+        current = target
+    final = os.path.realpath(sys.executable)
+    for root in (os.path.dirname(final), os.path.dirname(os.path.dirname(final))):
+        if root not in seen:
+            seen.add(root)
+            roots.append(root)
+    return roots
 
 WORKSPACE_SECRET_DENY_WRITE_BASENAMES = [
     ".env",
@@ -202,6 +242,7 @@ def create_default_policy(
             "allowRead": [
                 workspace,
                 str(INTERPRETER_ROOT),
+                *(_interpreter_symlink_chain_roots()),
                 str(SANDBOX_RUNTIME_ROOT),
                 os.path.join(home, ".gitconfig"),
                 os.path.join(home, ".config", "git", "config"),

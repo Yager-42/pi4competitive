@@ -7,7 +7,13 @@ License: Apache-2.0 (retained under the native sandbox license directory)
 Host delta: Node ``dns.lookup({all: true, verbatim: true})`` is replaced by
 ``asyncio.getaddrinfo`` over the running event loop (same all-address
 resolution semantics); the resolver is injectable for offline tests exactly
-like upstream's ``resolve`` parameter.
+like upstream's ``resolve`` parameter. FIX (P3.3 V3 gate): the Node
+resolver yields ``4``/``6`` ipaddress versions while ``getaddrinfo`` yields
+AF_INET/AF_INET6 constants, so ``_default_resolver`` now maps them to
+ipaddress versions — without the map every DNS result was classified
+non-public and the broker could never emit a grant request (fail-closed
+but silently broken approval). Upstream never resolves via ``isIP``
+family checks, so this is a port-only defect.
 """
 from __future__ import annotations
 
@@ -104,7 +110,15 @@ async def _default_resolver(hostname: str) -> list[tuple[str, int]]:
     addresses: list[tuple[str, int]] = []
     for family, _socktype, _proto, _canonname, sockaddr in infos:
         ip = sockaddr[0]
-        addresses.append((ip, family))
+        # FIX: map AF_* constants to ipaddress versions (4/6); skip any
+        # other family. See the module header host-delta note.
+        if family == socket.AF_INET:
+            version = 4
+        elif family == socket.AF_INET6:
+            version = 6
+        else:
+            continue
+        addresses.append((ip, version))
     return addresses
 
 

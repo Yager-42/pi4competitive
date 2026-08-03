@@ -26,7 +26,7 @@
 | **业务能力（研究流程、报告等）** | 搜索 capability v1 **frozen** | 边界：[`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.12**；其余 workflow/报告另开 |
 | **agent engine extensions** | **done** | feature **v0.3.0**（P3.1 completed baseline + P3.2 delta）；计划 **v0.2.4 completed** |
 | **P3.2 Pi extension capability enablement** | **done** | feature **v0.1.0 frozen**；extension runtime delta **v0.3.0 frozen**；plan [`P3_2_pi_extension_capability_enablement.md`](plans/P3_2_pi_extension_capability_enablement.md) **v0.1.2 completed**；ADR 0009 |
-| **P3.3 AgentTool sandbox** | **in_progress（A–F + V1 done；V2/V3 real gates todo）** | native feature **v0.2.1 frozen**；plan **v0.1.2 active** + G0 map v0.1.0；ADR 0012 / contract v0.3.9；Docker plan historical |
+| **P3.3 AgentTool sandbox** | **in_progress（A–F + V1 done；V3 macOS gate 进行中；V2 Linux 可选 per ADR 0013；V4 audits todo）** | native feature **v0.2.2 frozen**；plan **v0.1.4 active** + G0 map v0.1.0；ADR 0012/0013 / contract v0.3.10；Docker plan historical |
 | **capability 里具体有哪些搜抓包** | **frozen** + 实现计划 | 搜索 feature 契约；计划 [`docs/plans/P4_search_capability_packages.md`](plans/P4_search_capability_packages.md) |
 | **workflow Skill 自进化** | **implemented / verified** | feature **frozen v0.2.1**；plan [`P4_workflow_skill_self_evolution.md`](plans/P4_workflow_skill_self_evolution.md) **v0.1.2 completed**；O1–O16、S1–S4、真实 provider L1–L4 green |
 
@@ -140,8 +140,8 @@ continue P4              保留既有实现；恢复依赖 AgentTool 的业务�
 | **代码父本** | `pi-sandbox@0.4.2` + SRT `0.0.67` + `pi-auto-review@0.3.2` frozen；当前 Pi/App/DDD 边界下 COPY-semantics-first |
 | **必含** | production universal executor；parent-session scope/workspace；per-call broker/SRT manager；Linux/macOS；JSON RPC/update/abort/parallel；exact network approval；eager readiness；no-fallback |
 | **显式不做** | Docker/Host IPC/Local fallback、内建 subagent/TUI 产品面、Windows、cgroup/macOS monitor、artifact、remote provider、人为性能 SLA |
-| **完成标准** | feature §10 + plan V1–V4：offline parity、Linux amd64 real、arm64 macOS real、App e2e/approval/parallel/abort、baseline/removal/license 全部通过；skip 不得关闭阶段 |
-| **退出条件** | native production wiring + 三父本 traceability + 双平台 gates + Docker production code/dependency/image/config 删除，全部门禁 green → `P3.3=done` |
+| **完成标准** | feature §10 + plan V1/V3/V4：offline parity、arm64 macOS real（必过）、App e2e/approval/parallel/abort、baseline/removal/license 全部通过；Linux amd64 real 为可选项（ADR 0013，Linux production 部署声明前必过，不阻塞关闭）；skip 不得关闭阶段 |
+| **退出条件** | native production wiring + 三父本 traceability + **macOS real gate 必过 + offline parity + 文档/license/CodeGraph 审计（V4）** + Docker production code/dependency/image/config 删除（已 done），全部门禁 green → `P3.3=done`；Linux real gate 可选（ADR 0013） |
 
 ### P4 — `competitive_app`
 

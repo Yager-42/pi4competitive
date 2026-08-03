@@ -12,6 +12,14 @@ degrade to read-deny exactly like upstream (SBPL cannot redirect reads);
 the DYLD interposer note is retained. The log monitor is asyncio-spawned
 (macOS real gate only). ``SandboxViolationEvent`` is a dataclass with the
 upstream field names (``timestamp`` is optional in Python).
+macOS V3 gate host delta: re-allowed paths nested under a subpath deny get
+explicit ``(allow file-read-metadata (literal <ancestor-dir>))`` rules for
+every denied ancestor directory. Seatbelt (Darwin 24) evaluates directory
+traversal as file-read-metadata on each ancestor and does NOT let a global
+``(allow file-read-metadata (vnode-type DIRECTORY))`` override a specific
+subpath deny, so without these rules a worker whose interpreter/venv chain
+lies under ``denyRead=home`` (uv/pyenv) cannot exec. Literal rules re-open
+only the ancestor directories themselves — nothing under them is exposed.
 """
 from __future__ import annotations
 
@@ -195,6 +203,39 @@ def generate_read_rules(
             rules.append("(allow file-read*")
             rules.append(f"  (subpath {escape_path(normalized_path)})")
             rules.append(f'  (with message "{log_tag}"))')
+
+    # Host delta (macOS V3 gate): Seatbelt evaluates directory traversal as
+    # file-read-metadata on EVERY ancestor directory. A subpath deny (e.g.
+    # denyRead=home) blocks the ancestors of a re-allowed path, and a global
+    # ``(allow file-read-metadata (vnode-type DIRECTORY))`` does NOT override
+    # a specific subpath deny on this OS, so exec under a denied home fails
+    # unless each denied ancestor of every re-allowed path is re-opened as a
+    # LITERAL metadata allow (no subpath — nothing under the ancestor is
+    # re-exposed). This matters when the interpreter/venv chain lives under
+    # the denied home (uv/pyenv).
+    deny_prefixes: list[str] = []
+    for deny_pattern in config.get("denyOnly") or []:
+        normalized = normalize_path_for_sandbox(deny_pattern)
+        if not contains_glob_chars(normalized):
+            deny_prefixes.append(normalized)
+    ancestor_meta: list[str] = []
+    for path_pattern in config.get("allowWithinDeny") or []:
+        normalized = normalize_path_for_sandbox(path_pattern)
+        if contains_glob_chars(normalized):
+            continue
+        for prefix in deny_prefixes:
+            if not normalized.startswith(prefix.rstrip("/") + "/"):
+                continue
+            ancestor = os.path.dirname(normalized)
+            while ancestor.startswith(prefix.rstrip("/") + "/"):
+                if ancestor not in ancestor_meta:
+                    ancestor_meta.append(ancestor)
+                ancestor = os.path.dirname(ancestor)
+            break
+    for ancestor in ancestor_meta:
+        rules.append("(allow file-read-metadata")
+        rules.append(f"  (literal {escape_path(ancestor)})")
+        rules.append(f'  (with message "{log_tag}"))')
 
     for deny_path in config.get("denyOnly") or []:
         if contains_glob_chars(deny_path):

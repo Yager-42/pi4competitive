@@ -103,3 +103,41 @@ def test_non_public_inputs_never_reach_the_resolver(hostname: str) -> None:
 
     assert asyncio.run(validate_public_hostname(hostname, spy_resolver)) is None
     assert called is False
+
+
+def test_real_default_resolver_maps_af_constants_to_ipaddress_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for the P3.3 V3-gate fix: getaddrinfo yields AF_INET/
+    AF_INET6 (2/30) while is_public_address expects ipaddress versions
+    (4/6); without the map every real DNS result was non-public and the
+    broker could never emit a grant request."""
+    import socket
+
+    async def fake_getaddrinfo(
+        hostname: str,
+        _port: None,
+        *,
+        family: int,
+        type: int,
+    ):
+        assert hostname == "example.com"
+        assert family == 0
+        assert type == socket.SOCK_STREAM
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+            (
+                socket.AF_INET6,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("2606:2800:220:1:248:1893:25c8:1946", 0, 0, 0),
+            ),
+        ]
+
+    async def _scenario() -> str | None:
+        loop = asyncio.get_running_loop()
+        monkeypatch.setattr(loop, "getaddrinfo", fake_getaddrinfo)
+        return await validate_public_hostname("example.com")
+
+    assert asyncio.run(_scenario()) == "example.com"

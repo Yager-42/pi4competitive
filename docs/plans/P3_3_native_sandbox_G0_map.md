@@ -21,6 +21,28 @@ This file is the binding G0 appendix. Implementation may not silently change a s
 > retained referent and was removed with the dependency). Decisions below
 > remain frozen; this note records execution only.
 
+> ADR 0013 (2026-08-03, contract v0.3.10, feature v0.2.2, plan v0.1.4):
+> §8.2 的 S1–S9 仍是唯一的 real-enforcement ID 集，但 Linux 执行由正式必过
+> gate 改为可选项（Linux 主机可用时运行；Linux production 部署声明前必过；
+> 不阻塞 P3.3 closeout）；macOS（arm64）S1–S9 真实执行保持正式必过 gate。
+> §5.1/5.2 的 apply-seccomp 供应链与 startup 校验契约不变；其真实执行属
+> Linux 可选 gate。本注记不改变任何 source/test/removal 分类。
+
+> V3 execution (2026-08-03, arm64 macOS, real sandbox-exec): §8.2 S1–S9 and
+> §8.3 M1–M4 executed via `tests/competitive_app/integration/live/
+> test_macos_sandbox_enforcement.py` (11 tests, NOT live-marked: the macOS
+> host is the required gate, skipped on other platforms) driving the real
+> broker process with the real `create_default_policy` + SRT runtime
+> config. Two production defects found and fixed, both host-delta recorded
+> in the affected module headers: (1) interpreter symlink chain under
+> `denyRead=[home]` broke exec (`policy.py` allowRead symlink hops +
+> `macos.py` literal `file-read-metadata` ancestor allows); (2)
+> `network_policy.py` `_default_resolver` returned AF constants (2/30)
+> where `is_public_address` expects ipaddress versions (4/6), silently
+> disabling the approval round trip. Regression test added to O4's file.
+> `network_policy.py` family mapping is a port-only defect (upstream never
+> resolves through `isIP` family checks).
+
 ## 1. Immutable Source Manifest
 
 ### 1.1 Published artifacts and repository identities
