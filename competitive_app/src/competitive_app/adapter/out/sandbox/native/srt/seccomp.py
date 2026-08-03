@@ -145,8 +145,10 @@ def get_apply_seccomp_binary_path(
 
 
 def get_vendored_license_path() -> Path | None:
-    """Path to the retained Apache-2.0 license in the vendor tree."""
-    license_path = _VENDOR_ROOT.parent / "LICENSE"
+    """Path to the retained SRT Apache-2.0 license text (the vendored
+    apply-seccomp helper ships under the SRT license; G0 §1.2 pin
+    ``1210bc93…`` retained in the native license directory)."""
+    license_path = _VENDOR_ROOT.parent / "licenses" / "SRT-APACHE-2.0.txt"
     return license_path if license_path.exists() else None
 
 

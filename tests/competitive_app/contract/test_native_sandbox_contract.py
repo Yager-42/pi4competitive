@@ -85,11 +85,23 @@ def test_packages_agent_has_no_app_imports() -> None:
     assert not offenders, offenders
 
 
-def test_poirot_license_notice_retained_in_native_directory() -> None:
-    license_file = SANDBOX_SRC / "native" / "vendor" / "licenses" / "POIROT-MIT.txt"
-    assert license_file.exists()
-    text = license_file.read_text(encoding="utf-8")
-    assert "MIT License" in text
+def test_license_texts_retained_with_pinned_hashes() -> None:
+    """G0 §1.2: every upstream license text is retained under the native
+    license directory, byte-identical to the G0 §1.2 SHA pins."""
+    import hashlib
+
+    pinned = {
+        "PI-SANDBOX-APACHE-2.0.txt": "dc5a2fe270e7aa045d017d0c7aa7c0d9052f6fc888695df34531db69c06b7d28",
+        "SRT-APACHE-2.0.txt": "1210bc93eb85dd786c33192d5bcb7153a93922fa99fbc1512af6a7199cb41080",
+        "AUTO-REVIEW-MIT.txt": "1126322e2cc8d165adc4c792eeb195717de2bcc7b39be1ce77959d78e87ef685",
+        "POIROT-MIT.txt": "49f35ad989e6bc2fa9e28fd292dcd491b817c8036ca7001b38ec22f18d57e024",
+    }
+    licenses_dir = SANDBOX_SRC / "native" / "vendor" / "licenses"
+    for name, digest in pinned.items():
+        license_file = licenses_dir / name
+        assert license_file.exists(), name
+        actual = hashlib.sha256(license_file.read_bytes()).hexdigest()
+        assert actual == digest, f"{name}: sha256 {actual} != {digest}"
     # Retained transplanted files point at the native license directory.
     workspace = (SANDBOX_SRC / "native" / "workspace.py").read_text(encoding="utf-8")
     assert "native/vendor/licenses/POIROT-MIT.txt" in workspace

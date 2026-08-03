@@ -43,6 +43,20 @@ This file is the binding G0 appendix. Implementation may not silently change a s
 > `network_policy.py` family mapping is a port-only defect (upstream never
 > resolves through `isIP` family checks).
 
+> V4 execution (2026-08-03): §8.4 P1–P5 evidence recorded in plan §5.4
+> (same-host arm64 macOS vs the frozen ADR 0012 Docker baseline: cold
+> 0.109 s vs 1.386 s; steady P50 108.9 ms / P95 110.4 ms; 10-way parallel
+> 0.85 s with 10 in-flight brokers at ~37 MiB RSS each = 361 MiB total vs
+> Docker idle 332 MiB/31 PIDs; zero residual processes after calls and
+> after parent-disconnect abort; 2.0 MB native tree, no image, vs 12.1 GB).
+> License audit: two upstream license texts were missing from the native
+> license directory (pi-sandbox Apache-2.0, pi-auto-review MIT) — now
+> retained verbatim as `PI-SANDBOX-APACHE-2.0.txt` / `AUTO-REVIEW-MIT.txt`,
+> SHA-256 matching the §1.2 pins; `vendor/LICENSE` (SRT Apache text) moved
+> to `licenses/SRT-APACHE-2.0.txt`; O22 pins all four texts. Header audit
+> green; CodeGraph re-synced (460 files / 5,719 nodes); plan §7 fully
+> checked; roadmap P3.3 = done.
+
 ## 1. Immutable Source Manifest
 
 ### 1.1 Published artifacts and repository identities

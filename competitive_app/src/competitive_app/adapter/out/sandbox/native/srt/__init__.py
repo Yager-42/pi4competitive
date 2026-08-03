@@ -1,7 +1,7 @@
 """SRT (sandbox-runtime) Python port — native Linux/macOS sandbox core.
 
 Source: sandbox-runtime@0.0.67 @ 21d8f75e1bc00eede09b3103e68b2eae097110d1
-License: Apache-2.0 (retained under native/vendor/LICENSE)
+License: Apache-2.0 (retained under native/vendor/licenses/SRT-APACHE-2.0.txt)
 
 Port layout (G0 map §4.1): policy (config/schemas/domain/path-utils),
 linux (bwrap/bridge/deny scan/monitor), macos (Seatbelt/log monitor),

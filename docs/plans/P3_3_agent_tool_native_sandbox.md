@@ -4,7 +4,7 @@
 |-------|-------|
 | **plan_id** | `P3.3-agent-tool-native-sandbox` |
 | **plan_version** | `0.1.4` |
-| **status** | **active — A–F + V1 + V3（macOS real gate）done；V2 optional per ADR 0013；V4 audits in progress** |
+| **status** | **complete — A–F + V1 + V3（macOS real gate）+ V4（audits/baseline/closeout）done；V2 optional per ADR 0013（未运行，Linux deploy 前必过）** |
 | **created** | 2026-08-02 |
 | **updated** | 2026-08-03 |
 | **roadmap** | [`docs/ROADMAP.md`](../ROADMAP.md) stage P3.3 |
@@ -213,9 +213,26 @@ Exact filenames may only change to match an established local module boundary; a
 > 通过；不阻塞 P3.3 closeout。§5.3 macOS real gate 保持正式必过。
 > Linux production 真实行为（bubblewrap/seccomp 生效）在可选 gate 通过前
 > 记录为未验证残余风险（feature §11.2）。
-### 5.4 Comparison and removal
 
-Record cold/steady/10-way parallel/idle RSS+PIDs/disk against the frozen Docker baseline. No artificial latency SLA. P3.3 closes only after Docker provider/backend/runtime/image/SDK/config are removed and dependency/license audits are green.
+### 5.4 V4 evidence（2026-08-03, arm64 macOS, Apple M4）
+
+| Metric | Native（measured） | Frozen Docker baseline（ADR 0012） |
+|--------|--------------------|-----------------------------------|
+| cold first call | **0.109 s**（broker spawn + 81KB profile + sandbox-exec） | 1.386 s |
+| steady P50 / P95（n=15, `echo hi`） | **108.9 ms / 110.4 ms** | warm 35–60 ms |
+| 10-way parallel（in-flight） | **0.85 s wall**（10 brokers live, `sleep 0.6` cmds） | — |
+| in-flight RSS per broker | **~37 MiB**（10 × 37 = 361 MiB total） | idle 332 MiB / 31 PIDs |
+| residuals after calls / abort | **0 processes**（8/8 disconnect-clean + ps clean） | — |
+| disk | **2.0 MB** native tree; no image | image **12.1 GB** |
+
+No artificial latency SLA（G0 §8.4）; per-call isolation（broker per call）is the
+design tradeoff behind the steady 109 ms vs Docker warm reuse. G0 §8.4 P1–P5
+evidence recorded in the V4 commit.
+
+### 5.5 Comparison and removal
+
+P3.3 closes only after the Docker provider/backend/runtime/image/SDK/config are removed and the dependency/license audits are green (Phase F removal + V4).
+
 
 ## 6. Serial delivery slices
 
@@ -231,19 +248,19 @@ No slice may wire a partial native sandbox that can fall back to Host or Docker.
 
 ## 7. Exit checklist
 
-- [ ] Frozen source archives/SHAs/package versions/licenses recorded.
-- [ ] COPY/ADAPT/OMIT map matches actual files and host deltas.
-- [ ] Python approval core matches exact grant/hard-deny/failure-mode semantics.
-- [ ] macOS SRT path passes the real enforcement gate (V3, arm64) — **required**.
-- [ ] Linux SRT path real enforcement gate is **optional** (ADR 0013): runs
+- [x] Frozen source archives/SHAs/package versions/licenses recorded.
+- [x] COPY/ADAPT/OMIT map matches actual files and host deltas.
+- [x] Python approval core matches exact grant/hard-deny/failure-mode semantics.
+- [x] macOS SRT path passes the real enforcement gate (V3, arm64) — **required**.
+- [x] Linux SRT path real enforcement gate is **optional** (ADR 0013): runs
       when a Linux host/CI is available; required before any Linux production
       deployment claim; does not block closeout.
-- [ ] Universal AgentTool execution, RPC, registry, scope/workspace remain green.
-- [ ] Abort/timeout/parallel leave no orphan.
-- [ ] Worker environment remains the seven-item allowlist.
-- [ ] Docker provider/backend/runtime/image/SDK/config removed; no fallback.
-- [ ] Full offline suite, contract drift, import boundaries and CodeGraph audit green.
-- [ ] Roadmap P3.3 marked done only after every item above is checked.
+- [x] Universal AgentTool execution, RPC, registry, scope/workspace remain green.
+- [x] Abort/timeout/parallel leave no orphan.
+- [x] Worker environment remains the seven-item allowlist.
+- [x] Docker provider/backend/runtime/image/SDK/config removed; no fallback.
+- [x] Full offline suite, contract drift, import boundaries and CodeGraph audit green.
+- [x] Roadmap P3.3 marked done only after every item above is checked.
 
 ## 8. Revision history
 
@@ -255,3 +272,4 @@ No slice may wire a partial native sandbox that can fall back to Host or Docker.
 | `0.1.3` | 2026-08-02 | Phase F complete：G0 §6.2 all rows executed — docker/、runtimes/、translators/、guards/、deploy/tool-sandbox/ deleted；agent-sandbox==0.0.30 removed from pyproject/uv.lock；licenses moved to native/vendor/licenses；retained headers repointed；test_backend/test_docker_provider/Docker live suite deleted；facade/contract tests adapted；O22 native contract suite added；wiring E1.4 unwind widened to cover manifest-write failure；V1 green offline 715 passed |
 | `0.1.4` | 2026-08-03 | **ADR 0013**：V2 Linux real gate 改为可选项（不阻塞 closeout；Linux production 部署前必过；apply-seccomp 供应链契约不变）；V3 macOS real gate 正式必过（进行中）；roadmap/feature/contract 同步 v0.3.10 |
 | `0.1.5` | 2026-08-03 | **V3 macOS real gate done**：S1–S9 + parallel/abort e2e 11 tests green（real broker/policy/sandbox-exec）；修复 interpreter symlink-exec（policy.py 加 symlink 链 allowRead；macos.py 补 literal file-read-metadata 祖先目录）与 network_policy AF family 映射（approval 通路回归）；offline 727 passed；V4 audits 进行中 |
+| `0.1.6` | 2026-08-03 | **V4 closeout done**：resource baseline vs ADR 0012 Docker（cold 0.109 s vs 1.386 s；steady P50 108.9 ms/P95 110.4 ms；10-way parallel 0.85 s、in-flight 10 brokers 361 MiB；residual 0；disk 2.0 MB vs image 12.1 GB）；license audit — 补回 pi-sandbox Apache 与 pi-auto-review MIT 文本（SHA 对齐 G0 pin，O22 全量 pin 断言）；header audit 全绿；CodeGraph sync；§7 全勾选；offline 727 passed |
