@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import AsyncIterator, Callable
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -13,6 +13,7 @@ from ..types import (
     AssistantMessage,
     AssistantMessageEvent,
     Context,
+    ErrorInfo,
     Model,
     StreamOptions,
     ToolCall,
@@ -21,9 +22,35 @@ from ..types import (
 from ..utils.event_stream import AssistantMessageEventStream, create_assistant_message_event_stream
 from ..utils.json_parse import parse_partial_json
 
+ErrorType = Literal["timeout", "connection", "http_error", "parse", "aborted", "other"]
 
-def error_message(model: Model, error: Any, *, aborted: bool = False) -> AssistantMessage:
-    return {
+
+def error_message(
+    model: Model,
+    error: Any,
+    *,
+    aborted: bool = False,
+    status_code: int | None = None,
+) -> AssistantMessage:
+    """Build an error AssistantMessage (ADR 0015: structured ``error`` field).
+
+    Classification: HTTP ``status_code`` -> ``http_error``; httpx transport
+    exceptions -> ``timeout`` / ``connection`` / ``other``; abort -> ``aborted``.
+    ``errorMessage`` text is kept for backward compatibility.
+    """
+    if aborted:
+        error_type: ErrorType = "aborted"
+    elif status_code is not None:
+        error_type = "http_error"
+    elif isinstance(error, httpx.TimeoutException):
+        error_type = "timeout"
+    elif isinstance(error, (httpx.ConnectError, ConnectionError)):
+        error_type = "connection"
+    elif isinstance(error, httpx.ReadError):
+        error_type = "other"
+    else:
+        error_type = "other"
+    msg: AssistantMessage = {
         "role": "assistant",
         "content": [],
         "api": model["api"],
@@ -34,6 +61,11 @@ def error_message(model: Model, error: Any, *, aborted: bool = False) -> Assista
         "errorMessage": str(error),
         "timestamp": int(time.time() * 1000),
     }
+    info: ErrorInfo = {"type": error_type, "message": str(error)}
+    if status_code is not None:
+        info["statusCode"] = status_code
+    msg["error"] = info
+    return msg
 
 
 def is_aborted(options: StreamOptions | None) -> bool:
@@ -137,7 +169,7 @@ async def stream_openai_chat_completions(
                     )
                 if resp.status_code >= 400:
                     text = (await resp.aread()).decode("utf-8", errors="replace")
-                    msg = error_message(model, f"HTTP {resp.status_code}: {text[:500]}")
+                    msg = error_message(model, f"HTTP {resp.status_code}: {text[:500]}", status_code=resp.status_code)
                     stream.push({"type": "error", "reason": "error", "error": msg})
                     stream.end(msg)
                     return

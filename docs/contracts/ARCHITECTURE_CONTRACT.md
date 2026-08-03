@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **contract_version** | `0.3.11` |
-| **status** | **active**（0.3.11 = ADR 0014：Linux real-enforcement gate 可选；macOS gate 必过；0.3.10 = ADR 0013 native-only Linux/macOS AgentTool sandbox（Python port erichll/SRT/auto-review）；0.3.9 = ADR 0012 pi_ai response_format 透传 JSON 强制；0.3.8 = ADR 0011-A：arm64 daemon 验收接受 orbstack 实测；0.3.6 + ADR 0010 research-workflow v0.2.0 SearchOS coverage 引擎复现；变更仍须 ADR + 升版本） |
+| **contract_version** | `0.3.12` |
+| **status** | **active**（0.3.12 = ADR 0015：pi_ai `AssistantMessage.error` 结构化错误透传；0.3.11 = ADR 0014：Linux real-enforcement gate 可选；macOS gate 必过；0.3.10 = ADR 0013 native-only Linux/macOS AgentTool sandbox（Python port erichll/SRT/auto-review）；0.3.9 = ADR 0012 pi_ai response_format 透传 JSON 强制；0.3.8 = ADR 0011-A：arm64 daemon 验收接受 orbstack 实测；0.3.6 + ADR 0010 research-workflow v0.2.0 SearchOS coverage 引擎复现；变更仍须 ADR + 升版本） |
 | **updated** | 2026-08-03 |
-| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、**P3.3 native AgentTool sandbox（ADR 0013/0014；分支内原编号 0012/0013 与 response_format ADR 0012 撞号，合并时重编号）**、**pi_ai response_format 透传（ADR 0012）**、P4 旧仓参考身份、SearchOS 引擎架构参考身份（ADR 0010） |
+| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、**P3.3 native AgentTool sandbox（ADR 0013/0014；分支内原编号 0012/0013 与 response_format ADR 0012 撞号，合并时重编号）**、**pi_ai response_format 透传（ADR 0012）**、**pi_ai 结构化错误透传（ADR 0015）**、P4 旧仓参考身份、SearchOS 引擎架构参考身份（ADR 0010） |
 | **roadmap** | 实现顺序与阶段门禁见 [`docs/ROADMAP.md`](../ROADMAP.md) |
 | **out of scope for this doc** | 业务特性 backlog 细则、各业务 JSON Schema 字段表（另文） |
 
@@ -49,7 +49,7 @@
 | D23 | 模型/密钥配置 | **配置文件 + env 覆盖（C）**；密钥不入 git | 密钥提交仓库 |
 | D24 | Agent Session 默认存储 | **JSONL** 作对话/tool SoT；搜索状态（SOCM）可落 JSON（`search_state.json`），属搜索 SoT 非对话 SoT（ADR 0010 D-S4） | 仅内存当默认 SoT |
 | D25 | JSONL 落盘路径 | 默认 **`data/sessions/`**（`data/` 不入库） | 默认写系统临时目录导致无法稳定 resume |
-| D26 | 架构冻结 | v0.3.1 baseline；0.3.2+ 按 ADR 演进（含 0006–**0013**） | 仅聊天改架构不改本文 |
+| D26 | 架构冻结 | v0.3.1 baseline；0.3.2+ 按 ADR 演进（含 0006–**0015**） | 仅聊天改架构不改本文 |
 
 ### 1.1 已废弃
 
@@ -419,3 +419,4 @@ P3.3 的 provider-neutral executor 与 generic boundary-approval service seam �
 | *(0.3.10 patch)* | 2026-08-02 | P3.3 native G0 complete：feature v0.2.1 / plan v0.1.1 / G0 map v0.1.0；冻结三父本 integrity/license、SRT/full transplant、seccomp supply chain、Docker removal、CodeGraph 与 O/S/L/M/P/R tests；无架构决策变化，不升 contract_version |
 | *(0.3.7 patch)* | 2026-07-31 | 建立 P3.3 implementation plan v0.1.0；feature 无语义 patch 至 v0.1.31；同步 plan/exit-gate 指针，**不改 D*/G*、不升 contract_version** |
 | **0.3.9** | 2026-08-01 | **ADR 0012**：pi_ai openai-completions response_format 透传(JSON 强制)——`build_openai_completions_payload` 加最小透传(`options.response_format` → payload,不动 StreamOptions TypedDict/语义);上游 pi@c55ae2f `buildParams` 无此字段,pi4 补为移植偏差(理由:gateway 实测支持 response_format,JSON 强制是 clarify discover/derive 结构化抽取基础);pi_ai 0.81.1→0.81.2;只给返 JSON **object** 的调用加(discover/derive),judge 返 array 不加(JSON mode 只允许 object 顶层),refine 返 markdown 不加;契约测试 `test_deps.py` ADR_SANCTIONED 合并 P3.3(packages/agent 7)+ 本批(packages/ai 3)守"packages/ 冻结,偏差需 ADR+显式列入";feature `research-workflow-v1` v0.2.3→v0.2.4 patch |
+| **0.3.12** | 2026-08-03 | **ADR 0015**：pi_ai `AssistantMessage.error` 结构化错误透传——`types.py` 加 `ErrorInfo` TypedDict（`statusCode?`/`type`∈{timeout,connection,http_error,parse,aborted,other}/`message`），`AssistantMessage.error: NotRequired[ErrorInfo]` 仅 `stopReason=="error"` 时存在；`_http_stream.error_message()` 单一产点分类（HTTP≥400→http_error+statusCode；httpx TimeoutException/ConnectError/ReadError→timeout/connection/other；abort→aborted），`errorMessage` 文本保留；上游 main 无此字段=移植偏差（与 ADR 0012 同模式），理由：App 层 Multi-LLM Fallback 降级判定需类型级输入，文本匹配脆弱；pi_ai 0.81.2→0.81.3；契约测试 ADR_SANCTIONED 补 packages/ai 2 文件；feature `llm-fallback-observability-v1` v0.2.1 |

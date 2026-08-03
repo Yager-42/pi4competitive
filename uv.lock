@@ -120,7 +120,7 @@ requires-dist = [
 
 [[package]]
 name = "earendil-works-pi-ai"
-version = "0.81.2"
+version = "0.81.3"
 source = { editable = "packages/ai" }
 dependencies = [
     { name = "anyio" },
