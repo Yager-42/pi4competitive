@@ -6,7 +6,7 @@ This file is for humans and coding agents working in this repo.
 
 | Doc | Role |
 |-----|------|
-| [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.11** — process, paths, imports, stack; P3 local subset (ADR 0006); **P3.1/P3.2** (ADR 0008/0009); **P3.3 native AgentTool sandbox (ADR 0013；ADR 0011 Docker-specific historical)**; P4 references/workflow (ADR 0007/0010) |
+| [`docs/contracts/ARCHITECTURE_CONTRACT.md`](docs/contracts/ARCHITECTURE_CONTRACT.md) | **v0.3.12** — process, paths, imports, stack; P3 local subset (ADR 0006); **P3.1/P3.2** (ADR 0008/0009); **P3.3 native AgentTool sandbox (ADR 0013；ADR 0011 Docker-specific historical)**; P4 references/workflow (ADR 0007/0010); **P4 fallback/observability (ADR 0015)** |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Serial phases P1→P3→**P3.1**→**P3.2**→**P3.3**→continue P4 and exit gates |
 | [`docs/features/`](docs/features/) | Per-feature boundary contracts; see README index |
 | [`docs/features/search_capability_packages_v1.md`](docs/features/search_capability_packages_v1.md) | search capability v1 **frozen v0.1.12**（F-S1…F-S18 + §10） |
@@ -16,6 +16,7 @@ This file is for humans and coding agents working in this repo.
 | [`docs/features/agent_tool_sandbox_v1.md`](docs/features/agent_tool_sandbox_v1.md) | Historical Docker sandbox feature **v0.1.33 superseded**；provider-neutral executor/RPC/scope outputs inherited by ADR 0013 |
 | [`docs/features/competitive_app_http_v1.md`](docs/features/competitive_app_http_v1.md) | P4 app HTTP 边界 **frozen v0.3.0**（`competitive-app-http-v1`；14 路由；task 行为由 research-workflow-v1 v0.2.0 三阶段提供） |
 | [`docs/features/research_workflow_v1.md`](docs/features/research_workflow_v1.md) | P4 三阶段研究 workflow **frozen v0.2.0**（`research-workflow-v1`；SearchOS coverage 引擎复现；31 决策；ADR 0010） |
+| [`docs/features/llm_fallback_observability_v1.md`](docs/features/llm_fallback_observability_v1.md) | P4 Multi-LLM Fallback + Observability **frozen v0.2.1**（`llm-fallback-observability-v1`；全局单链 + 首包探测 + 批式交付；RunJournal；ADR 0015；B1–B13） |
 | [`docs/plans/P1_packages_ai.md`](docs/plans/P1_packages_ai.md) | P1 plan (**completed**) — `packages/ai` |
 | [`docs/plans/P2_packages_agent.md`](docs/plans/P2_packages_agent.md) | P2 plan (**completed**) — `packages/agent` |
 | [`docs/plans/P3_capability_loader.md`](docs/plans/P3_capability_loader.md) | P3 plan (**completed**) — package-manager local subset |
@@ -26,6 +27,7 @@ This file is for humans and coding agents working in this repo.
 | [`docs/plans/P4_search_capability_packages.md`](docs/plans/P4_search_capability_packages.md) | search capability packages v1 (**completed** implementation; feature frozen) |
 | [`docs/plans/P4_competitive_app_http.md`](docs/plans/P4_competitive_app_http.md) | P4 competitive_app HTTP 骨架（v0.2.0；14 路由） |
 | [`docs/plans/P4_research_workflow_v2.md`](docs/plans/P4_research_workflow_v2.md) | P4 三阶段研究 workflow v0.2.0（SearchOS coverage 引擎；ADR 0010；plan 随 PR2 起补）；v1 plan `P4_research_workflow.md` completed v0.1.1 |
+| [`docs/plans/P4_llm_fallback_observability.md`](docs/plans/P4_llm_fallback_observability.md) | P4 fallback + observability plan（**v0.1.2 active**；六阶段；COPY 纪律；Offline/Live 两层测试） |
 | [`docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md`](docs/contracts/adr/0006-package-manager-local-isomorphic-subset.md) | ADR: port subset, omit install/npm/git/home |
 | [`docs/contracts/adr/0007-legacy-repo-capability-reference.md`](docs/contracts/adr/0007-legacy-repo-capability-reference.md) | ADR: 旧仓 = `competitive-agent`（能力参考 only） |
 | [`docs/contracts/adr/0008-agent-engine-extensions-runtime.md`](docs/contracts/adr/0008-agent-engine-extensions-runtime.md) | ADR: P3.1 extension runtime S-engine |
@@ -33,6 +35,7 @@ This file is for humans and coding agents working in this repo.
 | [`docs/contracts/adr/0011-agent-tool-sandbox-runtime.md`](docs/contracts/adr/0011-agent-tool-sandbox-runtime.md) | ADR: P3.3 production AgentTool Docker sandbox execution |
 | [`docs/contracts/adr/0014-linux-real-gate-optional.md`](docs/contracts/adr/0014-linux-real-gate-optional.md) | ADR: P3.3 Linux real-enforcement gate 可选项（V2 不阻塞 closeout；Linux production 部署声明前必过） |
 | [`docs/contracts/adr/0013-native-agent-tool-sandbox-runtime.md`](docs/contracts/adr/0013-native-agent-tool-sandbox-runtime.md) | ADR: supersede Docker-specific P3.3 decisions；native-only Linux/macOS sandbox + Python approval/SRT port |
+| [`docs/contracts/adr/0015-pi-ai-structured-error.md`](docs/contracts/adr/0015-pi-ai-structured-error.md) | ADR: pi_ai `AssistantMessage.error` 结构化错误透传（fallback 判定输入；仅 error 时存在） |
 | `docs/contracts/adr/*` | Architecture Decision Records |
 
 **Rules:**

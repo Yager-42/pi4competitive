@@ -11,10 +11,11 @@
 | [`competitive_app_http_v1.md`](competitive_app_http_v1.md) | `competitive-app-http-v1` | **frozen** v0.3.3 | [`P4_competitive_app_http.md`](../plans/P4_competitive_app_http.md) **completed**；27 路由；task 行为由 research-workflow-v1 v0.2.3 提供 |
 | [`research_workflow_v1.md`](research_workflow_v1.md) | `research-workflow-v1` | **frozen** v0.2.3 | [`P4_research_workflow_v2.md`](../plans/P4_research_workflow_v2.md) 随 PR2 起补；三阶段研究 workflow（SearchOS coverage 引擎；ADR 0010）；v1 plan `P4_research_workflow.md` completed v0.1.1（历史保留） |
 | [`workflow_skill_self_evolution_v1.md`](workflow_skill_self_evolution_v1.md) | `workflow-skill-self-evolution-v1` | **frozen** v0.2.1；G1–G29 resolved；implementation verified；真实 provider L1–L4 green | [`P4_workflow_skill_self_evolution.md`](../plans/P4_workflow_skill_self_evolution.md) **v0.1.2 completed**；Poirot transplant-first |
+| [`llm_fallback_observability_v1.md`](llm_fallback_observability_v1.md) | `llm-fallback-observability-v1` | **frozen** v0.2.1；G1–G14 / B1–B13 resolved；ADR 0015；implementation verified（offline + faux 集成 + live 切换） | [`P4_llm_fallback_observability.md`](../plans/P4_llm_fallback_observability.md) **v0.1.3 active**；poirot chain/journal + ragent probe |
 | [`agent_tool_sandbox_v1.md`](agent_tool_sandbox_v1.md) | `agent-tool-sandbox-v1` | **superseded historical** v0.1.33；ADR 0011/0011-A Docker record | [`P3_3_agent_tool_sandbox.md`](../plans/P3_3_agent_tool_sandbox.md) **v0.1.3 superseded**；provider-neutral outputs inherited by ADR 0013 |
 | [`agent_tool_native_sandbox_v1.md`](agent_tool_native_sandbox_v1.md) | `agent-tool-native-sandbox-v1` | **frozen** v0.2.1；G1–G10 resolved；G0 complete；ADR 0013 / contract v0.3.9 | [`P3_3_agent_tool_native_sandbox.md`](../plans/P3_3_agent_tool_native_sandbox.md) v0.1.1 active + [`G0 map`](../plans/P3_3_native_sandbox_G0_map.md)；Linux/macOS；native-only |
 
-> 状态板与 changelog 见 [`docs/ROADMAP.md`](../ROADMAP.md)（roadmap v0.1.48 / 架构契约 v0.3.11）。本目录只索引 feature 边界契约。
+> 状态板与 changelog 见 [`docs/ROADMAP.md`](../ROADMAP.md)（roadmap v0.1.49 / 架构契约 v0.3.12）。本目录只索引 feature 边界契约。
 
 ## 约定
 

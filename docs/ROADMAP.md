@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.48` |
+| **roadmap_version** | `0.1.49` |
 | **status** | active |
-| **updated** | 2026-08-02 |
-| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.11** |
+| **updated** | 2026-08-03 |
+| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.12** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
 ---
@@ -21,7 +21,7 @@
 
 | 话题 | 状态 | 建议 |
 |------|------|------|
-| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 **v0.3.11**） | **不必再聊**；要改走 ADR |
+| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 **v0.3.12**） | **不必再聊**；要改走 ADR |
 | **实现顺序与完成标准** | 见本文阶段 | 按 roadmap 执行；细节可在阶段开工时补 checklist |
 | **业务能力（研究流程、报告等）** | 搜索 capability v1 **frozen** | 边界：[`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.12**；其余 workflow/报告另开 |
 | **agent engine extensions** | **done** | feature **v0.3.0**（P3.1 completed baseline + P3.2 delta）；计划 **v0.2.4 completed** |
@@ -29,6 +29,7 @@
 | **P3.3 AgentTool sandbox** | **done（A–F + V1 + V3 macOS real gate + V4 audits/closeout；V2 Linux 可选 per ADR 0014 未运行，Linux production 部署前必过）** | native feature **v0.2.2 frozen**；plan **v0.1.7 complete** + G0 map v0.1.1；ADR 0013/0013 / contract v0.3.11；Docker plan historical |
 | **capability 里具体有哪些搜抓包** | **frozen** + 实现计划 | 搜索 feature 契约；计划 [`docs/plans/P4_search_capability_packages.md`](plans/P4_search_capability_packages.md) |
 | **workflow Skill 自进化** | **implemented / verified** | feature **frozen v0.2.1**；plan [`P4_workflow_skill_self_evolution.md`](plans/P4_workflow_skill_self_evolution.md) **v0.1.2 completed**；O1–O16、S1–S4、真实 provider L1–L4 green |
+| **LLM fallback + observability** | **implemented / verified** | feature [`llm_fallback_observability_v1.md`](features/llm_fallback_observability_v1.md) **frozen v0.2.1**；plan [`P4_llm_fallback_observability.md`](plans/P4_llm_fallback_observability.md) **v0.1.2 active**；ADR 0015；contract v0.3.12 |
 
 ---
 
@@ -276,3 +277,4 @@ continue P4              保留既有实现；恢复依赖 AgentTool 的业务�
 | 0.1.46 | 2026-08-02 | **ADR 0013 / contract 0.3.10 / native feature v0.2.0 / native plan v0.1.0**（分支内原编号 ADR 0012 / contract 0.3.9，与 response_format ADR 0012 撞号，合并 main 时重编号）：supersede Docker-specific P3.3 decisions；Linux bubblewrap/seccomp + macOS Seatbelt；Python port pi-sandbox/SRT/pi-auto-review；native-only，无 Docker runtime/fallback；旧 Docker F3 cancelled，provider-neutral executor/RPC/registry/scope 保留；P3.3 继续 in_progress |
 | 0.1.47 | 2026-08-02 | **P3.3 native G0 complete**：feature v0.2.1 / plan v0.1.1 / G0 map v0.1.1；三 npm integrity + Git/license pin；SRT complete file/test map；apply-seccomp source/binary hashes；Docker migration map；CodeGraph impact；O/S/L/M/P/R test matrix/prerequisites；offline baseline 406 passed |
 | 0.1.48 | 2026-08-03 | **P3.3 done**：A–F + V1（offline 727）+ V3 macOS real gate（S1–S9 + e2e 11 tests green）+ V4 audits/closeout（baseline vs ADR 0013 Docker、license/CodeGraph、plan §7 全勾选）；**ADR 0014（Linux real 可选，未运行，Linux production 部署前必过）/ contract 0.3.11 / feature v0.2.2 / plan v0.1.6 complete**；Docker production 代码/依赖/镜像删除；P4 AgentTool-dependent expansion 恢复 |
+| 0.1.49 | 2026-08-03 | **P4 Multi-LLM Fallback + Observability（feature v0.2.1 frozen / plan v0.1.2 active / ADR 0015 / contract 0.3.12）**：全局单降级链（`LLM_FALLBACK_PROVIDERS` env）+ 首包探测 + 全程缓冲批式交付 + `_active` 记忆（FallbackStream，poirot 链思想 + ragent 探测机制）；pi_ai 结构化错误透传（ADR 0015，`AssistantMessage.error`，0.81.3）；RunJournal 数据层 COPY poirot 100%（`data/runs/<task_id>/events.jsonl`，task 删除级联）；JournalBridge extension 事件 → journal；`_make_emit` 统一三写（span→SQLite、SSE→queue、journal→文件）；llm.request/response 经 JournalStream（stream_fn 单点，port 无 onPayload 钩子）；offline 444 passed + faux 集成 + live 降级切换/事件落盘 green；`packages/agent` 零 diff |
