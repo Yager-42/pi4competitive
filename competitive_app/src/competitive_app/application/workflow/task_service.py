@@ -11,12 +11,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
+from ...adapter.out.observability import guarded_append
+from ...adapter.out.observability.run_journal import RunJournal
 from ...domain.research_brief import ResearchBrief
 from ...domain.stage import STAGES, empty_projection
+from .journal_bridge import current_run_journal
 from .research_runner import ResearchRunner
 from .runtime_registry import RuntimeRegistry
 
@@ -55,6 +60,7 @@ class TaskService:
         post_task_observer: Any = None,
         sandbox_lifecycle: Any | None = None,
         llm_configured: bool = False,
+        runs_root: str = "data/runs",
     ) -> None:
         self._store = store
         self._repo = repo
@@ -74,6 +80,8 @@ class TaskService:
         self._evolution_cycle_runner = evolution_cycle_runner
         self._sandbox_lifecycle = sandbox_lifecycle
         self._llm_configured = llm_configured
+        self._runs_root = Path(runs_root)
+        self._journals: dict[str, RunJournal] = {}
         self._runners: dict[str, tuple[ResearchRunner, asyncio.Event, Any]] = {}
 
     async def ping_llm(self) -> dict[str, Any]:
@@ -356,6 +364,9 @@ class TaskService:
             if self._sandbox_lifecycle is not None:
                 await self._sandbox_lifecycle.delete_workspace(session_id=session_id)
             await self._cascade_delete_session(session_id)
+        # B4: task 删除级联删 run 目录（data/runs/<task_id>）。
+        shutil.rmtree(self._runs_root / task_id, ignore_errors=True)
+        self._journals.pop(task_id, None)
         self._runners.pop(task_id, None)
 
     async def get_report(self, task_id: str) -> dict[str, Any]:
@@ -834,13 +845,29 @@ class TaskService:
 
     # ------------------------------------------------------------- runner glue
 
-    def _make_emit(self, task_id: str) -> Any:
-        """v0.3.1 SSE + v0.2.2 trace: build the emit closure for a task's runner.
+    def _journal_for(self, task_id: str) -> RunJournal:
+        """Run-level journal（B4：run_id = task_id，`data/runs/<task_id>/events.jsonl`）。"""
+        journal = self._journals.get(task_id)
+        if journal is None:
+            journal = RunJournal(task_id, self._runs_root / task_id / "events.jsonl")
+            self._journals[task_id] = journal
+        return journal
 
-        - `span` events → written to SQLite (task_spans) for GET /tasks/{id}/trace.
-          NOT pushed to SSE (trace is post-hoc; SSE keeps its 11 business events).
-        - all other events → pushed to the pre-registered SSE queue (if a client
-          is connected); no-op when the queue was reaped (task done).
+    def _journal_append(self, task_id: str) -> Any:
+        """Journal-only append closure（直连 append 点：help.*/skill.*/budget/report.generated）。"""
+
+        def append(event_type: str, payload: dict[str, Any] | None = None) -> None:
+            guarded_append(self._journal_for(task_id), event_type, payload)
+
+        return append
+
+    def _make_emit(self, task_id: str) -> Any:
+        """v0.3.1 SSE + v0.2.2 trace + 本 feature journal：build the emit closure for a task's runner.
+
+        - `span` events → SQLite (task_spans) + journal (`trace.span`)。NOT pushed
+          to SSE (trace is post-hoc; SSE keeps its 11 business events)。
+        - 11 业务事件 → journal（`task.<type>`）+ SSE queue（对象原样复用，
+          消费者零感知）。
         """
 
         async def emit(event_type: str, data: dict[str, Any]) -> None:
@@ -849,7 +876,9 @@ class TaskService:
                     await self._store.record_span(task_id, data)
                 except Exception:  # noqa: BLE001
                     pass  # span recording must never break the runner
+                guarded_append(self._journal_for(task_id), "trace.span", data)
                 return
+            guarded_append(self._journal_for(task_id), f"task.{event_type}", data)
             q = self._registry.get_stream(task_id)
             if q is not None:
                 q.put_nowait({"type": event_type, "data": data})
@@ -866,6 +895,10 @@ class TaskService:
         start_stage: str | None = None,
         stop_after_stage: str | None = None,
     ) -> None:
+        # B4: run 级 journal —— 入口创建（run_id = task_id），run 结束 reset
+        # ContextVar（JournalBridge / FallbackStream 经它解析当前 run）。
+        journal = self._journal_for(task_id)
+        journal_token = current_run_journal.set(journal)
         # Build a per-task harness (F-R7: default model via factory).
         # Always create a fresh harness — resume must not reuse prior runtime state.
         agent: Any = None
@@ -892,6 +925,7 @@ class TaskService:
                 subagent_factory=self._harness_factory,
                 judge_model=self._judge_model,
                 emit_event=self._make_emit(task_id),
+                journal_append=self._journal_append(task_id),
                 skill_snapshot=self._skill_snapshot,
                 skill_composer=self._skill_composer,
             )
@@ -913,14 +947,8 @@ class TaskService:
         except Exception:  # noqa: BLE001
             await self._store.update_task_status(task_id, "failed")
         finally:
+            current_run_journal.reset(journal_token)
             self._runners.pop(task_id, None)
-            # E3: one outer-run release for the full task (parallel ephemeral
-            # agents share the parent scope); no tool call → no container.
-            if self._sandbox_lifecycle is not None:
-                try:
-                    await self._sandbox_lifecycle.release(session_id=session_id)
-                except Exception:  # noqa: BLE001
-                    pass
 
     async def _run_refinement_observation(
         self, task_id: str, section_id: str, annotations: list[str]

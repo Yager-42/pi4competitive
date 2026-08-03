@@ -42,7 +42,6 @@ from .adapter.out.sandbox.native.native_sandbox_provider import (
     NativeSandboxProvider,
 )
 from .adapter.out.sandbox.protocol import PROTOCOL_NAME, PROTOCOL_VERSION
-from .adapter.out.sandbox.utils.sandbox_id import derive_sandbox_id
 from .adapter.out.sandbox.sandbox_tool_executor import SandboxToolExecutor
 from .adapter.out.sandbox.utils.sandbox_id import derive_sandbox_id
 from .application.evolution.adapters.pi_llm import PiLlmAdapter
@@ -103,6 +102,10 @@ class AppConfig:
     use_faux: bool = False
     workflow_skill: SkillConfig = field(default_factory=load_skill_config)
     sandbox: SandboxAppConfig = field(default_factory=SandboxAppConfig)
+    runs_root: str = "data/runs"
+    llm_fallback_providers: str = ""
+    llm_fallback_disabled: bool = False
+    llm_fallback_first_packet_ms: int = 60000
 
 
 @dataclass
@@ -216,7 +219,9 @@ class _ModelResolver(ModelResolver):
 class _HarnessFactory(HarnessFactory):
     """Builds an AgentHarness bound to a session + model + cached capability report.
 
-    ``model=None`` resolves to the configured default (F-R7).
+    ``model=None`` resolves to the configured default (F-R7). ``stream_fn``
+    defaults to ``models.streamSimple``; wiring injects the FallbackStream
+    wrapper (multi-LLM fallback) when a chain is configured.
     """
 
     def __init__(
@@ -225,11 +230,14 @@ class _HarnessFactory(HarnessFactory):
         capability_report: Any | None,
         model_resolver: _ModelResolver,
         tool_executor: Any | None = None,
+        *,
+        stream_fn: Any | None = None,
     ) -> None:
         self._models = models
         self._capability_report = capability_report
         self._model_resolver = model_resolver
         self._tool_executor = tool_executor
+        self._stream_fn = stream_fn or models.streamSimple
 
     def _derive_scope(self, session_id: str) -> str:
         if not session_id:
@@ -247,15 +255,58 @@ class _HarnessFactory(HarnessFactory):
             model = self._model_resolver.resolve(None)
         metadata = await session.get_metadata()
         scope_id = self._derive_scope(str(metadata.get("id") or ""))
-        return AgentHarness(
+        harness = AgentHarness(
             session=session,
-            stream_fn=self._models.streamSimple,
+            stream_fn=self._stream_fn,
             model=model,
             system_prompt=system_prompt,
             capability_report=self._capability_report,
             tool_executor=self._tool_executor,
             tool_execution_scope_id=scope_id,
         )
+        # B4: attach the JournalBridge extension to the capability runner
+        # (same runtime; never replaces it — the runner owns tool wiring).
+        await self._attach_journal_extension(harness.agent)
+        return harness
+
+    async def _attach_journal_extension(self, agent: Any) -> None:
+        """Attach JournalBridge handlers to an agent's existing runner (B4/B10).
+
+        The current run's journal is resolved from ``current_run_journal``
+        (set by TaskService._run_research for the run's lifetime); outside a
+        task run nothing is attached. The journal extension registers no tools,
+        so appending to the runner's ``extensions`` list never disturbs
+        capability/extraction wiring (先例：attach_extension_runtime 会替换
+        runner，这里必须 append)。
+        """
+        from earendil_works.pi_agent.extensions import (
+            attach_extension_runtime,
+            create_extension_runtime,
+            load_extension_from_factory,
+        )
+        from earendil_works.pi_agent.extensions.types import LoadExtensionsResult
+
+        from .application.workflow.journal_bridge import (
+            current_run_journal,
+            make_journal_extension_factory,
+        )
+
+        journal = current_run_journal.get()
+        if journal is None:
+            return
+        runtime = create_extension_runtime()
+        extension = await load_extension_from_factory(
+            make_journal_extension_factory(journal),
+            "journal",
+            runtime,
+            "<journal>",
+        )
+        runner = getattr(agent, "extension_runner", None)
+        if runner is None:
+            result = LoadExtensionsResult(extensions=[extension], errors=[], runtime=runtime)
+            attach_extension_runtime(agent, result, "journal")
+            return
+        runner.extensions.append(extension)
 
     async def build_ephemeral(
         self,
@@ -298,7 +349,7 @@ class _HarnessFactory(HarnessFactory):
         model = self._model_resolver.resolve(None)
         harness = AgentHarness(
             session=session,
-            stream_fn=self._models.streamSimple,
+            stream_fn=self._stream_fn,
             model=model,
             tools=tools or [],
             system_prompt=system_prompt,
@@ -327,6 +378,7 @@ class _HarnessFactory(HarnessFactory):
             )
             result = LoadExtensionsResult(extensions=[extension], errors=[], runtime=runtime)
             attach_extension_runtime(harness.agent, result, "ephemeral")
+        await self._attach_journal_extension(harness.agent)
         return harness, intake
 
 
@@ -463,13 +515,67 @@ async def build_application_state(
             raise
         tool_executor = sandbox_executor
         sandbox_lifecycle = lifecycle
-
     # --- services ----------------------------------------------------------
     registry = RuntimeRegistry()
     model_resolver = _ModelResolver(
         models, config.default_model, allow_synthesize=not config.use_faux
     )
-    harness_factory = _HarnessFactory(models, capability_report, model_resolver, tool_executor)
+    # --- multi-LLM fallback (feature llm-fallback-observability, G4/G8) ---
+    # env ``LLM_FALLBACK_PROVIDERS`` = 全局单降级链（逗号分隔，按序轮转）；
+    # ``LLM_FALLBACK_DISABLED=1`` → 直通；``LLM_FALLBACK_FIRST_PACKET_MS``
+    # 首包超时（默认 60000）。链解析失败（空链 = 配置错误）→ 启动即报错，
+    # 不静默直通（poirot ``test_no_available_provider_raises`` 语义）。
+    stream_fn = models.streamSimple
+    from .adapter.out.observability import guarded_append
+    from .application.workflow.journal_bridge import current_run_journal
+
+    def _journal_append_for_run(event_type: str, payload: dict[str, Any]) -> None:
+        journal = current_run_journal.get()
+        if journal is not None:
+            guarded_append(journal, event_type, payload)
+
+    if not config.llm_fallback_disabled and config.llm_fallback_providers:
+        from .application.model.fallback_stream import FallbackStream
+        from .application.model.router import (
+            build_fallback_chain,
+            chain_model_from_config,
+            parse_provider_env,
+            resolve_provider_config,
+        )
+
+        def _emit_fallback_event(event_type: str, payload: dict[str, Any]) -> None:
+            _journal_append_for_run(event_type, payload)
+
+        names = parse_provider_env(config.llm_fallback_providers)
+        configs = [
+            cfg
+            for priority, name in enumerate(names)
+            if (cfg := resolve_provider_config(name, priority=priority)) is not None
+        ]
+        chain = [chain_model_from_config(c) for c in build_fallback_chain(names, configs)]
+        if len(chain) > 1:
+            stream_fn = FallbackStream(
+                models,
+                chain=chain,
+                first_packet_timeout_ms=config.llm_fallback_first_packet_ms,
+                emit_fallback_event=_emit_fallback_event,
+            )
+    # llm.request/llm.response：本 port 的 agent loop 不触发
+    # before_provider_request/after_provider_response extension 事件
+    # （agent_loop.py 无 onPayload/onResponse 钩子），llm.* 改由 stream_fn
+    # 单点产出（JournalStream；packages/agent 零 diff）。
+    from .application.model.journal_stream import JournalStream
+
+    stream_fn = JournalStream(stream_fn, _journal_append_for_run)
+
+
+    harness_factory = _HarnessFactory(
+        models,
+        capability_report,
+        model_resolver,
+        tool_executor,
+        stream_fn=stream_fn,
+    )
     session_service = SessionService(
         repo=repo,
         store=store,
@@ -563,6 +669,7 @@ async def build_application_state(
         evolution_cycle_runner=evolution_cycle_runner,
         sandbox_lifecycle=sandbox_lifecycle,
         llm_configured=llm_configured,
+        runs_root=config.runs_root,
     )
 
     return ApplicationState(
@@ -647,6 +754,13 @@ def load_config_from_env() -> AppConfig:
             root=os.environ.get("SANDBOX_ROOT", "data/sandboxes"),
             manifest=os.environ.get("SANDBOX_MANIFEST", ""),
             config=os.environ.get("SANDBOX_CONFIG", ""),
+        ),
+        runs_root=os.environ.get("RUNS_ROOT", "data/runs"),
+        llm_fallback_providers=os.environ.get("LLM_FALLBACK_PROVIDERS", ""),
+        llm_fallback_disabled=os.environ.get("LLM_FALLBACK_DISABLED", "").lower()
+        in ("1", "true", "yes"),
+        llm_fallback_first_packet_ms=int(
+            os.environ.get("LLM_FALLBACK_FIRST_PACKET_MS", "60000")
         ),
     )
     if enabled_list is not None:

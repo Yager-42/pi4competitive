@@ -30,7 +30,6 @@ from ...domain.socm import (
     EntityType,
     SOCMState,
 )
-from ...domain.stage import STAGES
 from .extraction import current_subtask
 from .profiles import is_search_tool
 from .stage_outputs import last_usage, model_name
@@ -40,7 +39,12 @@ _log = logging.getLogger(__name__)
 
 async def _noop_emit(_event_type: str, _data: dict[str, Any]) -> None:
     """v0.3.1 SSE: default emit sink (no-op when SSE isn't wired)."""
-    return None
+    return
+
+
+def _noop_journal_append(_event_type: str, _payload: dict[str, Any] | None = None) -> None:
+    """Default journal sink (no-op when observability isn't wired)."""
+    return
 
 
 # Defaults (env-overridable in wiring; engine takes resolved values).
@@ -99,6 +103,7 @@ class CoverageEngine:
         subagent_factory: Any = None,
         judge_model: dict[str, Any] | None = None,
         emit_event: Any = None,
+        journal_append: Any = None,
         search_skills: list[Any] | None = None,
         extraction_skills: list[Any] | None = None,
         skill_composer: Any = None,
@@ -134,6 +139,7 @@ class CoverageEngine:
         self._subagent_factory = subagent_factory
         self._judge_model = judge_model
         self._emit_event = emit_event or _noop_emit
+        self._journal_append = journal_append or _noop_journal_append
         self._search_skills = list(search_skills or [])[:3]
         self._extraction_skills = list(extraction_skills or [])[:3]
         self._skill_composer = skill_composer
@@ -229,6 +235,10 @@ class CoverageEngine:
                 await self._socm_store.save(self._session_id, after)
                 if after.stalled_iterations >= self._max_stalled:
                     _log.info("search stage: no progress for %d iterations, terminating", after.stalled_iterations)
+                    self._journal_append(
+                        "help.exhausted",
+                        {"dimension": "stall", "task_id": self._task_id},
+                    )
                     break
             else:
                 after.stalled_iterations = 0
@@ -238,10 +248,23 @@ class CoverageEngine:
             latest = await self._socm_store.load(self._session_id)
             latest.budget.consume_iteration()
             await self._socm_store.save(self._session_id, latest)
-            await self._update_projection()
+            self._journal_append(
+                "budget",
+                {
+                    "kind": "iteration",
+                    "iteration": latest.budget.consumed_iterations,
+                    "exhausted": latest.budget.exhausted(),
+                    "task_id": self._task_id,
+                },
+            )
+
 
             if latest.budget.exhausted():
                 _log.info("search stage: budget exhausted (%s), terminating", latest.budget.exhausted_dim())
+                self._journal_append(
+                    "help.exhausted",
+                    {"dimension": "budget", "task_id": self._task_id},
+                )
                 break
 
         # Final state + projection.
@@ -380,6 +403,10 @@ class CoverageEngine:
         base_prompt = _SEARCH_RUNTIME_PROMPT
         if self._skill_composer is not None:
             agent.state.systemPrompt = self._skill_composer.compose(base_prompt, self._search_skills, "search")
+            self._journal_append(
+                "skill.apply",
+                {"skill_ids": [s.skill_id or s.name for s in self._search_skills], "task_id": self._task_id},
+            )
         else:
             agent.state.systemPrompt = base_prompt
         prompt = _build_subagent_prompt(state, subtask)
@@ -391,6 +418,14 @@ class CoverageEngine:
             raise
         except Exception:  # noqa: BLE001
             _log.exception("sub-agent prompt failed for subtask %s", subtask.get("question"))
+            self._journal_append(
+                "help.requested",
+                {
+                    "reason": "subagent_llm_failure",
+                    "entity": subtask.get("entity_id", ""),
+                    "task_id": self._task_id,
+                },
+            )
             return
         # v0.2.2 trace: record a span for the sub-agent LLM call.
         usage = last_usage(agent.state.messages)

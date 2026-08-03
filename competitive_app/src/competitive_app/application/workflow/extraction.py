@@ -17,7 +17,6 @@ before the sub-agent prompt (D-S7). Buffered flush + sub-agent-exit drain.
 """
 from __future__ import annotations
 
-import asyncio
 import contextvars
 import json
 import logging
@@ -34,7 +33,12 @@ _log = logging.getLogger(__name__)
 
 async def _noop_emit(_event_type: str, _data: dict[str, Any]) -> None:
     """v0.3.1 SSE: default emit sink (no-op when SSE isn't wired)."""
-    return None
+    return
+
+
+def _noop_journal_append(_event_type: str, _payload: dict[str, Any] | None = None) -> None:
+    """Default journal sink (no-op when observability isn't wired)."""
+    return
 
 
 # ContextVar: the coverage engine sets this before a sub-agent prompt so the
@@ -106,6 +110,7 @@ class EvidenceIntake:
         judge_model: dict[str, Any] | None,
         max_input_chars: int = DEFAULT_JUDGE_MAX_INPUT_CHARS,
         emit_event: Any = None,
+        journal_append: Any = None,
         task_id: str = "",
         extraction_skills: list[Any] | None = None,
     ) -> None:
@@ -117,6 +122,7 @@ class EvidenceIntake:
         self._task_id = task_id
         # v0.3.1 SSE: per-evidence event emit; no-op by default.
         self._emit_event = emit_event or _noop_emit
+        self._journal_append = journal_append or _noop_journal_append
         self._extraction_skills = list(extraction_skills or [])[:3]
         self._buffer: dict[str, list[tuple[str, str]]] = {}
 
@@ -220,12 +226,18 @@ class EvidenceIntake:
         self, entity_id: str, empty_attrs: list[str], pages_blob: str
     ) -> list[dict[str, Any]]:
         """One-shot judge call via completeSimple; returns parsed findings."""
-        if self._models is None or self._judge_model is None:
-            return []
         prompt = _build_judge_prompt(entity_id, empty_attrs, pages_blob)
         if self._extraction_skills:
             from ..evolution.injector import compose_system_prompt
             prompt = compose_system_prompt(prompt, self._extraction_skills)
+            self._journal_append(
+                "skill.apply",
+                {
+                    "skill_ids": [s.skill_id or s.name for s in self._extraction_skills],
+                    "entity": entity_id,
+                    "task_id": self._task_id,
+                },
+            )
         context = {"messages": [{"role": "user", "content": prompt}]}
         t0 = time.monotonic()
         try:
