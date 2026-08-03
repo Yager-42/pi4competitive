@@ -39,12 +39,10 @@ class _TestSandboxLifecycle:
         return None
 
 
-async def test_live_llm_ping(tmp_path: Path, live_env) -> None:
-    import os
-
-    os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
-    os.environ["APP_DB"] = str(tmp_path / "app.db")
-    os.environ["SESSIONS_CWD"] = "live-ping"
+async def test_live_llm_ping(tmp_path: Path, live_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SESSIONS_ROOT", str(tmp_path / "sessions"))
+    monkeypatch.setenv("APP_DB", str(tmp_path / "app.db"))
+    monkeypatch.setenv("SESSIONS_CWD", "live-ping")
 
     from competitive_app.adapter.in_.fastapi.app import create_app
     from competitive_app.wiring import build_application_state, load_config_from_env

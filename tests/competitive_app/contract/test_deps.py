@@ -100,6 +100,11 @@ def test_workflow_code_in_competitive_app_not_packages() -> None:
         "packages/ai/pyproject.toml",
         "packages/ai/src/earendil_works/pi_ai/__init__.py",
         "packages/ai/src/earendil_works/pi_ai/api/transform_messages.py",
+        # ADR 0015 — pi_ai AssistantMessage.error structured error classification.
+        # pi_ai 0.81.2→0.81.3; contract 0.3.11→0.3.12. Single production point
+        # _http_stream.error_message(); types.py carries the ErrorInfo shape.
+        "packages/ai/src/earendil_works/pi_ai/types.py",
+        "packages/ai/src/earendil_works/pi_ai/api/_http_stream.py",
     }
     result = subprocess.run(
         ["git", "diff", "--name-only", "HEAD", "--", "packages/"],

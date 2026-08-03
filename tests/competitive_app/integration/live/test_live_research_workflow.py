@@ -48,12 +48,11 @@ async def _wait_terminal(client: AsyncClient, task_id: str, timeout: float = 180
     return status
 
 
-async def test_live_three_stages_real_provider(tmp_path: Path, live_env) -> None:
-    import os
+async def test_live_three_stages_real_provider(tmp_path: Path, live_env, monkeypatch: pytest.MonkeyPatch) -> None:
 
-    os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
-    os.environ["APP_DB"] = str(tmp_path / "app.db")
-    os.environ["SESSIONS_CWD"] = "live-test"
+    monkeypatch.setenv("SESSIONS_ROOT", str(tmp_path / "sessions"))
+    monkeypatch.setenv("APP_DB", str(tmp_path / "app.db"))
+    monkeypatch.setenv("SESSIONS_CWD", "live-test")
     # Use the default whitelist (echo + search_* + Reasonix prefix cache);
     # search packages load when their env keys are present, fail-closed otherwise.
 
@@ -130,14 +129,16 @@ async def test_live_three_stages_real_provider(tmp_path: Path, live_env) -> None
         await state.shutdown()
 
 
-async def test_live_multiturn_collect_retry_cache(tmp_path: Path, live_env) -> None:
+async def test_live_multiturn_collect_retry_cache(
+    tmp_path: Path, live_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Real app session: collect tool loop, then retry under one stable prefix."""
     import json
     import os
 
-    os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
-    os.environ["APP_DB"] = str(tmp_path / "app.db")
-    os.environ["SESSIONS_CWD"] = "live-cache-test"
+    monkeypatch.setenv("SESSIONS_ROOT", str(tmp_path / "sessions"))
+    monkeypatch.setenv("APP_DB", str(tmp_path / "app.db"))
+    monkeypatch.setenv("SESSIONS_CWD", "live-cache-test")
 
     from competitive_app.wiring import build_application_state, load_config_from_env
 
@@ -204,15 +205,17 @@ async def test_live_multiturn_collect_retry_cache(tmp_path: Path, live_env) -> N
     finally:
         await state.shutdown()
 
-async def test_live_tool_order_perturbation_cache(tmp_path: Path, live_env) -> None:
+async def test_live_tool_order_perturbation_cache(
+    tmp_path: Path, live_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Reverse model-visible tools between warm and measured requests."""
     import json
     import os
     from dataclasses import replace
 
-    os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
-    os.environ["APP_DB"] = str(tmp_path / "app.db")
-    os.environ["SESSIONS_CWD"] = "live-tool-order-test"
+    monkeypatch.setenv("SESSIONS_ROOT", str(tmp_path / "sessions"))
+    monkeypatch.setenv("APP_DB", str(tmp_path / "app.db"))
+    monkeypatch.setenv("SESSIONS_CWD", "live-tool-order-test")
     from competitive_app.wiring import build_application_state, load_config_from_env
 
     state = await build_application_state(load_config_from_env())
@@ -259,14 +262,16 @@ async def test_live_tool_order_perturbation_cache(tmp_path: Path, live_env) -> N
         await state.shutdown()
 
 
-async def test_live_stable_six_stage_prefix_cache(tmp_path: Path, live_env) -> None:
+async def test_live_stable_six_stage_prefix_cache(
+    tmp_path: Path, live_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Prototype six stages as user instructions under one fixed system/tools prefix."""
     import json
     import os
 
-    os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
-    os.environ["APP_DB"] = str(tmp_path / "app.db")
-    os.environ["SESSIONS_CWD"] = "live-stable-stages-test"
+    monkeypatch.setenv("SESSIONS_ROOT", str(tmp_path / "sessions"))
+    monkeypatch.setenv("APP_DB", str(tmp_path / "app.db"))
+    monkeypatch.setenv("SESSIONS_CWD", "live-stable-stages-test")
     from competitive_app.wiring import build_application_state, load_config_from_env
 
     state = await build_application_state(load_config_from_env())
@@ -305,15 +310,16 @@ async def test_live_stable_six_stage_prefix_cache(tmp_path: Path, live_env) -> N
         await state.shutdown()
 
 
-async def test_live_reasonix_long_context_compaction(tmp_path: Path, live_env) -> None:
+async def test_live_reasonix_long_context_compaction(
+    tmp_path: Path, live_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Force a small host window and verify Reasonix performs a real rewrite epoch."""
     import json
-    import os
 
-    os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
-    os.environ["APP_DB"] = str(tmp_path / "app.db")
-    os.environ["SESSIONS_CWD"] = "live-reasonix-compaction-test"
-    os.environ["MODEL_CONTEXT_WINDOW_TOKENS"] = "8000"
+    monkeypatch.setenv("SESSIONS_ROOT", str(tmp_path / "sessions"))
+    monkeypatch.setenv("APP_DB", str(tmp_path / "app.db"))
+    monkeypatch.setenv("SESSIONS_CWD", "live-reasonix-compaction-test")
+    monkeypatch.setenv("MODEL_CONTEXT_WINDOW_TOKENS", "8000")
     from competitive_app.wiring import build_application_state, load_config_from_env
 
     state = await build_application_state(load_config_from_env())

@@ -137,6 +137,18 @@ class UserMessage(TypedDict):
     timestamp: int
 
 
+class ErrorInfo(TypedDict):
+    """Structured error classification (ADR 0015, pi4 deviation from upstream).
+
+    Present on AssistantMessage only when ``stopReason == "error"``.
+    ``statusCode`` exists only when ``type == "http_error"``.
+    """
+
+    statusCode: NotRequired[int]
+    type: Literal["timeout", "connection", "http_error", "parse", "aborted", "other"]
+    message: str
+
+
 class AssistantMessage(TypedDict):
     role: Literal["assistant"]
     content: list[TextContent | ThinkingContent | ToolCall]
@@ -148,8 +160,8 @@ class AssistantMessage(TypedDict):
     timestamp: int
     responseModel: NotRequired[str]
     responseId: NotRequired[str]
-    diagnostics: NotRequired[list[Any]]
     errorMessage: NotRequired[str]
+    error: NotRequired[ErrorInfo]
 
 
 class ToolResultMessage(TypedDict):

@@ -34,6 +34,11 @@ from .profiles import StageProfile, build_profiles, is_search_tool
 from .stage_outputs import append_stage_output, collect_prior_outputs, last_usage, model_name
 
 
+def _noop_journal_append(_event_type: str, _payload: dict[str, Any] | None = None) -> None:
+    """Default journal sink (no-op when observability isn't wired)."""
+    return
+
+
 class ResearchRunner:
     def __init__(
         self,
@@ -52,6 +57,7 @@ class ResearchRunner:
         subagent_factory: Any = None,
         judge_model: dict[str, Any] | None = None,
         emit_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
+        journal_append: Callable[[str, dict[str, Any]], None] | None = None,
         skill_snapshot: Any = None,
         skill_composer: Any = None,
     ) -> None:
@@ -69,6 +75,7 @@ class ResearchRunner:
         self._subagent_factory = subagent_factory
         self._judge_model = judge_model
         self._emit_event = emit_event or _noop_emit
+        self._journal_append = journal_append or _noop_journal_append
         self._session_id = session_id or getattr(self.agent, "session_id", "") or ""
         self._skill_snapshot = skill_snapshot
         self._skill_composer = skill_composer
@@ -168,6 +175,10 @@ class ResearchRunner:
                 await self._emit_event(
                     "report_ready", {"report_id": self.task_id, "task_id": self.task_id}
                 )
+                self._journal_append(
+                    "report.generated",
+                    {"report_id": self.task_id, "task_id": self.task_id},
+                )
             # Experiment harness: stop after the named stage (search/collect) without
             # running downstream stages. Mark completed — the search stage is what we
             # wanted to measure.
@@ -200,6 +211,14 @@ class ResearchRunner:
             description = self.research_brief.model_dump_json()
             self._stage_skills[name] = await self._skill_snapshot.ensure_scope(
                 self.task_id, name, description
+            )
+            self._journal_append(
+                "skill.select",
+                {
+                    "stage": name,
+                    "skills": [s.skill_id or s.name for s in self._stage_skills[name]],
+                    "task_id": self.task_id,
+                },
             )
         memory_blob: str | None = None
         if name == "write":
@@ -263,6 +282,15 @@ class ResearchRunner:
             self._stage_skills["extraction"] = await self._skill_snapshot.ensure_scope(
                 self.task_id, "extraction", description
             )
+            for stage in ("search", "extraction"):
+                self._journal_append(
+                    "skill.select",
+                    {
+                        "stage": stage,
+                        "skills": [s.skill_id or s.name for s in self._stage_skills[stage]],
+                        "task_id": self.task_id,
+                    },
+                )
         engine = self._coverage_engine or CoverageEngine(
             socm_store=self.socm_store,
             session_id=self._session_id,
@@ -274,6 +302,7 @@ class ResearchRunner:
             subagent_factory=self._subagent_factory,
             judge_model=self._judge_model,
             emit_event=self._emit_event,
+            journal_append=self._journal_append,
             search_skills=self._stage_skills.get("search", []),
             extraction_skills=self._stage_skills.get("extraction", []),
             skill_composer=self._skill_composer,
