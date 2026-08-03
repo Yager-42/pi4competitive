@@ -50,18 +50,18 @@ _SEED_SQL = (
 _SEED_VALUE = "$99/mo (seeded prior)"
 
 
-async def test_live_memory_blob_reaches_write_prompt(tmp_path: Path, live_env) -> None:
-    import os
-
-    os.environ["SESSIONS_ROOT"] = str(tmp_path / "sessions")
-    os.environ["APP_DB"] = str(tmp_path / "app.db")
-    os.environ["SESSIONS_CWD"] = "live-mem"
+async def test_live_memory_blob_reaches_write_prompt(
+    tmp_path: Path, live_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SESSIONS_ROOT", str(tmp_path / "sessions"))
+    monkeypatch.setenv("APP_DB", str(tmp_path / "app.db"))
+    monkeypatch.setenv("SESSIONS_CWD", "live-mem")
     # Lower the coverage threshold + iteration cap so search finishes FAST
     # (partial coverage) → write stage starts → the memory blob is in the write
     # prompt. We are NOT testing search quality here, only that the memory blob
     # reaches the write prompt in a real run.
-    os.environ["SEARCH_COVERAGE_THRESHOLD"] = "0.05"
-    os.environ["SEARCH_MAX_ITERATIONS"] = "2"
+    monkeypatch.setenv("SEARCH_COVERAGE_THRESHOLD", "0.05")
+    monkeypatch.setenv("SEARCH_MAX_ITERATIONS", "2")
 
     from competitive_app.adapter.in_.fastapi.app import create_app
     from competitive_app.wiring import build_application_state, load_config_from_env
