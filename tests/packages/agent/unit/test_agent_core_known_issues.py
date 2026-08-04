@@ -195,7 +195,8 @@ async def test_agent_loop_cancellation_propagates_and_wakes_waiters(monkeypatch)
     assert await asyncio.wait_for(iterator, timeout=1) == []
     assert stream._done is True
     assert stream._final_result is not None and stream._final_result.done()
-    assert stream._runner_task is not None and stream._runner_task.done()
+    await asyncio.sleep(0)
+    assert stream._runner_task is None
 
 
 async def collect_agent_events(stream) -> list[Any]:
@@ -310,8 +311,7 @@ async def test_agent_loop_surfaces_base_exception_to_stream(monkeypatch) -> None
     iterator = asyncio.create_task(collect_agent_events(stream))
     with pytest.raises(ControlFlowAbort):
         await asyncio.wait_for(stream.await_result(), timeout=1)
-    assert stream._runner_task is not None
-    with pytest.raises(ControlFlowAbort):
-        await stream._runner_task
+    await asyncio.sleep(0)
+    assert stream._runner_task is None
     assert stream._done is True
     assert await asyncio.wait_for(iterator, timeout=1) == []

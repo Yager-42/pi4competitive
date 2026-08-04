@@ -344,7 +344,8 @@ async def test_event_stream_runner_failure_wakes_iterator_and_result() -> None:
         await asyncio.wait_for(stream.await_result(), timeout=1)
     assert await asyncio.wait_for(iterator, timeout=1) == []
     assert stream._final_result is not None and stream._final_result.done()
-    assert stream._runner_task is not None and stream._runner_task.done()
+    await asyncio.sleep(0)
+    assert stream._runner_task is None
 
 
 async def collect_stream(stream: EventStream[str, str]) -> list[str]:
@@ -357,13 +358,15 @@ async def test_credential_write_serializes_with_modify() -> None:
     store = InMemoryCredentialStore()
     order: list[str] = []
 
+    entered = asyncio.Event()
     async def slow_mutator(_cred):
         order.append("modify-start")
+        entered.set()
         await asyncio.sleep(0.05)
         order.append("modify-end")
         return {"type": "api_key", "key": "m"}
     modify_task = asyncio.create_task(store.modify("p", slow_mutator))
-    await asyncio.sleep(0.01)
+    await entered.wait()
     await store.write("p", {"type": "api_key", "key": "w"})
     await modify_task
     assert order == ["modify-start", "modify-end"]

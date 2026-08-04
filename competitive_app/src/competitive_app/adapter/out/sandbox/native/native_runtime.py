@@ -160,8 +160,31 @@ class NativeRuntime:
             "args": ["-m", WORKER_MODULE],
         }
         self._closed = False
+        self._active_runs: set[asyncio.Task[Any]] = set()
+        self._close_task: asyncio.Task[None] | None = None
 
     async def execute_worker(
+        self,
+        request: RpcRequest,
+        on_frame: FrameCallback,
+        *,
+        command: str,
+        signal: Any | None = None,
+    ) -> RpcFrame:
+        if self._closed:
+            raise SandboxRuntimeError("sandbox runtime is closed")
+        current = asyncio.current_task()
+        if current is None:
+            raise SandboxRuntimeError("sandbox worker requires an asyncio task")
+        self._active_runs.add(current)
+        try:
+            return await self._execute_worker(
+                request, on_frame, command=command, signal=signal
+            )
+        finally:
+            self._active_runs.discard(current)
+
+    async def _execute_worker(
         self,
         request: RpcRequest,
         on_frame: FrameCallback,
@@ -275,12 +298,25 @@ class NativeRuntime:
         return terminal
 
     async def close(self) -> None:
-        if self._closed:
+        if self._close_task is None:
+            self._closed = True
+            active = tuple(self._active_runs)
+
+            async def finish() -> None:
+                if active:
+                    await asyncio.gather(*active, return_exceptions=True)
+                os.close(self._workspace_fd)
+                if self._manifest_fd is not None:
+                    os.close(self._manifest_fd)
+
+            self._close_task = asyncio.create_task(finish())
+        if asyncio.current_task() in self._active_runs:
             return
-        self._closed = True
-        os.close(self._workspace_fd)
-        if self._manifest_fd is not None:
-            os.close(self._manifest_fd)
+        try:
+            await asyncio.shield(self._close_task)
+        except asyncio.CancelledError:
+            await self._close_task
+            raise
 
 __all__ = [
     "MANIFEST_ENV",

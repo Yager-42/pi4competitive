@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -230,6 +231,12 @@ async def test_skill_projection_commits_dependencies_before_manifest(tmp_path: P
             return [candidate]
 
     class Scope:
+        async def get_scope(self, *_args):
+            return None
+
+        async def clear_scope(self, *_args):
+            events.append("clear")
+
         async def set_scope(self, *_args):
             events.append("scope")
 
@@ -260,6 +267,9 @@ async def test_skill_projection_manifest_failure_has_no_marker_or_scope(tmp_path
             self.sets = 0
             self.clears = 0
 
+        async def get_scope(self, *_args):
+            return None
+
         async def set_scope(self, *_args):
             self.sets += 1
 
@@ -276,6 +286,107 @@ async def test_skill_projection_manifest_failure_has_no_marker_or_scope(tmp_path
         await files.accept_candidate(candidate, scope="write")
     assert not (path.parent / ".skill_id").exists()
     # A failed manifest publication must roll the scope row back as well.
+    assert files._scope_store.sets == 1
+    assert files._scope_store.clears == 1
+
+
+@pytest.mark.asyncio
+async def test_skill_projection_snapshot_failure_does_not_clear_existing_scope(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "skills" / "candidate" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("candidate", encoding="utf-8")
+    candidate = _record("candidate", path=str(path))
+
+    class Store:
+        async def list_active(self):
+            return [candidate]
+
+    class Scope:
+        sets = 0
+        clears = 0
+
+        async def get_scope(self, *_args):
+            raise OSError("scope store unavailable")
+
+        async def set_scope(self, *_args):
+            self.sets += 1
+
+        async def clear_scope(self, *_args):
+            self.clears += 1
+
+    scope = Scope()
+    files = SkillFiles(tmp_path, Store(), scope)
+    with pytest.raises(OSError, match="scope store unavailable"):
+        await files.accept_candidate(candidate, scope="write")
+    assert scope.sets == 0
+    assert scope.clears == 0
+    assert not (path.parent / ".skill_id").exists()
+
+
+@pytest.mark.asyncio
+async def test_skill_projection_requires_rollback_capability_before_mutation(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "skills" / "candidate" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("candidate", encoding="utf-8")
+    candidate = _record("candidate", path=str(path))
+
+    class Store:
+        async def list_active(self):
+            return [candidate]
+
+    class IncompleteScope:
+        async def get_scope(self, *_args):
+            return None
+
+        async def set_scope(self, *_args):
+            return None
+
+    with pytest.raises(TypeError, match="clear_scope"):
+        await SkillFiles(tmp_path, Store(), IncompleteScope()).accept_candidate(
+            candidate, scope="write"
+        )
+    assert not (path.parent / ".skill_id").exists()
+
+
+@pytest.mark.asyncio
+async def test_skill_projection_cancellation_rolls_back_committed_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "skills" / "candidate" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("candidate", encoding="utf-8")
+    candidate = _record("candidate", path=str(path))
+
+    class Store:
+        async def list_active(self):
+            return [candidate]
+
+    class Scope:
+        sets = 0
+        clears = 0
+
+        async def get_scope(self, *_args):
+            return None
+
+        async def set_scope(self, *_args):
+            self.sets += 1
+
+        async def clear_scope(self, *_args):
+            self.clears += 1
+
+    files = SkillFiles(tmp_path, Store(), Scope())
+
+    async def cancelled_manifest():
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(files, "_write_manifest_locked", cancelled_manifest)
+    with pytest.raises(asyncio.CancelledError):
+        await files.accept_candidate(candidate, scope="write")
+    assert not (path.parent / ".skill_id").exists()
     assert files._scope_store.sets == 1
     assert files._scope_store.clears == 1
 

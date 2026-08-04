@@ -251,6 +251,59 @@ async def test_runtime_passes_manifest_env_to_worker(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_runtime_close_waits_for_in_flight_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from competitive_app.adapter.out.sandbox.native import native_runtime as runtime_module
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def blocked_run(_options):
+        started.set()
+        await release.wait()
+        return {"exit_code": 0}
+
+    monkeypatch.setattr(runtime_module, "run_sandboxed_command", blocked_run)
+    runtime = _runtime(tmp_path / "ws")
+    workspace_fd = runtime._workspace_fd
+    execute_task = asyncio.create_task(_execute(runtime))
+    await started.wait()
+    close_task = asyncio.create_task(runtime.close())
+    await asyncio.sleep(0)
+    assert not close_task.done()
+    os.fstat(workspace_fd)
+    release.set()
+    with pytest.raises(RpcProtocolError, match="terminal frame"):
+        await execute_task
+    await close_task
+    with pytest.raises(OSError):
+        os.fstat(workspace_fd)
+
+
+@pytest.mark.asyncio
+async def test_provider_release_closes_fds_when_runtime_close_is_cancelled(
+    tmp_path: Path,
+) -> None:
+    provider = NativeSandboxProvider(sandbox_root=tmp_path / "sandboxes")
+    sandbox = await provider.acquire(SCOPE)
+    workspace_fd = provider._workspace_fds[SCOPE]
+    manifest_fd = provider._manifest_fds.get(SCOPE)
+
+    async def cancelled_close() -> None:
+        raise asyncio.CancelledError()
+
+    sandbox._runtime.close = cancelled_close
+    with pytest.raises(asyncio.CancelledError):
+        await provider.release(SCOPE)
+    with pytest.raises(OSError):
+        os.fstat(workspace_fd)
+    if manifest_fd is not None:
+        with pytest.raises(OSError):
+            os.fstat(manifest_fd)
+
+
+@pytest.mark.asyncio
 async def test_runtime_worker_exit_without_frames_raises_command_error(tmp_path: Path) -> None:
     runtime = _runtime(
         tmp_path / "ws",

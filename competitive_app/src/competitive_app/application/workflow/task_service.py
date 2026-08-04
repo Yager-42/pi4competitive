@@ -308,14 +308,22 @@ class TaskService:
         delete = getattr(self._store, "delete_task_if_current", None)
         if existing is not None and restore is not None:
             try:
-                await restore(existing, expected_status="pending", expected_session_id=session_id)
+                restored = await restore(
+                    existing, expected_status="pending", expected_session_id=session_id
+                )
+                if not restored:
+                    _log.warning("conditional task rollback skipped after concurrent change: %s", task_id)
                 return
             except Exception:
                 _log.exception("conditional task rollback failed for %s", task_id)
                 return
         if existing is None and delete is not None:
             try:
-                await delete(task_id, expected_status="pending", expected_session_id=session_id)
+                deleted = await delete(
+                    task_id, expected_status="pending", expected_session_id=session_id
+                )
+                if not deleted:
+                    _log.warning("conditional task delete skipped after concurrent change: %s", task_id)
                 return
             except Exception:
                 _log.exception("conditional task delete failed for %s", task_id)
@@ -345,19 +353,30 @@ class TaskService:
             candidates.extend([getattr(storage, "_metadata", None), {"path": getattr(storage, "_file_path", "")}])
         except Exception:
             pass
+        partial: dict[str, Any] | None = None
         for value in candidates:
-            if isinstance(value, dict) and value.get("path"):
+            if not isinstance(value, dict) or not value.get("path"):
+                continue
+            if value.get("id"):
                 return value
+            partial = value
         try:
             value = await session.get_metadata()
-            return value if isinstance(value, dict) else None
+            if isinstance(value, dict) and value.get("path") and value.get("id"):
+                return value
         except Exception:
-            _log.exception("unable to recover metadata for created session cleanup")
-            return None
+            _log.exception("unable to recover complete metadata for created session cleanup")
+        return partial
     async def _cleanup_created_session(
         self, meta: dict[str, Any] | None, *, session: Any = None
     ) -> None:
         """Remove JSONL, index, and eagerly-created workspace on rollback."""
+        if meta is not None and not meta.get("id") and session is not None:
+            try:
+                await self._repo.delete(session)
+                return
+            except Exception:
+                _log.exception("opaque created session cleanup failed; using path fallback")
         if not meta:
             if session is not None:
                 try:

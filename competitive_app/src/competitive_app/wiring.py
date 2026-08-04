@@ -533,12 +533,12 @@ async def build_application_state(
         if sandbox_lifecycle is not None:
             try:
                 await sandbox_lifecycle.shutdown()
-            except Exception:
+            except BaseException:  # cleanup must not replace the startup failure
                 pass
         for resource in (workflow_skill_store, skill_store, store):
             try:
                 await resource.close()
-            except Exception:
+            except BaseException:  # attempt every resource even during cancellation
                 pass
     # --- services ----------------------------------------------------------
     registry = RuntimeRegistry()

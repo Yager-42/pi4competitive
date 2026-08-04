@@ -50,12 +50,14 @@ class EventStream(Generic[T, R]):
         except asyncio.CancelledError as error:
             self.fail(error)
             raise
-        except Exception as error:
+        except BaseException as error:
             if not self.fail(error):
                 # The stream already completed (end()/push) and the failure
                 # arrived during post-completion cleanup: the result stands,
                 # but the producer failure must not disappear silently.
                 _log.warning("event stream producer failed after completion: %r", error)
+            if not isinstance(error, Exception):
+                raise
 
     def _start_pending(self) -> None:
         if self._started or self._pending_runner is None or self._done:
@@ -64,7 +66,16 @@ class EventStream(Generic[T, R]):
         self._started = True
         runner = self._pending_runner
         self._pending_runner = None
-        self._runner_task = loop.create_task(self._run_pending(runner))
+        task = loop.create_task(self._run_pending(runner))
+        self._runner_task = task
+
+        def release(completed: asyncio.Task[None]) -> None:
+            if self._runner_task is completed:
+                self._runner_task = None
+            if not completed.cancelled():
+                completed.exception()
+
+        task.add_done_callback(release)
 
     def start(self, runner: Callable[[], Awaitable[None]]) -> None:
         """Start a producer now, or defer it until this stream is consumed."""

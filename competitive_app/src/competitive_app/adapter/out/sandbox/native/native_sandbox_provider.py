@@ -269,11 +269,11 @@ class NativeSandboxProvider(SandboxProvider):
             # so an already-running command is killed before scope teardown.
             if signal is not None and not signal.done():
                 signal.set_result(None)
-            await _close_sandbox(sandbox)
-            if workspace_fd is not None:
-                os.close(workspace_fd)
-            if manifest_fd is not None:
-                os.close(manifest_fd)
+            try:
+                await _close_sandbox(sandbox)
+            finally:
+                _close_fd(workspace_fd)
+                _close_fd(manifest_fd)
 
     async def destroy_scope(self, scope_id: str) -> None:
         """Abort any in-flight worker (kills its broker tree) and close the
@@ -287,12 +287,12 @@ class NativeSandboxProvider(SandboxProvider):
             manifest_fd = self._manifest_fds.pop(scope_id, None)
             if signal is not None and not signal.done():
                 signal.set_result(None)
-            if sandbox is not None:
-                await _close_sandbox(sandbox)
-            if manifest_fd is not None:
-                os.close(manifest_fd)
-            if workspace_fd is not None:
-                os.close(workspace_fd)
+            try:
+                if sandbox is not None:
+                    await _close_sandbox(sandbox)
+            finally:
+                _close_fd(manifest_fd)
+                _close_fd(workspace_fd)
 
     async def get_info(self, scope_id: str) -> Any:
         """Native scopes have no container identity; active-ness is enough."""
@@ -314,15 +314,25 @@ class NativeSandboxProvider(SandboxProvider):
         for signal in signals:
             if not signal.done():
                 signal.set_result(None)
-        await asyncio.gather(
-            *(_close_sandbox(sandbox) for sandbox in sandboxes),
-            return_exceptions=True,
-        )
-        for workspace_fd in workspace_fds:
-            os.close(workspace_fd)
-        for manifest_fd in manifest_fds:
-            os.close(manifest_fd)
+        try:
+            await asyncio.gather(
+                *(_close_sandbox(sandbox) for sandbox in sandboxes),
+                return_exceptions=True,
+            )
+        finally:
+            for workspace_fd in workspace_fds:
+                _close_fd(workspace_fd)
+            for manifest_fd in manifest_fds:
+                _close_fd(manifest_fd)
 
+
+def _close_fd(descriptor: int | None) -> None:
+    if descriptor is None:
+        return
+    try:
+        os.close(descriptor)
+    except OSError:
+        pass
 
 async def _close_sandbox(sandbox: Sandbox) -> None:
     try:

@@ -10,6 +10,7 @@ import importlib
 import inspect
 import json
 from collections.abc import Iterable, Mapping
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -54,19 +55,33 @@ def _is_local_capability_module(
     *,
     capability_root: Path | str | None = None,
 ) -> bool:
-    """Require a capability module's origin to be inside the trusted root."""
+    """Validate a capability module origin without importing target code."""
     try:
-        module = importlib.import_module(module_name)
-        module_file = getattr(module, "__file__", None)
-        if not module_file:
-            return False
-        resolved = Path(module_file).resolve()
         root = _trusted_capability_root(capability_root)
-        if not resolved.is_relative_to(root):
+        parts = module_name.split(".")
+        canonical = parts[0] == "capability_packages"
+        if canonical:
+            parts = parts[1:]
+        if not parts or any(not part.isidentifier() for part in parts):
             return False
-    except Exception:  # noqa: BLE001
+        candidate = root.joinpath(*parts)
+        origins = (candidate.with_suffix(".py"), candidate / "__init__.py")
+        if canonical:
+            return any(
+                origin.is_file() and origin.resolve().is_relative_to(root)
+                for origin in origins
+            )
+        loaded = sys.modules.get(module_name)
+        loaded_file = getattr(loaded, "__file__", None) if loaded is not None else None
+        if loaded_file is not None:
+            return Path(loaded_file).resolve().is_relative_to(root)
+        return any(
+            origin.is_file() and origin.resolve().is_relative_to(root)
+            for origin in origins
+        )
+    except (OSError, RuntimeError, ValueError):
         return False
-    return True
+
 def _canonical_target(
     target: ToolExecutionTarget,
     *,
@@ -78,6 +93,8 @@ def _canonical_target(
     if not _is_local_capability_module(target.module, capability_root=capability_root):
         return target
     canonical = ToolExecutionTarget(f"capability_packages.{target.module}", target.qualname)
+    if not _is_local_capability_module(canonical.module, capability_root=capability_root):
+        return target
     if _imported_target_callable(canonical) is None:
         return target
     return canonical

@@ -80,7 +80,7 @@ class RuntimeRegistry:
         self._stream_owners: dict[str, set[int]] = {}
         self._stream_owner_queues: dict[tuple[str, int], set[asyncio.Queue[dict[str, Any]]]] = {}
         self._stream_started: set[str] = set()
-        self._terminal_streams: deque[str] = deque()
+        self._terminal_streams: deque[tuple[str, _TaskStream]] = deque()
 
     # ---------------------------------------------------------------- harnesses
 
@@ -155,6 +155,7 @@ class RuntimeRegistry:
                 completed.exception()
 
         task.add_done_callback(_forget)
+        return task
 
     def _release_stream_owners(self, task_id: str) -> None:
         stream = self._streams.get(task_id)
@@ -202,13 +203,13 @@ class RuntimeRegistry:
         stream = self._streams.get(task_id)
         if stream is not None:
             stream.publish(event)
-            if stream.terminal is not None and task_id not in self._terminal_streams:
-                self._terminal_streams.append(task_id)
+            retained = any(item_stream is stream for _, item_stream in self._terminal_streams)
+            if stream.terminal is not None and not retained:
+                self._terminal_streams.append((task_id, stream))
                 while len(self._terminal_streams) > _TERMINAL_STREAM_LIMIT:
-                    old = self._terminal_streams.popleft()
-                    old_stream = self._streams.get(old)
-                    if old_stream is not None and old_stream.terminal is not None:
-                        self._streams.pop(old, None)
+                    old_task_id, old_stream = self._terminal_streams.popleft()
+                    if self._streams.get(old_task_id) is old_stream:
+                        self._streams.pop(old_task_id, None)
 
     def unregister_stream(self, task_id: str) -> None:
         """Rollback only this caller's registration, never a live owner."""

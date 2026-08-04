@@ -727,3 +727,35 @@ high-6 采用 workspace/manifest descriptor 全链路传递、broker 最终 fd�
 - 非 live 全量：**1037 passed / 39 deselected / 2 existing warnings**
 - frontend `npm run build`：**passed**（仅既有 >500 kB chunk warning）
 - `git diff --check`：**passed**
+
+## 第四轮 OpenCodeReview 修复（2026-08-04）
+
+- raw：`docs/reviews/2026-08-04_round3_cr.json`
+- session：`0403cf29-e72f-4a44-81f9-767be07fe07e`
+- 范围：commit `3748458`，80 files
+- OCR 结果：**28 comments**（3 high / 19 medium / 4 low / 2 unranked）
+- 处理：**28 fixed / 0 deferred**
+
+### 修复摘要
+
+- capability module origin 在 import 前以 trusted-root filesystem identity 校验，拒绝 manifest 触发未授权模块副作用
+- Linux `preserve_fds` 强制进入 bwrap path，fd 校验移至 active counter 递增之前
+- scope store 明确要求 get/set/clear contract；快照成功后才启用 rollback，durable projection write 移入 worker thread
+- SOCM prepare/flock/unlock 均在 cancellation 后等待 thread 完成，descriptor 最终关闭
+- NativeRuntime close 阻止新 admission、等待 in-flight command；provider release/destroy/shutdown 以 finally 关闭 retained fd
+- coverage pool 对任意 BaseException 取消并收割 siblings
+- RuntimeRegistry 恢复 `start_task` 返回值；terminal retention 绑定 stream identity，旧 generation 不再删除 live replacement
+- task rollback/delete CAS mismatch 显式告警；不完整 session metadata 优先 opaque cleanup
+- application composition rollback 捕获 cleanup BaseException，继续释放全部资源且保留原 startup failure
+- Dashboard latest-request-wins；dashboard/subscriptions 独立错误；刷新失败保留旧数据；API 层不再吞掉这两类请求错误
+- JSONL create/append/leaf write 使用 strict `allow_nan=False`
+- EventStream 唤醒 non-Exception BaseException consumers，并在 producer 完成后释放 task/traceback 引用
+- credential、resume、stream、fanout 等测试改为 deterministic/public-contract assertions，teardown 显式 unsubscribe/close
+
+### 第四轮验证
+
+- focused OCR regressions：**140 passed**
+- 非 live 全量：**1053 passed / 39 deselected / 2 existing warnings**
+- frontend `npm run build`：**passed**（仅既有 >500 kB chunk warning）
+- browser：初始 dashboard+subscription 成功渲染；subscription 503 保留旧列表且显示 section error；并发刷新最终保留 newer dashboard/subscription 结果
+- `npm run lint`：未执行到 lint；仓库使用 ESLint 10 但缺少 `eslint.config.js`（既有工具配置问题）

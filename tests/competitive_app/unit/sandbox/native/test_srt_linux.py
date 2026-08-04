@@ -59,6 +59,34 @@ def test_no_restrictions_returns_plain_shell_argv() -> None:
     assert argv == ["bash", "-c", "true"]
 
 
+def test_preserved_fds_force_bwrap_and_are_validated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _no_seccomp(monkeypatch)
+    before = srt_linux._active_sandbox_count
+    try:
+        argv = asyncio.run(
+            wrap_command_with_sandbox_linux(
+                command="true", needs_network_restriction=False, preserve_fds=[7]
+            )
+        )
+        assert argv[0] == "bwrap"
+        index = argv.index("--preserve-fds")
+        assert argv[index + 1] == "7"
+    finally:
+        # The successful wrap leaves one active sandbox counted; release it so
+        # later tests do not observe leaked cleanup state.
+        srt_linux._active_sandbox_count = before
+
+    with pytest.raises(ValueError, match="greater than stderr"):
+        asyncio.run(
+            wrap_command_with_sandbox_linux(
+                command="true", needs_network_restriction=False, preserve_fds=[2]
+            )
+        )
+    assert srt_linux._active_sandbox_count == before
+
+
 def test_weakening_switches_raise() -> None:
     with pytest.raises(ValueError, match="weakening"):
         asyncio.run(

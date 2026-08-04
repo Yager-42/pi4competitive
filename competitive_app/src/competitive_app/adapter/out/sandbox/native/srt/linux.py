@@ -1033,6 +1033,10 @@ async def wrap_command_with_sandbox_linux(
     has_write_restrictions = write_config is not None
     has_env_restrictions = bool(unset_env_vars) or bool(set_env_vars)
     has_git_config = bool(git_safe_directories)
+    preserved_descriptors = list(preserve_fds or [])
+    for descriptor in preserved_descriptors:
+        if descriptor <= 2:
+            raise ValueError("preserved sandbox descriptor must be greater than stderr")
 
     if (
         not needs_network_restriction
@@ -1040,6 +1044,7 @@ async def wrap_command_with_sandbox_linux(
         and not has_write_restrictions
         and not has_env_restrictions
         and not has_git_config
+        and not preserved_descriptors
     ):
         return ["bash", "-c", command]
 
@@ -1047,9 +1052,7 @@ async def wrap_command_with_sandbox_linux(
     _active_sandbox_count += 1
 
     bwrap_args: list[str] = ["--new-session", "--die-with-parent"]
-    for descriptor in preserve_fds or []:
-        if descriptor <= 2:
-            raise ValueError("preserved sandbox descriptor must be greater than stderr")
+    for descriptor in preserved_descriptors:
         bwrap_args.extend(["--preserve-fds", str(descriptor)])
     apply_seccomp_prefix: str | None = None
 

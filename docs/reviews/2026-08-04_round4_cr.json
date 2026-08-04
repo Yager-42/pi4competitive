@@ -1,0 +1,316 @@
+{
+  "status": "complete",
+  "message": "Review complete: 2 finding(s) across 24 selected item(s).",
+  "summary": {
+    "files_reviewed": 24,
+    "comments": 2,
+    "total_tokens": 891193,
+    "input_tokens": 864530,
+    "output_tokens": 26663,
+    "cache_read_tokens": 505856,
+    "elapsed": "2m27s"
+  },
+  "tool_calls": {
+    "total": 94,
+    "by_tool": {
+      "code_comment": 4,
+      "code_search": 24,
+      "file_find": 1,
+      "file_read": 53,
+      "file_read_diff": 12
+    }
+  },
+  "comments": [
+    {
+      "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+      "content": "This new `to_thread` await introduces a cancellation point after the marker and (when applicable) scope have already been persisted. `CancelledError` derives from `BaseException`, so it bypasses the `except Exception` rollback block; if cancellation occurs here, the worker may still replace the manifest while `accept_candidate` exits without restoring the prior marker/scope, leaving the projections inconsistent. Ensure the worker operation is drained and cancellation is handled by the rollback path (or otherwise make the commit sequence cancellation-safe).",
+      "existing_code": "        await asyncio.to_thread(_atomic_write, self._manifest, payload)",
+      "start_line": 170,
+      "end_line": 170,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/sandbox/native/test_srt_linux.py",
+      "content": "This successful wrap increments the module-global `_active_sandbox_count`, but the test never releases it. That leaves the shared sandbox cleanup state at +1 for subsequent tests (and can make `cleanup_bwrap_mount_points()` defer cleanup unexpectedly), so the test suite becomes order-dependent. Clean up the successful sandbox allocation in a `finally` block (or explicitly call the matching cleanup routine) after the assertions.",
+      "existing_code": "    assert argv[0] == \"bwrap\"\n    index = argv.index(\"--preserve-fds\")\n    assert argv[index + 1] == \"7\"\n\n    before = srt_linux._active_sandbox_count",
+      "start_line": 71,
+      "end_line": 75,
+      "category": "test",
+      "severity": "medium"
+    }
+  ],
+  "session_id": "d9eb0586-c312-4f6b-97bd-71ea164a41e4",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "run_id": "d9eb0586-c312-4f6b-97bd-71ea164a41e4",
+    "operation": "review",
+    "terminal_state": "complete",
+    "repository": {
+      "identity_sha256": "5c0a10287a8f602b33ef626681198e5cf3dc001181201a27a892f831cac45dc3"
+    },
+    "input": {
+      "mode": "workspace",
+      "resolved_base": "3748458a9efe35b4325bf225d4c4bc0c5d1a5a12",
+      "source_artifact_sha256": "de58e59a33ce12faa6d59355627d8a8eaf89e1db555dd36f2d93798ddf3682f0"
+    },
+    "execution": {
+      "ocr_version": "v1.8.6",
+      "provider": "pro3",
+      "model": "gpt-5.6-luna",
+      "configured_concurrency": 8,
+      "rule_config_sha256": "a194bae770c108896ec2da3585fb0375b66e49f0749b6d3737e31181fb325052",
+      "runtime_config_sha256": "724007894572bb6284b1a764066a97a5e674bb40dd869ccd40b0ee7b3fd6e846"
+    },
+    "coverage": {
+      "selected": [
+        {
+          "item_id": "01dfa38412032ddf960172d99966373de8f96cf33b3acb70e98901c9ea630ef8",
+          "path": "tests/competitive_app/unit/test_api_wiring_known_issues.py",
+          "fingerprint": "00526f110baed7959e99fa26545b4de13476bc94317123c4751fe90ca9eaef41"
+        },
+        {
+          "item_id": "1d64e755ae335716c768d7656ab20e4f37a23943be4b7503480fef8b56ca44d5",
+          "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+          "fingerprint": "ed7aec865ee6bb2b5b4d809413f24b7ffc48a48df00115d3cc186a14be4b8569"
+        },
+        {
+          "item_id": "28676071e496d5d0a6ea32084c28d9e0a2ff59c6588a9904cbcdbc30fb6e8524",
+          "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+          "fingerprint": "69550c607416772358bfa515581fa8c5924950c454fe942162c53ef2899cf795"
+        },
+        {
+          "item_id": "30fbeb863e8bf852491de1d8b7158f915d715a0594501cd0823dc58417b6721a",
+          "path": "frontend/src/lib/api.ts",
+          "fingerprint": "056156571cf735112058e6535bb3bdccfd0e4cfdeaa8311a1944d56504f9105f"
+        },
+        {
+          "item_id": "46418b2602374f83be7ec088273791217fc9b1575e797916494a1ce351c5ba73",
+          "path": "tests/competitive_app/unit/sandbox/native/test_srt_linux.py",
+          "fingerprint": "f4b3003c32a4beb8215481f78d11dc36cb3a644c95a632b30da6356889124326"
+        },
+        {
+          "item_id": "51a375f02c531c1f0ef8b018265bdf8fa36df4d5a5fe297fa37e40cc48f1897c",
+          "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+          "fingerprint": "a1487cc63ef0712425bf959b1f17f5bb748b763db8ffde9bd22ed56ae9f0e369"
+        },
+        {
+          "item_id": "56e262f8b51eb20440adce49606a55305c4c9a0db61a9c6da8561aecba44925d",
+          "path": "frontend/src/pages/DashboardPage.tsx",
+          "fingerprint": "6693d4b475d5929ea4300e6d8307298e102844f63a5be296701877cfc623086e"
+        },
+        {
+          "item_id": "6401cd90854b7d932ade6bea59b8b8e68b223f85b0c9c433c13f55346823621e",
+          "path": "tests/competitive_app/unit/test_sandbox_registry_known_issues.py",
+          "fingerprint": "726629e7ae1a86897132fd6e3b0dd8fa8c2be6a7e975799b814fd03a4cc9d782"
+        },
+        {
+          "item_id": "6d7421fd78436ad0d9856c91c84877a70538cc83251a9be67945b17ff43f70ad",
+          "path": "tests/competitive_app/unit/test_workflow_data_medium_known_issues.py",
+          "fingerprint": "39d316c31c75f2b0cc02768f992d98b9e41783a8dfec13e6a0f088adff59881e"
+        },
+        {
+          "item_id": "706a99c33c849c140b50f1f6ee50498c6d9f32f79546b4546ca0be3617e2921c",
+          "path": "tests/packages/agent/unit/test_harness_medium_known_issues.py",
+          "fingerprint": "d94132f935fbf78511da4d3a256bc62169f5518e4854943c6fc613c250f4b8bc"
+        },
+        {
+          "item_id": "78b1c219018ee203976b395483bfcd6eefffa6ca5c776eec5a63c2a283b2fe80",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approved_registry.py",
+          "fingerprint": "71f491279a29a5b85668cbdd4cbe49dd7fd4868941e01e3126a98bbe4a99fbea"
+        },
+        {
+          "item_id": "7a7b80446a88cd25b379e56337ee526b4e464d3f0b6b18981982eb77cf20ec00",
+          "path": "tests/competitive_app/unit/sandbox/native/test_native_provider.py",
+          "fingerprint": "5bbc598d586049870c2b720b3b3fa21bb5499793d1bb0526df5696a9199a7cd5"
+        },
+        {
+          "item_id": "7c7cd778a1f59f14e37b7002c9e0b4cd37404c14e1114d3ac62069d05814b49d",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/linux.py",
+          "fingerprint": "b8ece3c66403c1cf23219e680eac79f617d193cca0e71520110832036a2c14a5"
+        },
+        {
+          "item_id": "8084c60987661fe0fde322e90ce30c4f605b5172fef33aa4e74b37765852df95",
+          "path": "tests/packages/agent/unit/test_agent_core_known_issues.py",
+          "fingerprint": "c6dda0631182c14f8fecd6ed69f24990ab93d6c2c0fab8ddf70680912756a5bb"
+        },
+        {
+          "item_id": "893dfe784fa67826d4befeb301d6f9c38997c6bfe266a60f50b9929a54aa34d2",
+          "path": "tests/competitive_app/unit/evolution/test_evolution_known_issues.py",
+          "fingerprint": "c92ccad32f1e308970d2ec75dccd3badf29a986f796255e2f5e5a717379f1e85"
+        },
+        {
+          "item_id": "a8d91bf1ecf2442d34df6964889063d77947a96c3eb8b1048cd2a8479fe7e9b7",
+          "path": "competitive_app/src/competitive_app/wiring.py",
+          "fingerprint": "d60a20341c27cff4886ceaf195a95e70775e18750287fbae2d8a3587d6d00b67"
+        },
+        {
+          "item_id": "abb1b6a14193dd4814c1733d78b8688b05aa870e3fd64b64bff7b996ed5f3bc2",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_runtime.py",
+          "fingerprint": "6b0eb4975105cd381f5ee61a489818ae0e3a37b49b324d83e126acf39a784431"
+        },
+        {
+          "item_id": "c57a1a2ec3619fabcf8162e84eddeaf02aa2679bd64b45174c9ecffa5d4c2613",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/event_stream.py",
+          "fingerprint": "3848980151708cf58832605423e7eb34ae1fb53ad2b166bd0799911649f7fc68"
+        },
+        {
+          "item_id": "cc7faa8cc0c1c282ed4a92d6e6f7b3b8eef40aaddea1ac64040068320bdd6d65",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/socm_store.py",
+          "fingerprint": "1ac36efb8c210e2263534a18b47afea5452d2a2c937117623f666d571d93283b"
+        },
+        {
+          "item_id": "d4b8f45f6ecb0beaaf9534fb33be7b5630de2e3b1146e7cdb330fd9a275a13b7",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_sandbox_provider.py",
+          "fingerprint": "5251ae23e094b7c22862f7cc9bf78e3575305eb1cf51132c912ff4e815d7e11e"
+        },
+        {
+          "item_id": "de659581b3d657f91ee603c9b91a00f5bb3b19d7c088cbd3082256901339d4f2",
+          "path": "competitive_app/src/competitive_app/application/workflow/coverage_engine.py",
+          "fingerprint": "ad191aed2391a09e03de4f63f18e5f1c52b05b3f22cea19c3edcafeb996efb3e"
+        },
+        {
+          "item_id": "e42549afb90996476e0a8fec6ac337cda4b673c0264f2fe0eea130678da32239",
+          "path": "tests/competitive_app/unit/test_workflow_runtime_known_issues.py",
+          "fingerprint": "a1d38a71217320b0d0dcc01f0fec3b2651aaddd634b10ebc027ce95ecd6195fb"
+        },
+        {
+          "item_id": "f2361ac231f3929846fe04648fae58c3b7120750548991d1b2f5790e0be61b19",
+          "path": "tests/packages/ai/unit/test_ai_core_known_issues.py",
+          "fingerprint": "e533d55617600dc93e415955e9de82f61edd6035150543f0f9c5a5259acec5e3"
+        },
+        {
+          "item_id": "f901cc19be84a02254b48852873ee1b26f953cb0a090aff3db3282d86233f546",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/jsonl_storage.py",
+          "fingerprint": "50923f37acbff5101db3c0a0219ddcdbbd5207fa39fa27af3e8bfe89910cceb1"
+        }
+      ],
+      "completed": [
+        {
+          "item_id": "01dfa38412032ddf960172d99966373de8f96cf33b3acb70e98901c9ea630ef8",
+          "path": "tests/competitive_app/unit/test_api_wiring_known_issues.py",
+          "fingerprint": "00526f110baed7959e99fa26545b4de13476bc94317123c4751fe90ca9eaef41"
+        },
+        {
+          "item_id": "1d64e755ae335716c768d7656ab20e4f37a23943be4b7503480fef8b56ca44d5",
+          "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+          "fingerprint": "ed7aec865ee6bb2b5b4d809413f24b7ffc48a48df00115d3cc186a14be4b8569"
+        },
+        {
+          "item_id": "28676071e496d5d0a6ea32084c28d9e0a2ff59c6588a9904cbcdbc30fb6e8524",
+          "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+          "fingerprint": "69550c607416772358bfa515581fa8c5924950c454fe942162c53ef2899cf795"
+        },
+        {
+          "item_id": "30fbeb863e8bf852491de1d8b7158f915d715a0594501cd0823dc58417b6721a",
+          "path": "frontend/src/lib/api.ts",
+          "fingerprint": "056156571cf735112058e6535bb3bdccfd0e4cfdeaa8311a1944d56504f9105f"
+        },
+        {
+          "item_id": "46418b2602374f83be7ec088273791217fc9b1575e797916494a1ce351c5ba73",
+          "path": "tests/competitive_app/unit/sandbox/native/test_srt_linux.py",
+          "fingerprint": "f4b3003c32a4beb8215481f78d11dc36cb3a644c95a632b30da6356889124326"
+        },
+        {
+          "item_id": "51a375f02c531c1f0ef8b018265bdf8fa36df4d5a5fe297fa37e40cc48f1897c",
+          "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+          "fingerprint": "a1487cc63ef0712425bf959b1f17f5bb748b763db8ffde9bd22ed56ae9f0e369"
+        },
+        {
+          "item_id": "56e262f8b51eb20440adce49606a55305c4c9a0db61a9c6da8561aecba44925d",
+          "path": "frontend/src/pages/DashboardPage.tsx",
+          "fingerprint": "6693d4b475d5929ea4300e6d8307298e102844f63a5be296701877cfc623086e"
+        },
+        {
+          "item_id": "6401cd90854b7d932ade6bea59b8b8e68b223f85b0c9c433c13f55346823621e",
+          "path": "tests/competitive_app/unit/test_sandbox_registry_known_issues.py",
+          "fingerprint": "726629e7ae1a86897132fd6e3b0dd8fa8c2be6a7e975799b814fd03a4cc9d782"
+        },
+        {
+          "item_id": "6d7421fd78436ad0d9856c91c84877a70538cc83251a9be67945b17ff43f70ad",
+          "path": "tests/competitive_app/unit/test_workflow_data_medium_known_issues.py",
+          "fingerprint": "39d316c31c75f2b0cc02768f992d98b9e41783a8dfec13e6a0f088adff59881e"
+        },
+        {
+          "item_id": "706a99c33c849c140b50f1f6ee50498c6d9f32f79546b4546ca0be3617e2921c",
+          "path": "tests/packages/agent/unit/test_harness_medium_known_issues.py",
+          "fingerprint": "d94132f935fbf78511da4d3a256bc62169f5518e4854943c6fc613c250f4b8bc"
+        },
+        {
+          "item_id": "78b1c219018ee203976b395483bfcd6eefffa6ca5c776eec5a63c2a283b2fe80",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approved_registry.py",
+          "fingerprint": "71f491279a29a5b85668cbdd4cbe49dd7fd4868941e01e3126a98bbe4a99fbea"
+        },
+        {
+          "item_id": "7a7b80446a88cd25b379e56337ee526b4e464d3f0b6b18981982eb77cf20ec00",
+          "path": "tests/competitive_app/unit/sandbox/native/test_native_provider.py",
+          "fingerprint": "5bbc598d586049870c2b720b3b3fa21bb5499793d1bb0526df5696a9199a7cd5"
+        },
+        {
+          "item_id": "7c7cd778a1f59f14e37b7002c9e0b4cd37404c14e1114d3ac62069d05814b49d",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/linux.py",
+          "fingerprint": "b8ece3c66403c1cf23219e680eac79f617d193cca0e71520110832036a2c14a5"
+        },
+        {
+          "item_id": "8084c60987661fe0fde322e90ce30c4f605b5172fef33aa4e74b37765852df95",
+          "path": "tests/packages/agent/unit/test_agent_core_known_issues.py",
+          "fingerprint": "c6dda0631182c14f8fecd6ed69f24990ab93d6c2c0fab8ddf70680912756a5bb"
+        },
+        {
+          "item_id": "893dfe784fa67826d4befeb301d6f9c38997c6bfe266a60f50b9929a54aa34d2",
+          "path": "tests/competitive_app/unit/evolution/test_evolution_known_issues.py",
+          "fingerprint": "c92ccad32f1e308970d2ec75dccd3badf29a986f796255e2f5e5a717379f1e85"
+        },
+        {
+          "item_id": "a8d91bf1ecf2442d34df6964889063d77947a96c3eb8b1048cd2a8479fe7e9b7",
+          "path": "competitive_app/src/competitive_app/wiring.py",
+          "fingerprint": "d60a20341c27cff4886ceaf195a95e70775e18750287fbae2d8a3587d6d00b67"
+        },
+        {
+          "item_id": "abb1b6a14193dd4814c1733d78b8688b05aa870e3fd64b64bff7b996ed5f3bc2",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_runtime.py",
+          "fingerprint": "6b0eb4975105cd381f5ee61a489818ae0e3a37b49b324d83e126acf39a784431"
+        },
+        {
+          "item_id": "c57a1a2ec3619fabcf8162e84eddeaf02aa2679bd64b45174c9ecffa5d4c2613",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/event_stream.py",
+          "fingerprint": "3848980151708cf58832605423e7eb34ae1fb53ad2b166bd0799911649f7fc68"
+        },
+        {
+          "item_id": "cc7faa8cc0c1c282ed4a92d6e6f7b3b8eef40aaddea1ac64040068320bdd6d65",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/socm_store.py",
+          "fingerprint": "1ac36efb8c210e2263534a18b47afea5452d2a2c937117623f666d571d93283b"
+        },
+        {
+          "item_id": "d4b8f45f6ecb0beaaf9534fb33be7b5630de2e3b1146e7cdb330fd9a275a13b7",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_sandbox_provider.py",
+          "fingerprint": "5251ae23e094b7c22862f7cc9bf78e3575305eb1cf51132c912ff4e815d7e11e"
+        },
+        {
+          "item_id": "de659581b3d657f91ee603c9b91a00f5bb3b19d7c088cbd3082256901339d4f2",
+          "path": "competitive_app/src/competitive_app/application/workflow/coverage_engine.py",
+          "fingerprint": "ad191aed2391a09e03de4f63f18e5f1c52b05b3f22cea19c3edcafeb996efb3e"
+        },
+        {
+          "item_id": "e42549afb90996476e0a8fec6ac337cda4b673c0264f2fe0eea130678da32239",
+          "path": "tests/competitive_app/unit/test_workflow_runtime_known_issues.py",
+          "fingerprint": "a1d38a71217320b0d0dcc01f0fec3b2651aaddd634b10ebc027ce95ecd6195fb"
+        },
+        {
+          "item_id": "f2361ac231f3929846fe04648fae58c3b7120750548991d1b2f5790e0be61b19",
+          "path": "tests/packages/ai/unit/test_ai_core_known_issues.py",
+          "fingerprint": "e533d55617600dc93e415955e9de82f61edd6035150543f0f9c5a5259acec5e3"
+        },
+        {
+          "item_id": "f901cc19be84a02254b48852873ee1b26f953cb0a090aff3db3282d86233f546",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/jsonl_storage.py",
+          "fingerprint": "50923f37acbff5101db3c0a0219ddcdbbd5207fa39fa27af3e8bfe89910cceb1"
+        }
+      ],
+      "reused": [],
+      "failed": [],
+      "waived": []
+    },
+    "elapsed_ms": 147210
+  }
+}

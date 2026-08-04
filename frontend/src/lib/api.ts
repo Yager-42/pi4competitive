@@ -149,8 +149,8 @@ export async function submitFeedback(
 /* ============================================================ F3 情报闭环 */
 
 /* GET /api/v2/dashboard → DashboardStats(11 指标 + 分布) */
-export async function fetchDashboard(): Promise<DashboardStats | null> {
-  return safeJson<DashboardStats | null>('/api/v2/dashboard', undefined, null)
+export async function fetchDashboard(): Promise<DashboardStats> {
+  return safeJson<DashboardStats>('/api/v2/dashboard')
 }
 
 /* GET /api/v2/evidences?brand=&source_type=&min_confidence=&limit= → {items, facets} */
@@ -174,7 +174,7 @@ export async function fetchEvidences(params?: {
 
 /* GET /api/v2/subscriptions → {subscriptions: Subscription[]} */
 export async function fetchSubscriptions(): Promise<Subscription[]> {
-  return safeJson<{ subscriptions: Subscription[] }>('/api/v2/subscriptions', undefined, { subscriptions: [] })
+  return safeJson<{ subscriptions: Subscription[] }>('/api/v2/subscriptions')
     .then((r) => r.subscriptions ?? [])
 }
 

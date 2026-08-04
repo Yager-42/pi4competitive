@@ -148,11 +148,18 @@ async def test_queue_fanout_replays_terminal_event_to_late_subscriber() -> None:
     source: asyncio.Queue[dict] = asyncio.Queue()
     fanout = _QueueFanout(source)
     first = await fanout.subscribe()
-    terminal = {"type": "done", "data": {"status": "completed"}}
-    await source.put(terminal)
-    assert await asyncio.wait_for(first.get(), timeout=1) == terminal
-    late = await fanout.subscribe()
-    assert await late.get() == terminal
+    late: asyncio.Queue[dict] | None = None
+    try:
+        terminal = {"type": "done", "data": {"status": "completed"}}
+        await source.put(terminal)
+        assert await asyncio.wait_for(first.get(), timeout=1) == terminal
+        late = await fanout.subscribe()
+        assert await late.get() == terminal
+    finally:
+        await fanout.unsubscribe(first)
+        if late is not None:
+            await fanout.unsubscribe(late)
+        await fanout.close()
 
 
 @pytest.mark.asyncio
@@ -195,6 +202,10 @@ async def test_fanout_is_rebuilt_after_close_during_teardown_window() -> None:
 
     registry = Registry()
     key = (id(registry), "task-1")
+    first = None
+    first_fanout = None
+    second = None
+    second_fanout = None
     try:
         first = await routes_tasks._subscribe_stream(registry, "task-1")
         first_fanout = routes_tasks._SSE_FANOUTS[key]
@@ -208,4 +219,12 @@ async def test_fanout_is_rebuilt_after_close_during_teardown_window() -> None:
         assert not second_fanout.closed
         assert len(registry.sources) == 2
     finally:
+        if first_fanout is not None and first is not None:
+            await first_fanout.unsubscribe(first)
+        if second_fanout is not None:
+            if second is not None:
+                await second_fanout.unsubscribe(second)
+            await second_fanout.close()
+        for source in registry.sources:
+            registry.unsubscribe_stream("task-1", source)
         routes_tasks._SSE_FANOUTS.pop(key, None)

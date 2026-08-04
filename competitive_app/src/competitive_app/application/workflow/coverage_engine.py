@@ -375,6 +375,13 @@ class CoverageEngine:
                     await asyncio.gather(*pool.values(), return_exceptions=True)
                     pool.clear()
                     raise RuntimeError(f"search sub-agent incomplete ({lbl})") from exc
+                except BaseException:
+                    for pending in pool.values():
+                        if not pending.done():
+                            pending.cancel()
+                    await asyncio.gather(*pool.values(), return_exceptions=True)
+                    pool.clear()
+                    raise
             # Refill from queue.
             while queue and len(pool) < self._max_parallel:
                 await _spawn_one(queue.pop(0))

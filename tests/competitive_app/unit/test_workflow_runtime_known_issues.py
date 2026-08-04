@@ -48,14 +48,19 @@ async def test_stream_unsubscribe_bounds_abandoned_subscribers() -> None:
     registry.register_stream("task")
     queue = registry.get_stream("task")
     assert queue is not None
-    assert len(registry._streams["task"].subscribers) == 2
     assert registry.unsubscribe_stream("task", queue) is True
-    assert len(registry._streams["task"].subscribers) == 1
     for index in range(300):
         registry.publish_stream("task", {"type": "stage", "data": {"i": index}})
     assert queue.qsize() == 0
     assert queue.maxsize == 256
-    assert registry._streams["task"].subscribers
+    current = registry.get_stream("task")
+    assert current is not None
+    registry.publish_stream("task", {"type": "stage", "data": {"i": "current"}})
+    event = await current.get()
+    while not current.empty():
+        event = current.get_nowait()
+    assert event["data"]["i"] == "current"
+    assert registry.unsubscribe_stream("task", current) is True
 
 
 @pytest.mark.asyncio
@@ -63,12 +68,33 @@ async def test_concurrent_stream_registration_does_not_replace_live_owner() -> N
     registry = RuntimeRegistry()
     first = registry.register_stream("task")
     second = registry.register_stream("task")
-    assert registry._streams["task"].subscribers == {first, second}
-    registry.start_task("task", None, asyncio.sleep(0))
+    registry.publish_stream("task", {"type": "stage", "data": {"i": 1}})
+    assert await first.get() == await second.get()
+    release = asyncio.Event()
+    task = registry.start_task("task", None, release.wait())
+    assert isinstance(task, asyncio.Task)
     registry.unregister_stream("task")
-    assert registry._streams["task"].subscribers == set()
-    assert registry.task_active("task")
-    await registry.abort_task("task")
+    registry.publish_stream("task", {"type": "stage", "data": {"i": 2}})
+    assert first.empty() and second.empty()
+    release.set()
+    await task
+
+@pytest.mark.asyncio
+async def test_terminal_eviction_never_removes_live_replacement(monkeypatch) -> None:
+    from competitive_app.application.workflow import runtime_registry as registry_module
+
+    monkeypatch.setattr(registry_module, "_TERMINAL_STREAM_LIMIT", 1)
+    registry = RuntimeRegistry()
+    registry.register_stream("same")
+    registry.publish_stream("same", {"type": "done", "data": {}})
+    live = registry.register_stream("same")
+    registry.register_stream("other")
+    registry.publish_stream("other", {"type": "done", "data": {}})
+    current = registry.get_stream("same")
+    assert current is not None
+    registry.publish_stream("same", {"type": "stage", "data": {"i": 1}})
+    assert await live.get() == await current.get()
+
 
 @pytest.mark.asyncio
 async def test_shutdown_closes_all_harnesses_after_one_failure() -> None:
@@ -343,3 +369,133 @@ async def test_shutdown_logs_harness_cleanup_failures(caplog: pytest.LogCaptureF
     assert "session-1" in caplog.text
     assert "abort failed" in caplog.text
     assert "shutdown failed" in caplog.text
+
+
+def _resume_service(task: dict, *, brief: object | None = object()):
+    from competitive_app.application.workflow.task_service import TaskService
+
+    class Store:
+        prepared: list[tuple[str, str, dict]] = []
+
+        async def get_task(self, _task_id):
+            return task
+
+        async def prepare_resume_if_current(
+            self, task_id, *, expected_status, metadata, expected_updated_at
+        ):
+            self.prepared.append((task_id, expected_status, metadata))
+            return True
+
+    store = Store()
+    service = TaskService(
+        store=store,
+        repo=SimpleNamespace(),
+        registry=RuntimeRegistry(),
+        harness_factory=SimpleNamespace(),
+    )
+
+    async def load_brief(_session_id):
+        return brief
+
+    service._load_research_brief = load_brief  # type: ignore[method-assign]
+    return service, store
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"status": "pending"}, "not resumable"),
+        ({"projection": {"stages": {"plan": "ok", "search": "ok", "write": "ok"}}}, "no incomplete"),
+        ({"session_id": ""}, "no session"),
+        ({"metadata": {}}, "no stop_after_stage"),
+    ],
+)
+async def test_prepare_resume_rejects_missing_prerequisites(change, message) -> None:
+    from competitive_app.application.workflow.task_service import TaskConflictError
+
+    task = {
+        "task_id": "task",
+        "status": "failed",
+        "projection": {"stages": {"plan": "ok", "search": "pending"}},
+        "session_id": "session",
+        "metadata": {"stop_after_stage": "search", "keep": True},
+        "updated_at": "v1",
+        **change,
+    }
+    service, store = _resume_service(task)
+    with pytest.raises(TaskConflictError, match=message):
+        await service.prepare_resume_task("task")
+    assert store.prepared == []
+
+
+@pytest.mark.asyncio
+async def test_prepare_resume_requires_brief_and_atomically_removes_stop_marker() -> None:
+    from competitive_app.application.workflow.task_service import TaskConflictError
+
+    task = {
+        "task_id": "task",
+        "status": "failed",
+        "projection": {"stages": {"plan": "ok", "search": "pending"}},
+        "session_id": "session",
+        "metadata": {"stop_after_stage": "search", "keep": True},
+        "updated_at": "v1",
+    }
+    missing, store = _resume_service(task, brief=None)
+    with pytest.raises(TaskConflictError, match="brief not recoverable"):
+        await missing.prepare_resume_task("task")
+    assert store.prepared == []
+
+    service, store = _resume_service(task)
+    assert await service.prepare_resume_task("task") == {
+        "task_id": "task",
+        "status": "pending",
+    }
+    assert store.prepared == [("task", "failed", {"keep": True})]
+
+
+@pytest.mark.asyncio
+async def test_task_rollback_reports_conditional_conflicts(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from competitive_app.application.workflow.task_service import TaskService
+
+    class Store:
+        async def restore_task_if_current(self, *_args, **_kwargs):
+            return False
+
+        async def delete_task_if_current(self, *_args, **_kwargs):
+            return False
+
+    service = TaskService(
+        store=Store(),
+        repo=SimpleNamespace(),
+        registry=RuntimeRegistry(),
+        harness_factory=SimpleNamespace(),
+    )
+    with caplog.at_level("WARNING"):
+        await service._rollback_task_row("existing", {"task_id": "existing"}, session_id="s")
+        await service._rollback_task_row("created", None, session_id="s")
+    assert "rollback skipped after concurrent change: existing" in caplog.text
+    assert "delete skipped after concurrent change: created" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_partial_session_metadata_uses_opaque_cleanup() -> None:
+    from competitive_app.application.workflow.task_service import TaskService
+
+    removed: list[object] = []
+
+    class Repo:
+        async def delete(self, value):
+            removed.append(value)
+
+    session = object()
+    service = TaskService(
+        store=SimpleNamespace(),
+        repo=Repo(),
+        registry=RuntimeRegistry(),
+        harness_factory=SimpleNamespace(),
+    )
+    await service._cleanup_created_session({"path": "session.jsonl"}, session=session)
+    assert removed == [session]

@@ -54,6 +54,11 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"non-finite JSON constant is forbidden: {value}")
 
 
+def _encode_json_line(value: Any) -> str:
+    """Serialize one strict JSONL record; never persist unreadable constants."""
+    return json.dumps(value, allow_nan=False) + "\n"
+
+
 def parse_header_line(line: str, file_path: str) -> dict[str, Any]:
     try:
         parsed = json.loads(line, parse_constant=_reject_json_constant)
@@ -312,7 +317,7 @@ class JsonlSessionStorage:
         # Drop Nones for cleaner JSON
         header = {k: v for k, v in header.items() if v is not None or k in ("type", "version", "id", "timestamp", "cwd")}
         get_file_system_result_or_throw(
-            await fs.writeFile(file_path, json.dumps(header) + "\n"),
+            await fs.writeFile(file_path, _encode_json_line(header)),
             f"Failed to create session {file_path}",
         )
         return cls(fs, file_path, header, [], None)
@@ -336,7 +341,7 @@ class JsonlSessionStorage:
             "targetId": leaf_id,
         }
         get_file_system_result_or_throw(
-            await self._fs.appendFile(self._file_path, json.dumps(entry) + "\n"),
+            await self._fs.appendFile(self._file_path, _encode_json_line(entry)),
             f"Failed to append session leaf {entry['id']}",
         )
         self._entries.append(entry)
@@ -348,7 +353,7 @@ class JsonlSessionStorage:
 
     async def appendEntry(self, entry: SessionTreeEntry) -> None:
         get_file_system_result_or_throw(
-            await self._fs.appendFile(self._file_path, json.dumps(entry) + "\n"),
+            await self._fs.appendFile(self._file_path, _encode_json_line(entry)),
             f"Failed to append session entry {entry['id']}",
         )
         self._entries.append(entry)

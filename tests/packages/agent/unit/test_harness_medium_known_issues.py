@@ -4,6 +4,7 @@ import pytest
 
 
 from earendil_works.pi_agent.harness.session.jsonl_storage import (
+    JsonlSessionStorage,
     parse_entry_line,
     parse_header_line,
 )
@@ -41,3 +42,44 @@ def test_jsonl_rejects_malformed_message_content_blocks() -> None:
         2,
     )
     assert valid["message"]["content"][0]["text"] == "ok"  # type: ignore[index]
+
+
+
+@pytest.mark.asyncio
+async def test_jsonl_writer_rejects_non_finite_values_before_persisting() -> None:
+    class FileSystem:
+        def __init__(self) -> None:
+            self.content = ""
+
+        async def writeFile(self, _path, content, _abort_signal=None):
+            self.content = content
+            return {"ok": True, "value": None}
+
+        async def appendFile(self, _path, content, _abort_signal=None):
+            self.content += content
+            return {"ok": True, "value": None}
+
+    fs = FileSystem()
+    with pytest.raises(ValueError, match="Out of range float"):
+        await JsonlSessionStorage.create(
+            fs,
+            "session.jsonl",
+            {"sessionId": "s", "cwd": "/repo", "metadata": {"value": float("nan")}},
+        )
+    assert fs.content == ""
+
+    storage = await JsonlSessionStorage.create(
+        fs, "session.jsonl", {"sessionId": "s", "cwd": "/repo"}
+    )
+    entry = {
+        "type": "custom",
+        "id": "e",
+        "parentId": None,
+        "timestamp": "t",
+        "customType": "x",
+        "data": {"value": float("inf")},
+    }
+    before = fs.content
+    with pytest.raises(ValueError, match="Out of range float"):
+        await storage.appendEntry(entry)
+    assert fs.content == before

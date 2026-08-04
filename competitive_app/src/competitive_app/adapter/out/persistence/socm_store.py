@@ -171,13 +171,32 @@ class SocmStore:
             return open(lock_path, "r")
 
         lock_path = self._state_path(session_id).parent / ".search_state.json.lock"
-        fd = await asyncio.to_thread(_prepare_lock_file, lock_path)
+        prepare_task = asyncio.create_task(
+            asyncio.to_thread(_prepare_lock_file, lock_path)
+        )
+        try:
+            fd = await asyncio.shield(prepare_task)
+        except asyncio.CancelledError:
+            fd = await prepare_task
+            fd.close()
+            raise
         acquired = False
         try:
             try:
                 import fcntl
-                await asyncio.to_thread(fcntl.flock, fd, fcntl.LOCK_EX)
-                acquired = True
+                lock_task = asyncio.create_task(
+                    asyncio.to_thread(fcntl.flock, fd, fcntl.LOCK_EX)
+                )
+                try:
+                    await asyncio.shield(lock_task)
+                    acquired = True
+                except asyncio.CancelledError:
+                    try:
+                        await lock_task
+                        acquired = True
+                    except BaseException:
+                        pass
+                    raise
             except ImportError:
                 # Non-POSIX platforms without fcntl: best-effort no lock.
                 pass
@@ -187,13 +206,23 @@ class SocmStore:
                 raise
             yield acquired
         finally:
-            if acquired:
-                try:
-                    import fcntl
-                    await asyncio.to_thread(fcntl.flock, fd, fcntl.LOCK_UN)
-                except (ImportError, OSError):
-                    pass
-            fd.close()
+            try:
+                if acquired:
+                    try:
+                        import fcntl
+                        unlock_task = asyncio.create_task(
+                            asyncio.to_thread(fcntl.flock, fd, fcntl.LOCK_UN)
+                        )
+                        try:
+                            await asyncio.shield(unlock_task)
+                        except asyncio.CancelledError:
+                            await unlock_task
+                            raise
+                    except (ImportError, OSError):
+                        pass
+            finally:
+                fd.close()
+
 
 
     def _write_locked(self, session_id: str, state: SOCMState) -> None:

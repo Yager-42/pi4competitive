@@ -117,3 +117,28 @@ def test_from_manifest_rejects_capability_module_outside_trusted_root(
         ApprovedToolRegistry.from_manifest(
             manifest, capability_root=repo_root / "capability_packages"
         )
+
+
+def test_from_manifest_rejects_before_importing_target(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    imported: list[str] = []
+
+    def forbidden_import(name: str):
+        imported.append(name)
+        raise AssertionError("untrusted target must not be imported")
+
+    monkeypatch.setattr(registry_module.importlib, "import_module", forbidden_import)
+    manifest = registry_module.ApprovedToolManifest(
+        protocol="agent-tool-rpc.v1",
+        protocol_version=1,
+        build_identity="rogue",
+        bindings={
+            "rogue": registry_module.ApprovedToolBinding(
+                "rogue", ToolExecutionTarget("capability_packages.not_trusted", "execute")
+            )
+        },
+    )
+    with pytest.raises(ApprovedRegistryError, match="module is not approved"):
+        ApprovedToolRegistry.from_manifest(manifest, capability_root=tmp_path / "trusted")
+    assert imported == []

@@ -99,6 +99,54 @@ async def test_repeated_source_observations_validate_any_excerpt() -> None:
 
 
 @pytest.mark.asyncio
+async def test_subagent_base_exception_cancels_and_reaps_siblings() -> None:
+    class ControlFlowAbort(BaseException):
+        pass
+
+    sibling_started = asyncio.Event()
+    sibling_cancelled = asyncio.Event()
+
+    async def run(subtask):
+        if subtask["id"] == "first":
+            await sibling_started.wait()
+            raise ControlFlowAbort()
+        sibling_started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            sibling_cancelled.set()
+            raise
+
+    engine = object.__new__(CoverageEngine)
+    engine._max_parallel = 2
+    engine._abort = asyncio.Event()
+    class Store:
+        def __init__(self) -> None:
+            self.state = _state()
+
+        async def load(self, _session_id):
+            return self.state
+
+        async def atomic_update(self, _session_id, updater):
+            return updater(self.state)
+
+    engine._socm_store = Store()
+    engine._session_id = "session"
+    engine._task_id = "task"
+    engine._run_subagent_ephemeral = run
+
+    async def emit(*_args, **_kwargs):
+        return None
+
+    engine._emit_event = emit
+    with pytest.raises(ControlFlowAbort):
+        await engine._dispatch_parallel(
+            _state(), [{"id": "first"}, {"id": "second"}]
+        )
+    assert sibling_cancelled.is_set()
+
+
+@pytest.mark.asyncio
 async def test_query_allowance_is_atomic() -> None:
     class Store:
         def __init__(self):

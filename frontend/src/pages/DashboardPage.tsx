@@ -2,7 +2,7 @@
  * 不照搬 VerdaAI 584 行版(依赖 fetchWorkload 专家工作量 + 业务伪指标)。
  * 渲染 pi4 11 指标 + tasks_by_status 分布 + brand/source_type 分布 + 订阅 CRUD+run。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -31,24 +31,32 @@ export default function DashboardPage() {
   const [newBrands, setNewBrands] = useState('')
   const [running, setRunning] = useState<string | null>(null)
   const [subError, setSubError] = useState('')
+  const [dashboardError, setDashboardError] = useState('')
+  const loadVersion = useRef(0)
 
   async function load() {
+    const version = ++loadVersion.current
     setLoading(true)
     const [d, s] = await Promise.allSettled([fetchDashboard(), fetchSubscriptions()])
-    if (d.status === 'fulfilled') setStats(d.value)
-    else setStats(null)
-    if (s.status === 'fulfilled') setSubs(s.value)
-    else setSubs([])
-    if (d.status === 'rejected' || s.status === 'rejected') {
-      setSubError('仪表盘加载失败，请稍后重试')
+    if (version !== loadVersion.current) return
+    if (d.status === 'fulfilled') {
+      setStats(d.value)
+      setDashboardError('')
     } else {
+      setDashboardError('仪表盘加载失败，请稍后重试')
+    }
+    if (s.status === 'fulfilled') {
+      setSubs(s.value)
       setSubError('')
+    } else {
+      setSubError('订阅列表加载失败，请稍后重试')
     }
     setLoading(false)
   }
 
   useEffect(() => {
-    load()
+    void load()
+    return () => { loadVersion.current += 1 }
   }, [])
 
   async function addSub() {
@@ -102,7 +110,7 @@ export default function DashboardPage() {
   }
 
 
-  if (loading) {
+  if (loading && !stats) {
     return (
       <div className="flex h-full items-center justify-center text-ink-3">
         <Loader2 className="animate-spin" size={28} />
@@ -113,8 +121,8 @@ export default function DashboardPage() {
   if (!stats) {
     return (
       <div className="flex h-full flex-col items-center justify-center text-ink-3">
-        <p className="text-aux">仪表盘加载失败，请稍后重试</p>
-        <button onClick={load} className="mt-4 rounded-btn bg-primary px-5 h-10 text-aux text-white hover:bg-primary-deep">
+        <p className="text-aux">{dashboardError || '仪表盘加载失败，请稍后重试'}</p>
+        <button onClick={() => void load()} className="mt-4 rounded-btn bg-primary px-5 h-10 text-aux text-white hover:bg-primary-deep">
           重试
         </button>
       </div>
@@ -127,6 +135,12 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-content px-8 py-10">
       <h1 className="text-h1 text-ink">竞争情报中心</h1>
       <p className="mt-1 text-aux text-ink-2">全局调研统计与监控订阅</p>
+      {dashboardError && (
+        <div className="mt-4 flex items-center justify-between rounded-card border border-risk/30 bg-risk/5 px-4 py-3 text-aux text-risk">
+          <span>{dashboardError}</span>
+          <button onClick={() => void load()} className="font-medium hover:underline">重试</button>
+        </div>
+      )}
 
       {/* 指标卡 */}
       <motion.div variants={stagger} initial="initial" animate="animate" className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">

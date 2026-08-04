@@ -66,37 +66,57 @@ class SkillFiles:
             scope_attempted = False
             marker_written = False
             previous_scope: str | None = None
+            if self._scope_store is not None and scope is not None:
+                self._require_scope_store()
             try:
                 # Dependent projection state must exist before the manifest can
                 # publish this active path.  Manifest replacement is last.
-                _atomic_write(marker, candidate.skill_id.encode("utf-8"))
+                await asyncio.to_thread(
+                    _atomic_write, marker, candidate.skill_id.encode("utf-8")
+                )
                 marker_written = True
                 if self._scope_store is not None and scope is not None:
-                    scope_attempted = True
                     previous_scope = await self._read_scope_locked(candidate.skill_id)
+                    scope_attempted = True
                     await self._scope_store.set_scope(candidate.skill_id, scope, str(path))
                 await self._write_manifest_locked()
-            except Exception:
-                if scope_attempted:
-                    try:
-                        if previous_scope is not None:
-                            await self._scope_store.set_scope(
-                                candidate.skill_id, previous_scope, str(path)
-                            )
-                        else:
-                            await self._clear_scope_locked(candidate.skill_id)
-                    except Exception:
-                        _log.exception("scope rollback failed for skill %s", candidate.skill_id)
-                if marker_written:
-                    try:
-                        if previous_marker is None:
-                            marker.unlink()
-                        else:
-                            _atomic_write(marker, previous_marker)
-                    except Exception:
-                        _log.exception("marker rollback failed for skill %s", candidate.skill_id)
+            except BaseException:
+                # Cancellation must not strand a half-published projection:
+                # roll back whatever was committed, then propagate.
+                current = asyncio.current_task()
+                cancelling = current.cancelling() if current is not None else 0
+                if cancelling:
+                    current.uncancel(cancelling)
+                try:
+                    if scope_attempted:
+                        try:
+                            if previous_scope is not None:
+                                await self._scope_store.set_scope(
+                                    candidate.skill_id, previous_scope, str(path)
+                                )
+                            else:
+                                await self._clear_scope_locked(candidate.skill_id)
+                        except Exception:
+                            _log.exception("scope rollback failed for skill %s", candidate.skill_id)
+                    if marker_written:
+                        try:
+                            if previous_marker is None:
+                                marker.unlink()
+                            else:
+                                await asyncio.to_thread(_atomic_write, marker, previous_marker)
+                        except Exception:
+                            _log.exception("marker rollback failed for skill %s", candidate.skill_id)
+                finally:
+                    if cancelling:
+                        current.cancel()
                 raise
         return str(path)
+
+    def _require_scope_store(self) -> None:
+        required = ("get_scope", "set_scope", "clear_scope")
+        missing = [name for name in required if not callable(getattr(self._scope_store, name, None))]
+        if missing:
+            raise TypeError(f"scope store is missing required methods: {', '.join(missing)}")
 
     async def _read_scope_locked(self, skill_id: str) -> str | None:
         getter = getattr(self._scope_store, "get_scope", None)
@@ -110,19 +130,12 @@ class SkillFiles:
     async def _clear_scope_locked(self, skill_id: str) -> None:
         if self._scope_store is None:
             return
-        for name in ("remove_scope", "delete_scope", "clear_scope"):
-            clearer = getattr(self._scope_store, name, None)
-            if clearer is None:
-                continue
-            result = clearer(skill_id)
-            if hasattr(result, "__await__"):
-                await result
-            return
-        _log.warning(
-            "scope store has no remove/delete/clear_scope; scope row for %s "
-            "cannot be rolled back",
-            skill_id,
-        )
+        clearer = getattr(self._scope_store, "clear_scope", None)
+        if not callable(clearer):
+            raise TypeError("scope store is missing required method: clear_scope")
+        result = clearer(skill_id)
+        if hasattr(result, "__await__"):
+            await result
 
     async def reject_candidate(self, candidate: SkillRecord) -> None:
         async with self._mu:
@@ -158,20 +171,13 @@ class SkillFiles:
             active.append(relative)
         active.sort()
         self._root.mkdir(parents=True, exist_ok=True)
-        data: dict[str, Any] = {"name": "learned-skills", "version": "0.1.0", "pi": {"skills": active}}
-        fd, temporary = tempfile.mkstemp(prefix="package.", suffix=".json", dir=self._root)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(data, handle, ensure_ascii=False, indent=2)
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, self._manifest)
-        finally:
-            try:
-                os.unlink(temporary)
-            except FileNotFoundError:
-                pass
+        data: dict[str, Any] = {
+            "name": "learned-skills",
+            "version": "0.1.0",
+            "pi": {"skills": active},
+        }
+        payload = (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        await asyncio.to_thread(_atomic_write, self._manifest, payload)
 
 
 __all__ = ["SkillFiles"]
