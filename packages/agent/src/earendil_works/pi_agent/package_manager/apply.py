@@ -68,7 +68,8 @@ def apply_capability_report(
     """Attach the report runtime, tools, skills, and prompts to one Agent."""
     if report.extension_result is None:
         return []
-    _merged, diags = merge_tools(list(agent.state.tools), list(report.tools), policy=policy)
+    merged, diags = merge_tools(list(agent.state.tools), list(report.tools), policy=policy)
+    agent.state.tools = merged
     report.extension_runner = attach_extension_runtime(
         agent, report.extension_result, str(report.root), replace=policy == "replace"
     )

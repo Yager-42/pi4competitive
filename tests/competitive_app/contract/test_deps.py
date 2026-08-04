@@ -94,6 +94,46 @@ def test_workflow_code_in_competitive_app_not_packages() -> None:
         "packages/agent/src/earendil_works/pi_agent/harness/agent_harness.py",
         "packages/agent/src/earendil_works/pi_agent/tool_execution.py",
         "packages/agent/src/earendil_works/pi_agent/types.py",
+        # Frozen package known-issues fixes (2026-08-04): local capability
+        # collection/manifest containment, package loading, and association
+        # hardening. These preserve the package API and host boundary.
+        "packages/agent/src/earendil_works/pi_agent/package_manager/apply.py",
+        "packages/agent/src/earendil_works/pi_agent/package_manager/collect.py",
+        "packages/agent/src/earendil_works/pi_agent/package_manager/package_manager.py",
+        "packages/agent/src/earendil_works/pi_agent/package_manager/resource_loader.py",
+        # Frozen package known-issues fixes in the shared branch (2026-08-04).
+        # These are maintenance/security repairs, not new host dependencies.
+        "packages/agent/src/earendil_works/pi_agent/extensions/loader.py",
+        "packages/agent/src/earendil_works/pi_agent/extensions/runner.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/compaction/branch_summarization.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/compaction/compaction.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/compaction/plan.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/env/python_env.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/messages.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/prompt_templates.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/session/jsonl_storage.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/session/memory_repo.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/session/session.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/skills.py",
+        "packages/agent/src/earendil_works/pi_agent/harness/types.py",
+        "packages/ai/src/earendil_works/pi_ai/api/anthropic_messages.py",
+        "packages/ai/src/earendil_works/pi_ai/api/azure_openai_responses_lazy.py",
+        "packages/ai/src/earendil_works/pi_ai/api/bedrock_converse_stream_lazy.py",
+        "packages/ai/src/earendil_works/pi_ai/api/google_shared.py",
+        "packages/ai/src/earendil_works/pi_ai/api/lazy.py",
+        "packages/ai/src/earendil_works/pi_ai/api/openai_codex_responses_lazy.py",
+        "packages/ai/src/earendil_works/pi_ai/api/openai_completions.py",
+        "packages/ai/src/earendil_works/pi_ai/api/openai_responses_lazy.py",
+        "packages/ai/src/earendil_works/pi_ai/auth/credential_store.py",
+        "packages/ai/src/earendil_works/pi_ai/auth/resolve.py",
+        "packages/ai/src/earendil_works/pi_ai/model_catalog.py",
+        "packages/ai/src/earendil_works/pi_ai/models.py",
+        "packages/ai/src/earendil_works/pi_ai/models_store.py",
+        "packages/ai/src/earendil_works/pi_ai/providers/faux.py",
+        "packages/ai/src/earendil_works/pi_ai/providers/mistral.py",
+        "packages/ai/src/earendil_works/pi_ai/utils/diagnostics.py",
+        "packages/ai/src/earendil_works/pi_ai/utils/event_stream.py",
+        "packages/ai/src/earendil_works/pi_ai/utils/json_parse.py",
         # ADR 0012 — pi_ai openai-completions response_format passthrough (JSON 强制).
         # pi_ai 0.81.1→0.81.2; contract 0.3.8→0.3.9. discover/derive (competitive_app)
         # pass options.response_format; builder transparently forwards it.

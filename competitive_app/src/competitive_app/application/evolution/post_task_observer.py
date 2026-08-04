@@ -61,8 +61,10 @@ class PostTaskObserver:
 
     @staticmethod
     def _normalize(value: str) -> str:
-        return " ".join(value.lower().split())
-
+        # Treat punctuation/formatting separators as equivalent so duplicate
+        # observations cannot create multiple captured skills.
+        canonical = re.sub(r"[^\w]+", " ", value.casefold(), flags=re.UNICODE)
+        return " ".join(canonical.split())
     @staticmethod
     def _safe_name(value: str) -> str:
         value = re.sub(r"[^a-z0-9-]+", "-", value.lower()).strip("-")

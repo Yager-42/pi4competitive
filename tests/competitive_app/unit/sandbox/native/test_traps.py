@@ -80,7 +80,7 @@ def test_write_operation_surface_and_auto_ids() -> None:
         {"cwd": "/repo"},
     )
     assert request["surface"] == "filesystem-write"
-    assert request["id"] == "sandbox-runtime:filesystem:write"
+    assert request["id"] == "sandbox-runtime:filesystem:write:/repo/out"
 
     request2 = sandbox_trap_to_boundary_request(
         {
@@ -91,7 +91,7 @@ def test_write_operation_surface_and_auto_ids() -> None:
         },
         {"cwd": "/repo"},
     )
-    assert request2["id"] == "sandbox-runtime:filesystem:write:12"
+    assert request2["id"] == "sandbox-runtime:filesystem:write:/repo/out:12"
 
 
 def test_fallback_cwd_and_agent_name() -> None:

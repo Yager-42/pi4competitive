@@ -79,6 +79,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   ingest: (type, data) => {
     const d = asObj(data)
     const s = get()
+    if (d.task_id != null && d.task_id !== s.taskId) return
     switch (type) {
       case 'state_snapshot': {
         const stages = d.stages as Record<string, string> | undefined
@@ -191,8 +192,10 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     } else if (status === 'aborted') {
       patch.running = false
       patch.error = '已中止'
+    } else if (status === 'awaiting_clarify') {
+      patch.running = false
     } else {
-      // running / pending / awaiting_clarify → keep running
+      // running / pending → keep running
       patch.running = true
     }
     set(patch)

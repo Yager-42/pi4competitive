@@ -19,6 +19,8 @@ MAX_FRAME_BYTES = 5 * 1024 * 1024
 MAX_CUMULATIVE_UPDATE_BYTES = 5 * 1024 * 1024
 MAX_FINAL_BYTES = 5 * 1024 * 1024
 MAX_DIAGNOSTIC_BYTES = 10_000
+MAX_JSON_DEPTH = 64
+MAX_JSON_VALUES = 100_000
 
 FrameType = Literal["update", "result", "error"]
 _REQUEST_FIELDS = frozenset({"protocolVersion", "scopeId", "toolCallId", "toolName", "target", "arguments"})
@@ -47,7 +49,20 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def _validate_json_value(value: Any, *, path: str = "$") -> None:
+def _validate_json_value(
+    value: Any,
+    *,
+    path: str = "$",
+    depth: int = 0,
+    budget: list[int] | None = None,
+) -> None:
+    if budget is None:
+        budget = [0]
+    budget[0] += 1
+    if budget[0] > MAX_JSON_VALUES:
+        raise RpcProtocolError("JSON value complexity exceeds limit", code="payload_too_complex")
+    if depth > MAX_JSON_DEPTH:
+        raise RpcProtocolError("JSON nesting exceeds limit", code="payload_too_complex")
     if value is None or isinstance(value, (bool, str, int)):
         return
     if isinstance(value, float):
@@ -58,11 +73,11 @@ def _validate_json_value(value: Any, *, path: str = "$") -> None:
         for key, child in value.items():
             if not isinstance(key, str):
                 raise RpcProtocolError(f"non-string object key at {path}", code="non_json_value")
-            _validate_json_value(child, path=f"{path}.{key}")
+            _validate_json_value(child, path=f"{path}.{key}", depth=depth + 1, budget=budget)
         return
     if isinstance(value, list):
         for index, child in enumerate(value):
-            _validate_json_value(child, path=f"{path}[{index}]")
+            _validate_json_value(child, path=f"{path}[{index}]", depth=depth + 1, budget=budget)
         return
     raise RpcProtocolError(f"unsupported JSON value at {path}: {type(value).__name__}", code="non_json_value")
 
@@ -100,11 +115,13 @@ def _decode_json(payload: bytes | str, *, limit: int) -> Any:
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=_reject_constant,
         )
+        _validate_json_value(value)
     except RpcProtocolError:
         raise
+    except RecursionError as exc:
+        raise RpcProtocolError("JSON nesting or complexity exceeds limit", code="payload_too_complex") from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RpcProtocolError("invalid UTF-8 JSON payload", code="invalid_json") from exc
-    _validate_json_value(value)
     return value
 
 
@@ -178,8 +195,8 @@ class RpcRequest:
         }
 
     @classmethod
-    def from_mapping(cls, value: Mapping[str, Any]) -> "RpcRequest":
-        request = _validate_request(dict(value))
+    def from_mapping(cls, value: Any) -> "RpcRequest":
+        request = _validate_request(value)
         return cls(
             protocol_version=request["protocolVersion"],
             scope_id=request["scopeId"],
@@ -191,7 +208,7 @@ class RpcRequest:
 
 
 def encode_request(request: RpcRequest | Mapping[str, Any]) -> bytes:
-    mapping = request.to_mapping() if isinstance(request, RpcRequest) else dict(request)
+    mapping = request.to_mapping() if isinstance(request, RpcRequest) else request
     return _json_bytes(_validate_request(mapping), limit=MAX_REQUEST_BYTES)
 
 
@@ -233,9 +250,17 @@ def _require_error(value: Any) -> dict[str, Any]:
     _require_exact_fields(error, frozenset({"code", "safeMessage", "retryable"}), label="error")
     if not isinstance(error["retryable"], bool):
         raise RpcProtocolError("error.retryable must be boolean", code="invalid_shape")
+    code = _require_string(error["code"], label="error.code")
+    safe_message = _require_string(error["safeMessage"], label="error.safeMessage")
+    try:
+        diagnostic_size = len(safe_message.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise RpcProtocolError("error.safeMessage is not valid UTF-8", code="non_json_value") from exc
+    if diagnostic_size > MAX_DIAGNOSTIC_BYTES:
+        raise RpcProtocolError("error.safeMessage exceeds diagnostic limit", code="payload_too_large")
     return {
-        "code": _require_string(error["code"], label="error.code"),
-        "safeMessage": _require_string(error["safeMessage"], label="error.safeMessage"),
+        "code": code,
+        "safeMessage": safe_message,
         "retryable": error["retryable"],
     }
 
@@ -266,6 +291,8 @@ def _validate_frame(value: Any) -> RpcFrame:
     if "error" in frame:
         raise RpcProtocolError("result/update frame cannot contain error", code="invalid_fields")
     result = _require_object(frame.get("result"), label="result")
+    if frame_type == "result":
+        _json_bytes(result, limit=MAX_FINAL_BYTES)
     return RpcFrame(version, scope_id, tool_call_id, sequence, frame_type, result=result)  # type: ignore[arg-type]
 
 
@@ -315,6 +342,8 @@ __all__ = [
     "MAX_DIAGNOSTIC_BYTES",
     "MAX_FINAL_BYTES",
     "MAX_FRAME_BYTES",
+    "MAX_JSON_DEPTH",
+    "MAX_JSON_VALUES",
     "MAX_REQUEST_BYTES",
     "PROTOCOL_NAME",
     "PROTOCOL_VERSION",

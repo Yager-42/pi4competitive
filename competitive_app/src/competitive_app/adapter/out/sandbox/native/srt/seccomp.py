@@ -53,23 +53,12 @@ def get_vendor_architecture() -> str | None:
 
 
 def verify_apply_seccomp_sha256(path: str) -> bool:
-    """True when the file's SHA-256 matches the pinned identity for its
-    architecture. Architecture is derived from the vendor directory name;
-    explicit overrides outside the vendor tree are checked against the
-    current machine architecture instead."""
-    p = Path(path)
-    parts = p.parts
-    if "x64" in parts:
-        arch = "x64"
-    elif "arm64" in parts:
-        arch = "arm64"
-    else:
-        arch = get_vendor_architecture()
-    expected = APPLY_SECCOMP_SHA256.get(arch or "")
+    """True when the file's SHA-256 matches the host architecture pin."""
+    expected = APPLY_SECCOMP_SHA256.get(get_vendor_architecture() or "")
     if expected is None:
         return False
     try:
-        digest = hashlib.sha256(p.read_bytes()).hexdigest()
+        digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
     except OSError:
         return False
     return digest == expected
@@ -79,6 +68,13 @@ def _find_apply_seccomp(explicit_path: str | None) -> str | None:
     # Explicit path first (highest priority); must exist and verify.
     if explicit_path:
         if os.path.exists(explicit_path):
+            if not os.access(explicit_path, os.X_OK):
+                log_for_debugging(
+                    "[SeccompFilter] apply-seccomp binary at explicit path "
+                    f"not executable: {explicit_path}",
+                    level="error",
+                )
+                return None
             if not verify_apply_seccomp_sha256(explicit_path):
                 log_for_debugging(
                     "[SeccompFilter] apply-seccomp binary at explicit path "

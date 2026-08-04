@@ -122,13 +122,11 @@ async def _default_resolver(hostname: str) -> list[tuple[str, int]]:
     return addresses
 
 
-async def validate_public_hostname(
+async def resolve_public_hostname(
     value: str,
     resolve: Resolver | None = None,
-) -> str | None:
-    """Return the normalized hostname only when every resolved address is
-    public; None for non-public names, mixed/private resolution, or DNS
-    failure (fail closed)."""
+) -> tuple[str, list[tuple[str, int]]] | None:
+    """Normalize and resolve a hostname, accepting only all-public results."""
     hostname = normalize_public_hostname(value)
     if not hostname:
         return None
@@ -137,17 +135,26 @@ async def validate_public_hostname(
         addresses = await resolver(hostname)
     except Exception:
         return None
-    return (
-        hostname
-        if len(addresses) > 0
-        and all(is_public_address(ip, family) for ip, family in addresses)
-        else None
-    )
+    if not addresses or not all(is_public_address(ip, family) for ip, family in addresses):
+        return None
+    return hostname, addresses
+
+
+async def validate_public_hostname(
+    value: str,
+    resolve: Resolver | None = None,
+) -> str | None:
+    """Return the normalized hostname only when every resolved address is
+    public; None for non-public names, mixed/private resolution, or DNS
+    failure (fail closed)."""
+    resolved = await resolve_public_hostname(value, resolve)
+    return resolved[0] if resolved is not None else None
 
 
 __all__ = [
     "Resolver",
     "is_public_address",
     "normalize_public_hostname",
+    "resolve_public_hostname",
     "validate_public_hostname",
 ]

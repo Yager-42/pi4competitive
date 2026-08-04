@@ -12,6 +12,7 @@ Lifespan failure layering (feature F-A23):
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import os
 from typing import Any
 
 from fastapi import FastAPI
@@ -47,12 +48,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+    # Credentialed CORS must never use the wildcard origin. Keep the local
+    # frontend origins as the safe default and allow deployments to provide a
+    # comma-separated explicit allowlist via ``CORS_ORIGINS``.
+    raw_origins = os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    allow_origins = [
+        origin.strip()
+        for origin in raw_origins.split(",")
+        if origin.strip() and origin.strip() != "*"
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=allow_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Accept", "Last-Event-ID"],
     )
     app.include_router(sessions_router)
     app.include_router(tasks_router)

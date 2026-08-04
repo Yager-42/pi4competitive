@@ -30,6 +30,7 @@ export default function DashboardPage() {
   const [newQuery, setNewQuery] = useState('')
   const [newBrands, setNewBrands] = useState('')
   const [running, setRunning] = useState<string | null>(null)
+  const [subError, setSubError] = useState('')
 
   async function load() {
     setLoading(true)
@@ -46,7 +47,12 @@ export default function DashboardPage() {
   async function addSub() {
     if (!newQuery.trim()) return
     const brands = newBrands.split(/[,，\s]+/).map((b) => b.trim()).filter(Boolean)
-    await createSubscription(newQuery.trim(), brands)
+    const created = await createSubscription(newQuery.trim(), brands)
+    if (!created) {
+      setSubError('创建订阅失败，请稍后重试')
+      return
+    }
+    setSubError('')
     setNewQuery('')
     setNewBrands('')
     await load()
@@ -64,10 +70,21 @@ export default function DashboardPage() {
     setRunning(null)
   }
 
-  if (loading || !stats) {
+  if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-ink-3">
         <Loader2 className="animate-spin" size={28} />
+      </div>
+    )
+  }
+
+  if (!stats) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center text-ink-3">
+        <p className="text-aux">仪表盘加载失败，请稍后重试</p>
+        <button onClick={load} className="mt-4 rounded-btn bg-primary px-5 h-10 text-aux text-white hover:bg-primary-deep">
+          重试
+        </button>
       </div>
     )
   }
@@ -151,6 +168,7 @@ export default function DashboardPage() {
           >
             <Plus size={16} /> 新建订阅
           </button>
+          {subError && <p className="mt-2 text-tag text-risk">{subError}</p>}
         </div>
 
         {/* 订阅列表 */}

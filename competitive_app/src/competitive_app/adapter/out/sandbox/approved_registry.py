@@ -38,27 +38,47 @@ def _imported_target_callable(target: ToolExecutionTarget) -> Any | None:
     if not inspect.iscoroutinefunction(value):
         return None
     return value
+def _is_local_capability_module(module_name: str) -> bool:
+    """Accept loader aliases only when their source lives under capability_packages."""
+    if module_name.startswith("capability_packages."):
+        return True
+    try:
+        module = importlib.import_module(module_name)
+        module_file = getattr(module, "__file__", None)
+        if not module_file:
+            return False
+        resolved = Path(module_file).resolve()
+    except (OSError, ImportError, RuntimeError):
+        return False
+    return any(parent.name == "capability_packages" for parent in resolved.parents)
+def _canonical_target(target: ToolExecutionTarget) -> ToolExecutionTarget:
+    """Map loader aliases to the import path available in the worker image."""
+    if target.module.startswith("capability_packages.") or target.module.startswith("earendil_works."):
+        return target
+    if not _is_local_capability_module(target.module):
+        return target
+    canonical = ToolExecutionTarget(f"capability_packages.{target.module}", target.qualname)
+    if _imported_target_callable(canonical) is None:
+        return target
+    return canonical
 
 
 def _lineage_matches(tool: AgentTool, target: ToolExecutionTarget) -> bool:
     """The recorded target matches the tool callable's explicit lineage.
 
-    The local extension loader imports entry files under generated
-    ``pi_extension_*`` module names; the wrap step remaps those to real
-    package paths so the image can import them.  A remapped target is
-    accepted only when the remapped module resolves to the same callable
-    (byte-identical code object).
+    Generated loader aliases and their canonical capability package paths are
+    accepted only when they resolve to the same coroutine code object.
     """
     derived = derive_tool_execution_target(tool.execute)
     if derived is None or derived.qualname != target.qualname:
         return False
     if derived.module == target.module:
         return True
-    if not derived.module.startswith("pi_extension_"):
-        return False
     original = inspect.unwrap(tool.execute)
-    imported = _imported_target_callable(target)
-    return imported is not None and imported.__code__ == original.__code__
+    if _canonical_target(derived) == target or derived.module.startswith("pi_extension_"):
+        imported = _imported_target_callable(target)
+        return imported is not None and imported.__code__ == original.__code__
+    return False
 
 
 class ApprovedRegistryError(ValueError):
@@ -97,10 +117,7 @@ class ApprovedToolRegistry:
         cls,
         tools: Iterable[AgentTool],
         *,
-        allowed_module_prefixes: tuple[str, ...] = (
-            "capability_packages.",
-            "earendil_works.pi_agent.",
-        ),
+        allowed_module_prefixes: tuple[str, ...] | None = None,
     ) -> "ApprovedToolRegistry":
         bindings: dict[str, ApprovedToolBinding] = {}
         target_names: dict[ToolExecutionTarget, str] = {}
@@ -112,7 +129,14 @@ class ApprovedToolRegistry:
                 raise ApprovedRegistryError(f"tool {tool.name} has no execution target")
             if not _lineage_matches(tool, target):
                 raise ApprovedRegistryError(f"tool {tool.name} target does not match callable lineage")
-            if not target.module.startswith(allowed_module_prefixes):
+            if allowed_module_prefixes is None:
+                module_approved = (
+                    target.module.startswith("earendil_works.pi_agent.")
+                    or _is_local_capability_module(target.module)
+                )
+            else:
+                module_approved = target.module.startswith(allowed_module_prefixes)
+            if not module_approved:
                 raise ApprovedRegistryError(f"tool {tool.name} module is not approved: {target.module}")
             previous = target_names.get(target)
             if previous is not None:
@@ -133,7 +157,7 @@ class ApprovedToolRegistry:
             binding = self.bindings[tool.name]
         except KeyError as exc:
             raise ApprovedRegistryError(f"tool is not approved: {tool.name}") from exc
-        if tool.executionTarget != binding.target:
+        if tool.executionTarget is None or _canonical_target(tool.executionTarget) != _canonical_target(binding.target):
             raise ApprovedRegistryError(f"tool target is rebound: {tool.name}")
         if not _lineage_matches(tool, binding.target):
             raise ApprovedRegistryError(f"tool callable lineage is rebound: {tool.name}")
@@ -145,14 +169,21 @@ class ApprovedToolRegistry:
         except KeyError as exc:
             raise ApprovedRegistryError(f"tool is not approved: {tool_name}") from exc
 
-    def validate_baked_manifest(self, manifest: ApprovedToolManifest) -> None:
+    def validate_baked_manifest(
+        self,
+        manifest: ApprovedToolManifest,
+        *,
+        build_identity: str | None = None,
+    ) -> None:
         if manifest.protocol != PROTOCOL_NAME or manifest.protocol_version != PROTOCOL_VERSION:
             raise ApprovedRegistryError("worker manifest protocol mismatch")
+        if build_identity is not None and manifest.build_identity != build_identity:
+            raise ApprovedRegistryError("worker manifest build identity mismatch")
         for name, binding in self.bindings.items():
             baked = manifest.bindings.get(name)
             if baked is None:
                 raise ApprovedRegistryError(f"worker manifest is missing host tool: {name}")
-            if baked.target != binding.target:
+            if baked.to_mapping() != binding.to_mapping():
                 raise ApprovedRegistryError(f"worker manifest target mismatch: {name}")
 
 

@@ -155,7 +155,8 @@ async def test_multisource_findings_corroborate_via_candidates(tmp_path) -> None
     intake = EvidenceIntake(
         socm_store=store, session_id="sid", models=_FakeModels(), judge_model={"id": "j"}
     )
-    intake.submit("e_a", "page", "official")
+    intake.submit("e_a", "official page x", "official")
+    intake.submit("e_a", "review page y", "review")
     added = await intake.flush()
 
     assert added == 2  # both findings recorded as evidence nodes

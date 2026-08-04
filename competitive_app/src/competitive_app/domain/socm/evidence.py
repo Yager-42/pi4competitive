@@ -54,13 +54,15 @@ class EvidenceEdge(BaseModel):
 
 
 def _dedup_signature(node: EvidenceNode) -> tuple[str, ...]:
-    """Dedup key: same fact + same source = duplicate (SearchOS evidence.py:89).
+    """Dedup key: same fact + same source = duplicate.
 
-    `source` stays in the key so corroborating evidence from different pages
-    is kept distinct (two pages saying the same thing = two nodes).
+    Entity and attribute matching is case-insensitive, while a missing source
+    is treated as node-local evidence rather than as one shared empty source.
+    This keeps independent source-less findings instead of collapsing them.
     """
     body = (node.value or node.finding or "").strip().lower()
-    return (node.table_id, node.entity.lower(), node.attribute.lower(), body, node.source)
+    source = node.source.strip() or f"<missing-source:{node.id}>"
+    return (node.table_id, node.entity.lower(), node.attribute.lower(), body, source)
 
 
 class EvidenceGraph(BaseModel):
@@ -93,14 +95,15 @@ class EvidenceGraph(BaseModel):
         self.edges.append(edge)
 
     def get_claims_for(self, entity: str, attribute: str) -> list[EvidenceNode]:
-        """All active nodes for an entity×attribute (for conflict resolution)."""
+        """All active nodes for an entity×attribute (case-insensitive)."""
         return [
             n
             for n in self.nodes
-            if n.entity == entity
-            and n.attribute == attribute
+            if n.entity.lower() == entity.lower()
+            and n.attribute.lower() == attribute.lower()
             and n.status == EvidenceStatus.ACTIVE
         ]
+
 
     def get_conflicts(self) -> list[tuple[EvidenceNode, EvidenceNode]]:
         """Pairs of nodes connected by a CONFLICT edge."""

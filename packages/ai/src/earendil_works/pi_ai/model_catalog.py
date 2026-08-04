@@ -23,12 +23,13 @@ def flatten_model_catalog(provider: str, groups: dict[str, Any]) -> dict[str, Mo
             out[str(m["id"])] = m  # type: ignore[assignment]
         return out
     # Grouped by API
-    for _api, models in groups.items():
+    for api, models in groups.items():
         if not isinstance(models, dict):
             continue
         for mid, model in models.items():
             m = dict(model)
             m.setdefault("id", mid)
+            m.setdefault("api", api)
             m.setdefault("provider", provider)
             out[str(m["id"])] = m  # type: ignore[assignment]
     return out
@@ -45,15 +46,16 @@ def load_provider_models_list(provider: str) -> list[Model]:
 
 
 def _read_json(provider: str) -> dict[str, Any]:
-    # Prefer package resources
+    # Prefer package resources. Only resource-availability errors should
+    # trigger the filesystem fallback; malformed JSON and programming errors
+    # must remain visible to callers.
     try:
         pkg = resources.files("earendil_works.pi_ai.providers")
         path = pkg.joinpath("data", f"{provider}.json")
         with path.open("r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except (ImportError, ModuleNotFoundError, FileNotFoundError, OSError):
         pass
-    # Filesystem relative to this file
     fs = Path(__file__).resolve().parent / "providers" / "data" / f"{provider}.json"
     if fs.exists():
         return json.loads(fs.read_text(encoding="utf-8"))

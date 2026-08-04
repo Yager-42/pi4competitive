@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+import math
 import time
 from typing import Any
 from uuid import uuid4
@@ -161,9 +162,12 @@ class EvidenceIntake:
             return 0
 
         pages_blob = "\n\n---\n\n".join(f"[{i}] {src}\n{txt}" for i, (txt, src) in enumerate(observations))
+        if len(pages_blob) > self._max_input_chars:
+            pages_blob = pages_blob[: self._max_input_chars]
         findings = await self._call_judge(entity_id, empty_attrs, pages_blob)
         if not findings:
             return 0
+        source_pages = {str(src).strip(): txt for txt, src in observations if str(src).strip()}
 
         added = 0
         emitted: list[dict[str, Any]] = []  # v0.3.1 SSE: collect evidence to emit after RMW
@@ -181,12 +185,22 @@ class EvidenceIntake:
                 if _is_junk_value(value):
                     s.coverage_map.mark_unknown(entity_id, attr)
                     continue
-                source = str(item.get("source") or "")
-                excerpt = str(item.get("source_excerpt") or "")[:200]
+                source = str(item.get("source") or "").strip()
+                excerpt = str(item.get("source_excerpt") or "").strip()[:200]
+                page_text = source_pages.get(source)
+                if page_text is None or not excerpt or excerpt not in page_text:
+                    # The judge may only cite pages actually fetched for this
+                    # entity, and the quote must be verbatim evidence.
+                    s.coverage_map.mark_unknown(entity_id, attr)
+                    continue
                 try:
-                    confidence = float(item.get("confidence") or 0.5)
+                    raw_confidence = item.get("confidence")
+                    confidence = float(raw_confidence) if raw_confidence is not None else 0.5
                 except (TypeError, ValueError):
                     confidence = 0.5
+                if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+                    s.coverage_map.mark_unknown(entity_id, attr)
+                    continue
                 # A2: low-confidence findings don't earn a FILLED — mark UNKNOWN so the
                 # cell can be re-searched for a stronger source (Tier-0 judge fidelity).
                 if confidence < _min_confidence():

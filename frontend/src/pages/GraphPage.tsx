@@ -22,6 +22,16 @@ const STATUS_LABEL: Record<string, string> = {
   empty: '待查',
 }
 
+function safeHttpUrl(raw?: string): string | null {
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? raw : null
+  } catch {
+    return null
+  }
+}
+
 export default function GraphPage() {
   const { reportId } = useParams<{ reportId: string }>()
   const navigate = useNavigate()
@@ -44,6 +54,8 @@ export default function GraphPage() {
   for (const c of matrix?.cells ?? []) {
     cellMap.set(`${c.entity_id}|${c.attribute_id}`, c)
   }
+  const selectedSource = selected?.cell.source
+  const safeSelectedSource = safeHttpUrl(selectedSource)
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg">
@@ -147,9 +159,9 @@ export default function GraphPage() {
             {selected.cell.confidence != null && (
               <div className="mt-2 text-tag text-ink-2">置信度:{(selected.cell.confidence * 100).toFixed(0)}%</div>
             )}
-            {selected.cell.source && (
-              <a href={selected.cell.source} target="_blank" rel="noreferrer" className="mt-2 block truncate text-tag text-primary hover:underline">
-                {selected.cell.source}
+            {safeSelectedSource && (
+              <a href={safeSelectedSource} target="_blank" rel="noreferrer" className="mt-2 block truncate text-tag text-primary hover:underline">
+                {selectedSource}
               </a>
             )}
             {selected.cell.source_excerpt && (

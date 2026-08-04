@@ -51,13 +51,12 @@ def default_context_entry_transform(path_entries: list[SessionTreeEntry]) -> lis
         return entries
     first_kept = compaction.get("firstKeptEntryId")
     if first_kept:
-        found = False
-        for i in range(compaction_idx):
-            entry = path_entries[i]
-            if entry["id"] == first_kept:
-                found = True
-            if found:
-                entries.append(entry)
+        # A stale/missing anchor must not erase all pre-compaction history.
+        start = next(
+            (i for i, entry in enumerate(path_entries[:compaction_idx]) if entry["id"] == first_kept),
+            0,
+        )
+        entries.extend(path_entries[start:compaction_idx])
     entries.extend(path_entries[compaction_idx + 1 :])
     return entries
 

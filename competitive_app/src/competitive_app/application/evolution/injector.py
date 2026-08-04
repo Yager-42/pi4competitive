@@ -10,11 +10,14 @@ body without breaking the workflow.
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Iterable
 
 from earendil_works.pi_agent.harness.skills import Skill, skill_to_context_injection
 
 from ...domain.evolution.skill_types import SkillRecord
+
+_FRONTMATTER_RE = re.compile(r"^---\r?\n.*?\r?\n---(?:\r?\n|$)", re.DOTALL)
 
 
 def _read_body(path: str) -> str:
@@ -22,11 +25,8 @@ def _read_body(path: str) -> str:
         content = Path(path).read_text(encoding="utf-8")
     except OSError:
         return ""
-    if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            return parts[2].lstrip("\r\n")
-    return content
+    match = _FRONTMATTER_RE.match(content)
+    return content[match.end():].lstrip("\r\n") if match else content
 
 
 def record_to_pi_skill(record: SkillRecord) -> Skill:

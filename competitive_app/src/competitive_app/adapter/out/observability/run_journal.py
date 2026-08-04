@@ -39,5 +39,6 @@ class RunJournal:
             created_at=utc_now_iso(),
         )
         with self.events_path.open("a", encoding="utf-8") as file:
-            file.write(json.dumps(event.to_dict(), ensure_ascii=False, indent=2) + "\n\n")
+            # JSONL is line-oriented: each event must occupy exactly one line.
+            file.write(json.dumps(event.to_dict(), ensure_ascii=False, separators=(",", ":")) + "\n")
         return event

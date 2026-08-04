@@ -68,6 +68,10 @@ async def main() -> None:
                 if status in {"completed", "failed", "aborted"}:
                     break
                 await asyncio.sleep(5)
+            if status not in {"completed", "failed", "aborted"}:
+                raise TimeoutError(
+                    f"task {tid} did not reach a terminal state before timeout (status={status!r})"
+                )
             elapsed = time.time() - t0
             proj = (await c.get(f"/api/v2/tasks/{tid}")).json()["projection"]
 
@@ -129,11 +133,10 @@ async def main() -> None:
                 summary["socm_error"] = f"{type(e).__name__}: {e}"
 
             # Six-stage: count evidence from collect stage_output (no SOCM).
-            if STOP_AFTER == "collect":
                 try:
                     from competitive_app.application.workflow.stage_outputs import get_stage_output
 
-                    session = await state.repo.open(await state.repo.list({"cwd": os.environ["SESSIONS_CWD"]})[0].__getitem__("id") if False else _open_session(state, sid))
+                    session = await _open_session(state, sid)
                     collect_out = await get_stage_output(session, "collect")
                     evidence = (collect_out or {}).get("evidence") or []
                     srcs = {e.get("source") for e in evidence if isinstance(e, dict) and e.get("source")}

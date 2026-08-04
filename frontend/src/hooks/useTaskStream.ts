@@ -7,60 +7,82 @@
  *
  * 不使用 startedRef 守卫,否则 StrictMode 卸载会关闭连接后无法重连(同 VerdaAI)。
  */
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { openTaskStream, fetchTask } from '../lib/api'
 import { useTaskStore } from '../store/taskStore'
 
 const POLL_INTERVAL = 5000
-const TERMINAL = new Set(['completed', 'failed', 'aborted'])
+const TERMINAL: Record<string, true> = { completed: true, failed: true, aborted: true }
 
 export function useTaskStream(taskId: string | undefined, query: string) {
   const reset = useTaskStore((s) => s.reset)
   const ingest = useTaskStore((s) => s.ingest)
   const applyTask = useTaskStore((s) => s.applyTask)
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     if (!taskId) return
 
+    const controller = new AbortController()
+    let active = true
+    let pollTimer: number | null = null
+    let pollInFlight = false
+
+    const isCurrent = () => active && useTaskStore.getState().taskId === taskId
+    const stopPolling = () => {
+      if (pollTimer !== null) {
+        window.clearInterval(pollTimer)
+        pollTimer = null
+      }
+    }
+
     reset(taskId, query)
 
     // 1. 进入先拉一次单任务状态(兜底白屏 + 终态直接显示)
-    fetchTask(taskId).then((t) => {
-      if (t) applyTask(t)
-    })
+    void fetchTask(taskId, controller.signal)
+      .then((t) => {
+        if (isCurrent() && t) applyTask(t)
+      })
+      .catch(() => {
+        // SSE/polling remains the fallback for transient GET failures.
+      })
+
+    const startPolling = () => {
+      if (!isCurrent() || pollTimer !== null) return
+      pollTimer = window.setInterval(async () => {
+        if (!isCurrent() || pollInFlight) return
+        pollInFlight = true
+        try {
+          const t = await fetchTask(taskId, controller.signal)
+          if (!isCurrent() || !t) return
+          applyTask(t)
+          if (TERMINAL[t.status]) stopPolling()
+        } catch {
+          // Keep polling after transient failures until the effect is cleaned up.
+        } finally {
+          pollInFlight = false
+        }
+      }, POLL_INTERVAL)
+    }
 
     // 2. 开 SSE
-    let sseClosed = false
     const close = openTaskStream(taskId, {
-      onEvent: (type, data) => ingest(type, data),
+      onEvent: (type, data) => {
+        if (isCurrent()) ingest(type, data)
+      },
       onError: () => {
         // SSE 断连(含正常结束);仅未终态时切轮询
-        if (sseClosed) return
+        if (!isCurrent()) return
         const st = useTaskStore.getState()
         if (st.finished || st.error) return
-        if (pollTimer.current) return
-        pollTimer.current = setInterval(async () => {
-          const t = await fetchTask(taskId)
-          if (!t) return
-          applyTask(t)
-          if (TERMINAL.has(t.status)) {
-            if (pollTimer.current) {
-              clearInterval(pollTimer.current)
-              pollTimer.current = null
-            }
-          }
-        }, POLL_INTERVAL)
+        startPolling()
       },
     })
 
     return () => {
-      sseClosed = true
+      active = false
+      controller.abort()
       close()
-      if (pollTimer.current) {
-        clearInterval(pollTimer.current)
-        pollTimer.current = null
-      }
+      stopPolling()
     }
   }, [taskId, query, reset, ingest, applyTask])
 }

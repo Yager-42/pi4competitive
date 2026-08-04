@@ -68,7 +68,12 @@ class LocalPackageManager:
         except OSError:
             return []
         for child in children:
-            if not child.is_dir():
+            try:
+                resolved_child = child.resolve(strict=False)
+                resolved_child.relative_to(self.root)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if resolved_child == self.root or not resolved_child.is_dir():
                 continue
             if child.name.startswith(".") or child.name == "__pycache__":
                 continue
@@ -76,7 +81,7 @@ class LocalPackageManager:
                 continue
             if self.enabled is not None and child.name not in self.enabled:
                 continue
-            dirs.append(child.resolve())
+            dirs.append(resolved_child)
         return dirs
 
     async def resolve(self) -> ResolvedPaths:
@@ -149,12 +154,11 @@ class LocalPackageManager:
                     metadata,
                 )
             return True
-
         has_any_dir = False
         for resource_type in RESOURCE_TYPES:
             directory = package_root / resource_type
             if directory.is_dir():
-                files = C.collect_resource_files(directory, resource_type)
+                files = C.collect_resource_files(directory, resource_type, boundary=package_root)
                 target = self._get_target_map(accumulator, resource_type)
                 for f in files:
                     self._add_resource(target, f, metadata, True)
@@ -162,7 +166,7 @@ class LocalPackageManager:
 
         # Host-delta: package-root register.py / index.py as single extension
         if not has_any_dir:
-            root_ext = C.resolve_extension_entries(package_root)
+            root_ext = C.resolve_extension_entries(package_root, boundary=package_root)
             if root_ext:
                 target = self._get_target_map(accumulator, "extensions")
                 for f in root_ext:
@@ -171,11 +175,11 @@ class LocalPackageManager:
         else:
             # Also pick up root-level register.py alongside convention dirs
             for candidate in ("register.py", "index.py"):
-                reg = package_root / candidate
-                if reg.is_file():
+                reg = C._resolve_within(package_root / candidate, package_root)
+                if reg is not None and reg.is_file():
                     self._add_resource(
                         self._get_target_map(accumulator, "extensions"),
-                        str(reg.resolve()),
+                        str(reg),
                         metadata,
                         True,
                     )
@@ -195,7 +199,7 @@ class LocalPackageManager:
             return
         directory = package_root / resource_type
         if directory.is_dir():
-            for f in C.collect_resource_files(directory, resource_type):
+            for f in C.collect_resource_files(directory, resource_type, boundary=package_root):
                 self._add_resource(target, f, metadata, True)
 
     def _apply_package_filter(
@@ -259,7 +263,7 @@ class LocalPackageManager:
         convention_dir = package_root / resource_type
         if not convention_dir.is_dir():
             return [], set()
-        all_files = C.collect_resource_files(convention_dir, resource_type)
+        all_files = C.collect_resource_files(convention_dir, resource_type, boundary=package_root)
         return all_files, set(all_files)
 
     def _add_manifest_entries(

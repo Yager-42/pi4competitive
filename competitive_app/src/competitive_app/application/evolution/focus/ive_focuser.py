@@ -35,6 +35,10 @@ class IVEFocuser:
             return self._degrade(ctx, judgment_notes)
         skill_name = ctx.target_skill.name if ctx.target_skill else ctx.suggested_name
         failure_class, direction = await self._diagnose(ctx, skill_name, judgment_notes)
+        if failure_class is None:
+            # A provider/response failure is not evidence of an implementation failure.
+            # Keep the prior classifications and counters unchanged.
+            return replace(ctx, fix_direction=direction or ctx.fix_direction)
         count = self._impl_fail_counts.get(skill_name, 0)
         if failure_class == "IMPLEMENTATION":
             count += 1
@@ -55,7 +59,7 @@ class IVEFocuser:
             parts.extend(notes)
         return replace(ctx, fix_direction="LLM 未启用，降级全量摘要。" + " | ".join(parts))
 
-    async def _diagnose(self, ctx: EvolutionContext, name: str, notes: list[str]) -> tuple[str, str]:
+    async def _diagnose(self, ctx: EvolutionContext, name: str, notes: list[str]) -> tuple[str | None, str]:
         evidence = "\n".join(f"- {e.description}" for e in ctx.failure_evidence)
         prompt = (
             f"Skill: {name}\n失败证据:\n{evidence}\n"
@@ -75,11 +79,15 @@ class IVEFocuser:
             if isinstance(data, str):
                 start, end = data.find("{"), data.rfind("}")
                 data = json.loads(data[start : end + 1]) if start >= 0 and end > start else {}
-            cls = data.get("class", "IMPLEMENTATION") if isinstance(data, dict) else "IMPLEMENTATION"
-            return (cls if cls in {"FUNDAMENTAL", "IMPLEMENTATION"} else "IMPLEMENTATION",
-                    str(data.get("direction", "")) if isinstance(data, dict) else "")
+            if not isinstance(data, dict):
+                return None, ""
+            cls = data.get("class")
+            direction = data.get("direction")
+            if cls not in {"FUNDAMENTAL", "IMPLEMENTATION"} or not isinstance(direction, str):
+                return None, ""
+            return cls, direction
         except Exception:
-            return "IMPLEMENTATION", ""
+            return None, ""
 
 
 __all__ = ["IVEFocuser"]

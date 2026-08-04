@@ -338,6 +338,8 @@ class Agent:
         await self._active_run.promise
 
     def reset(self) -> None:
+        if self._active_run is not None:
+            raise RuntimeError("Cannot reset while agent is processing")
         self._state.messages = []
         self._state.isStreaming = False
         self._state.streamingMessage = None
@@ -552,9 +554,11 @@ class Agent:
         except Exception as error:  # noqa: BLE001
             await self._handle_run_failure(error, abort_controller.signal.aborted)
         finally:
-            if self.extension_runner:
-                await self.extension_runner.emit({"type": "agent_settled"})
-            self._finish_run()
+            try:
+                if self.extension_runner:
+                    await self.extension_runner.emit({"type": "agent_settled"})
+            finally:
+                self._finish_run()
 
     async def _handle_run_failure(self, error: Any, aborted: bool) -> None:
         failure_message: AgentMessage = {

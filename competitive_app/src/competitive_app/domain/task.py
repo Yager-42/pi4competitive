@@ -45,6 +45,12 @@ class Task:
     created_at: str = field(default_factory=lambda: _now_iso())
     updated_at: str = field(default_factory=lambda: _now_iso())
 
+    def __post_init__(self) -> None:
+        if self.status not in _LEGAL_TRANSITIONS:
+            raise TaskStatusError(
+                f"invalid initial status {self.status!r} for task {self.task_id}"
+            )
+
     def transition(self, next_status: TaskStatus) -> None:
         """Apply a legal status transition or raise TaskStatusError.
 
@@ -52,6 +58,14 @@ class Task:
         a no-op (so abort on an already-aborted/completed/failed task is safe —
         feature F-A18 boundary case).
         """
+        if self.status not in _LEGAL_TRANSITIONS:
+            raise TaskStatusError(
+                f"invalid current status {self.status!r} for task {self.task_id}"
+            )
+        if next_status not in _LEGAL_TRANSITIONS:
+            raise TaskStatusError(
+                f"invalid next status {next_status!r} for task {self.task_id}"
+            )
         if self.status == next_status:
             return
         if self.status in TERMINAL_STATUSES:

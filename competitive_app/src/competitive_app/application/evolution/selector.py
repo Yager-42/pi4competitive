@@ -28,14 +28,23 @@ class SkillSelector:
         forced: list[SkillRecord] = []
         for name in overrides or []:
             record = await self._store_get_active(name, scope)
-            if record is not None and record.enabled: forced.append(record)
+            if record is not None and record.enabled and record.skill_id not in {r.skill_id for r in forced}:
+                forced.append(record)
+                if len(forced) >= self._max_skills:
+                    break
         active = await self._store_list_active(scope)
-        candidates = list(forced); seen = {r.skill_id for r in candidates}
+        seen = {r.skill_id for r in forced}
+        optional: list[SkillRecord] = []
         for record in self._quality_filter([r for r in active if r.enabled]):
-            if record.skill_id not in seen: candidates.append(record); seen.add(record.skill_id)
-        if len(candidates) <= self._max_skills: return candidates
-        selected = await self._llm_select(candidates, task_description, self._max_skills) if self._llm else []
-        return selected or sorted(candidates, key=lambda r: r.effective_rate, reverse=True)[:self._max_skills]
+            if record.skill_id not in seen:
+                optional.append(record); seen.add(record.skill_id)
+        slots = self._max_skills - len(forced)
+        if slots <= 0:
+            return forced
+        if len(optional) <= slots:
+            return forced + optional
+        selected = await self._llm_select(optional, task_description, slots) if self._llm else []
+        return forced + (selected or sorted(optional, key=lambda r: r.effective_rate, reverse=True)[:slots])
 
     async def select_for_task(self, task_description: str, scope: SkillScope | list[str] = "plan",
                               overrides: list[str] | None = None) -> list[SkillRecord]:
@@ -43,23 +52,37 @@ class SkillSelector:
         return await self.select_for_scope(task_description, scope, overrides)
 
     async def _store_list_active(self, scope: SkillScope) -> list[SkillRecord]:
-        try: value = self._store.list_active(scope=scope)
-        except TypeError: value = self._store.list_active()
+        supports_scope = True
+        try:
+            value = self._store.list_active(scope=scope)
+        except TypeError:
+            supports_scope = False
+            value = self._store.list_active()
         records = list(await _await(value) or [])
+        # A scoped store is authoritative.  For legacy unscoped stores, fail
+        # closed when no scope metadata is available rather than cross-injecting.
+        if supports_scope:
+            return records
         get_scope = getattr(self._store, "get_scope", None)
         result = []
         for record in records:
             record_scope = await _await(get_scope(record.skill_id)) if get_scope else getattr(record, "scope", None)
-            if (get_scope is None and record_scope is None) or record_scope == scope:
+            if record_scope == scope:
                 result.append(record)
         return result
 
     async def _store_get_active(self, name: str, scope: SkillScope) -> SkillRecord | None:
-        record = await _await(self._store.get_active(name))
+        try:
+            record = await _await(self._store.get_active(name, scope=scope))
+            scoped_query = True
+        except TypeError:
+            record = await _await(self._store.get_active(name))
+            scoped_query = False
         if record is None: return None
+        if scoped_query:
+            return record
         get_scope = getattr(self._store, "get_scope", None)
         record_scope = await _await(get_scope(record.skill_id)) if get_scope else getattr(record, "scope", None)
-        if get_scope is None and record_scope is None: return record
         return record if record_scope == scope else None
 
     def _quality_filter(self, skills: list[SkillRecord]) -> list[SkillRecord]:

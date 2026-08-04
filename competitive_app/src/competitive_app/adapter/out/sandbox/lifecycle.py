@@ -80,7 +80,7 @@ class SandboxLifecycle:
                 manifest = parse_approved_manifest(json.loads(raw))
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError(f"sandbox baked manifest is invalid: {exc}") from exc
-            self._registry.validate_baked_manifest(manifest)
+            self._registry.validate_baked_manifest(manifest, build_identity=build_identity)
         scope = derive_sandbox_id(CANARY_SESSION_ID)
 
         async def noop(_frame: RpcFrame) -> None:
@@ -109,13 +109,14 @@ class SandboxLifecycle:
     def _canary_request(self, scope_id: str) -> Any:
         from .protocol import PROTOCOL_VERSION, RpcRequest
 
-        binding = self._registry.target_for("echo")
+        binding = self._registry.bindings["echo"]
+        target = binding.to_mapping()
         return RpcRequest(
             protocol_version=PROTOCOL_VERSION,
             scope_id=scope_id,
             tool_call_id="startup-canary",
             tool_name="echo",
-            target={"module": binding.module, "qualname": binding.qualname},
+            target=target,
             arguments={"text": "canary"},
         )
 

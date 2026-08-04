@@ -131,6 +131,52 @@ def _sse(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+_SSE_FANOUTS: dict[tuple[int, str], "_QueueFanout"] = {}
+
+
+class _QueueFanout:
+    """Broadcast one task queue to independent SSE subscribers."""
+
+    def __init__(self, source: asyncio.Queue[dict]) -> None:
+        self._source = source
+        self._subscribers: set[asyncio.Queue[dict]] = set()
+        self._pump_task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        if self._pump_task is None:
+            self._pump_task = asyncio.create_task(self._pump())
+
+    async def subscribe(self) -> asyncio.Queue[dict]:
+        queue: asyncio.Queue[dict] = asyncio.Queue()
+        self._subscribers.add(queue)
+        return queue
+
+    async def _pump(self) -> None:
+        try:
+            while True:
+                event = await self._source.get()
+                for queue in tuple(self._subscribers):
+                    queue.put_nowait(event)
+                if event.get("type") in {"done", "error"}:
+                    return
+        finally:
+            self._pump_task = None
+
+
+async def _subscribe_stream(registry, task_id: str) -> asyncio.Queue[dict] | None:
+    """Return a client queue, waiting callers never consume one another's events."""
+    key = (id(registry), task_id)
+    fanout = _SSE_FANOUTS.get(key)
+    if fanout is None:
+        source = registry.get_stream(task_id)
+        if source is None:
+            return None
+        fanout = _QueueFanout(source)
+        _SSE_FANOUTS[key] = fanout
+        fanout.start()
+    return await fanout.subscribe()
+
+
 async def _build_snapshot(state, task_id: str) -> dict:
     """state_snapshot event: current projection + SOCM (iteration/evidence_count)."""
     task = await state.store.get_task(task_id)
@@ -146,12 +192,9 @@ async def _build_snapshot(state, task_id: str) -> dict:
     }
     session_id = (task or {}).get("session_id")
     if session_id and state.socm_store is not None:
-        try:
-            socm = await state.socm_store.load(session_id)
-            snapshot["iteration"] = socm.iteration
-            snapshot["evidence_count"] = socm.evidence_graph.node_count()
-        except Exception:  # noqa: BLE001
-            pass  # keep projection defaults
+        socm = await state.socm_store.load(session_id)
+        snapshot["iteration"] = socm.iteration
+        snapshot["evidence_count"] = socm.evidence_graph.node_count()
     return snapshot
 
 
@@ -172,27 +215,47 @@ async def stream_task(task_id: str, request: Request):
     task_status = task["status"]
 
     async def event_gen():
-        # 1. Always push a snapshot first (covers running/pending/terminal).
-        yield _sse("state_snapshot", await _build_snapshot(state, task_id))
-        # 2. Terminal: push terminal event + close.
+        # Snapshot errors are explicit; never present a fabricated empty SOCM.
+        try:
+            yield _sse("state_snapshot", await _build_snapshot(state, task_id))
+        except Exception:  # noqa: BLE001
+            yield _sse(
+                "error",
+                {"task_id": task_id, "status": "failed", "code": "snapshot_unavailable"},
+            )
+            return
         if task_status in {"completed", "failed", "aborted"}:
             if task_status == "completed":
                 yield _sse("done", {"task_id": task_id, "status": "completed"})
             else:
                 yield _sse("error", {"task_id": task_id, "status": task_status})
             return
-        # 3. Running/pending: consume the pre-registered queue until terminal.
-        q = state.registry.get_stream(task_id)
+        # Each client receives its own queue. If completion wins the lookup
+        # race, observe the terminal state from the store instead.
+        q = await _subscribe_stream(state.registry, task_id)
+        while q is None and not await request.is_disconnected():
+            current = await state.store.get_task(task_id)
+            current_status = (current or {}).get("status")
+            if current_status in {"completed", "failed", "aborted"}:
+                if current_status == "completed":
+                    yield _sse("done", {"task_id": task_id, "status": "completed"})
+                else:
+                    yield _sse("error", {"task_id": task_id, "status": current_status})
+                return
+            await asyncio.sleep(0.05)
+            q = await _subscribe_stream(state.registry, task_id)
+        if q is None:
+            return
         while not await request.is_disconnected():
             try:
                 event = await asyncio.wait_for(q.get(), timeout=15.0)
             except asyncio.TimeoutError:
-                yield ": heartbeat\n\n"  # keep-alive (SSE comment, client ignores)
+                yield ": heartbeat\n\n"
                 continue
             yield _sse(event["type"], event["data"])
             if event["type"] in {"done", "error"}:
+                _SSE_FANOUTS.pop((id(state.registry), task_id), None)
                 break
-
     return StreamingResponse(
         event_gen(),
         media_type="text/event-stream",

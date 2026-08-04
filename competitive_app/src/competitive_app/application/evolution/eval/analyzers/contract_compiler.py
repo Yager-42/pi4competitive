@@ -25,9 +25,10 @@ class ContractCompiler:
             rules.append(ContractRule("must_cite", "programmatic", False, "skill 声明引用来源"))
         if self._mentions_conclusion_first(corpus):
             rules.append(ContractRule("lead_with_conclusion", "programmatic", False, "skill 声明先给结论"))
-        maximum = self._paragraph_limit(corpus)
-        if maximum:
-            rules.append(ContractRule("paragraph_limit", "programmatic", False, "段落限制", {"max": maximum}))
+        bound = self._paragraph_bound(corpus)
+        if bound:
+            maximum, strict = bound
+            rules.append(ContractRule("paragraph_limit", "programmatic", False, "段落限制", {"max": maximum, "strict": strict}))
         rules.extend([
             ContractRule("no_unfounded_claims", "programmatic", False, "无绝对化无据声明"),
             ContractRule("semantic_density", "programmatic", False, "指令性词密度"),
@@ -43,13 +44,19 @@ class ContractCompiler:
         return any(k in corpus for k in ("先给结论", "结论在前", "先说结论", "answer first", "lead with the conclusion", "bottom line first"))
 
     @staticmethod
-    def _paragraph_limit(corpus: str) -> int:
+    def _paragraph_bound(corpus: str) -> tuple[int, bool] | None:
         for match in _RE_PARAGRAPH_LIMIT.finditer(corpus):
             try:
-                return max(1, int(match.group(2)))
+                maximum = max(1, int(match.group(2)))
             except (TypeError, ValueError):
-                pass
-        return 0
+                continue
+            return maximum, match.group(1).lower() in ("少于", "less than")
+        return None
+
+    @staticmethod
+    def _paragraph_limit(corpus: str) -> int:
+        bound = ContractCompiler._paragraph_bound(corpus)
+        return bound[0] if bound else 0
 
 
 __all__ = ["ContractCompiler"]

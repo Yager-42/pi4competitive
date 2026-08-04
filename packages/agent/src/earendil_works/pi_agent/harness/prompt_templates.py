@@ -20,7 +20,7 @@ def format_prompt_template_invocation(template: PromptTemplate, args: str = "") 
     content = template.content
     content = content.replace("$ARGUMENTS", args)
     content = content.replace("{{args}}", args)
-    content = re.sub(r"\{\{\s*arguments\s*\}\}", args, content)
+    content = re.sub(r"\{\{\s*arguments\s*\}\}", lambda _match: args, content)
     return content
 
 

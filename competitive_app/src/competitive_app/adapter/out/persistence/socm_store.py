@@ -89,24 +89,26 @@ class SocmStore:
             return state
 
     async def delete(self, session_id: str) -> None:
-        """Delete the SOCM file + sidecars (called on task DELETE cascade, F-A17 v0.3.0)."""
+        """Delete SOCM state while coordinating with all writers.
+
+        The sidecar lock is deliberately retained: another process may still
+        hold an open descriptor for it, and unlinking it would create a new inode
+        that bypasses that process's flock.
+        """
         lock = await self._lock_for(session_id)
         async with lock:
-            path = self._state_path(session_id)
-            if path.is_file():
-                path.unlink()
-            # Clean up sidecar files (review minor E6).
-            for sidecar in (
-                path.parent / ".search_state.json.lock",
-                path.parent / ".search_state.json.tmp",
-            ):
-                if sidecar.is_file():
+            with self._cross_process_lock(session_id):
+                path = self._state_path(session_id)
+                if path.is_file():
+                    path.unlink()
+                tmp = path.parent / ".search_state.json.tmp"
+                if tmp.is_file():
                     try:
-                        sidecar.unlink()
+                        tmp.unlink()
                     except OSError:
                         pass
-            # Drop the per-session lock entry (review minor E5).
-            self._locks.pop(session_id, None)
+        # Keep the in-process lock entry. Removing it can let a new caller
+        # create a second lock while a waiter still references the old one.
 
     async def exists(self, session_id: str) -> bool:
         return self._state_path(session_id).is_file()

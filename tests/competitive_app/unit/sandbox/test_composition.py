@@ -8,6 +8,7 @@ retention vs removal, startup handshake/canary, and the fail-closed
 from __future__ import annotations
 
 import asyncio
+import os
 import json
 from pathlib import Path
 from typing import Any
@@ -406,7 +407,7 @@ class _ManifestBackend:
             {
                 "protocol": PROTOCOL_NAME,
                 "protocolVersion": PROTOCOL_VERSION,
-                "buildIdentity": "image-build",
+                "buildIdentity": "sha256:abc",
                 "tools": tools,
             }
         ).encode("utf-8")
@@ -495,8 +496,12 @@ async def test_wiring_native_composition_writes_manifest_and_runs_canary(
     assert "echo" in manifest.bindings  # registry subset handshake source
     assert manifest.build_identity.startswith("competitive-app-")
 
-    # The provider saw the allowlisted env surface, never the full process env.
+    # The provider saw the allowlisted env surface, including the capability root
+    # needed for loader-generated top-level imports.
     assert "TAVILY_API_KEY" in provider.environment
+    pythonpath = (provider.environment.get("PYTHONPATH") or "").split(os.pathsep)
+    capability_root = (Path.cwd() / "capability_packages").resolve()
+    assert str(capability_root) in pythonpath
     assert provider.environment.get("DATABASE_URL") is None
     await state.shutdown()
     assert provider.shutdown_called is True

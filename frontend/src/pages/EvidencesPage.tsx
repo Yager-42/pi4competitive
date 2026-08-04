@@ -12,24 +12,49 @@ import { fadeUp, stagger } from '../lib/motion'
 
 const EMPTY: EvidenceQueryResp = { items: [], facets: { total: 0, by_type: {}, by_brand: {} } }
 
+function safeHttpUrl(raw?: string): string | null {
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? raw : null
+  } catch {
+    return null
+  }
+}
+
 export default function EvidencesPage() {
   const [data, setData] = useState<EvidenceQueryResp>(EMPTY)
   const [loading, setLoading] = useState(true)
   const [brand, setBrand] = useState('')
   const [sourceType, setSourceType] = useState('')
   const [minConf, setMinConf] = useState(0)
-  const [limit, setLimit] = useState(200)
+  const [limit, setLimit] = useState('200')
 
   useEffect(() => {
+    const requestedLimit = Number(limit)
+    if (!Number.isFinite(requestedLimit) || requestedLimit < 1) {
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
     setLoading(true)
     fetchEvidences({
       brand: brand || undefined,
       source_type: sourceType || undefined,
       min_confidence: minConf,
-      limit,
+      limit: requestedLimit,
     })
-      .then(setData)
-      .finally(() => setLoading(false))
+      .then((result) => {
+        if (!cancelled) setData(result)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [brand, sourceType, minConf, limit])
 
   const brandOpts = Object.keys(data.facets.by_brand)
@@ -91,7 +116,7 @@ export default function EvidencesPage() {
             <label className="mt-4 block text-tag text-ink-3">数量上限</label>
             <input
               type="number" min={1} max={1000} value={limit}
-              onChange={(e) => setLimit(Number(e.target.value))}
+              onChange={(e) => setLimit(e.target.value)}
               className="mt-1 h-9 w-full rounded-btn border border-line bg-bg px-2 text-aux text-ink outline-none focus:border-primary"
             />
           </div>
@@ -133,6 +158,7 @@ function Summary({ label, value }: { label: string; value: number }) {
 function EvidenceCard({ ev }: { ev: Evidence }) {
   const conf = ev.confidence ?? 0
   const confColor = conf >= 0.7 ? 'text-ok' : conf >= 0.4 ? 'text-warn' : 'text-risk'
+  const safeSource = safeHttpUrl(ev.source_url)
   return (
     <motion.div
       variants={fadeUp}
@@ -146,14 +172,14 @@ function EvidenceCard({ ev }: { ev: Evidence }) {
       </div>
       <div className="mt-1 text-tag text-ink-3">{ev.attribute || '—'}</div>
       <div className="mt-2 line-clamp-3 text-aux text-ink">{ev.value || ev.finding || '—'}</div>
-      {ev.source && (
+      {safeSource && (
         <a
-          href={ev.source}
+          href={safeSource}
           target="_blank"
           rel="noreferrer"
           className="mt-2 inline-flex items-center gap-1 truncate text-tag text-primary hover:underline"
         >
-          <ExternalLink size={11} /> {ev.source}
+          <ExternalLink size={11} /> {ev.source_url}
         </a>
       )}
     </motion.div>

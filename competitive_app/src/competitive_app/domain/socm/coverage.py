@@ -191,24 +191,29 @@ class CoverageMap(BaseModel):
             cell.source = source
             cell.source_excerpt = source_excerpt
             cell.confidence = confidence
+            if confidence < WEAK_CONFIDENCE:
+                cell.attempts = 1
             return cell
 
         if cell.status == CellStatus.UNKNOWN:
-            # A prior attempt found nothing; a new value fills it.
+            # A prior attempt found nothing; a new value fills it. Weak values
+            # still consume this search attempt so retries eventually terminate.
             cell.status = CellStatus.FILLED
             cell.value = value
             cell.source = source
             cell.source_excerpt = source_excerpt
             cell.confidence = confidence
-            cell.attempts = 0
+            cell.attempts = 1 if confidence < WEAK_CONFIDENCE else 0
             return cell
 
         # Existing value present (filled or conflict) — compare.
         existing_value = _normalize_value(cell.value)
         new_value = _normalize_value(value)
         if existing_value == new_value:
-            # Support: keep filled, bump confidence.
+            # Support: keep filled, bump confidence and count another weak retry.
             cell.confidence = max(cell.confidence, confidence)
+            if cell.confidence < WEAK_CONFIDENCE:
+                cell.attempts += 1
             if cell.status == CellStatus.CONFLICT:
                 cell.candidates.append(candidate)
                 # Re-check if all candidates now agree (conflict resolved).
@@ -218,15 +223,19 @@ class CoverageMap(BaseModel):
 
         # Conflicting value: retain candidates and arbitrate.
         if cell.status == CellStatus.FILLED:
-            cell.candidates = [
-                CellCandidate(
-                    value=cell.value,
-                    source=cell.source,
-                    source_excerpt=cell.source_excerpt,
-                    confidence=cell.confidence,
-                ),
-                candidate,
-            ]
+            # A previously resolved conflict keeps its full candidate history;
+            # append new dissent instead of replacing the audit trail.
+            existing_norm = _normalize_value(cell.value)
+            if not any(_normalize_value(c.value) == existing_norm for c in cell.candidates):
+                cell.candidates.append(
+                    CellCandidate(
+                        value=cell.value,
+                        source=cell.source,
+                        source_excerpt=cell.source_excerpt,
+                        confidence=cell.confidence,
+                    )
+                )
+            cell.candidates.append(candidate)
         else:  # CONFLICT
             cell.candidates.append(candidate)
 
@@ -247,13 +256,15 @@ class CoverageMap(BaseModel):
             cell.source = best.source
             cell.source_excerpt = best.source_excerpt
             cell.confidence = best.confidence
+        if cell.status == CellStatus.FILLED and cell.confidence < WEAK_CONFIDENCE:
+            cell.attempts += 1
         return cell
 
     def mark_unknown(self, entity_id: str, attribute_id: str) -> Cell:
         """Mark a cell as searched-but-not-found (terminal for dispatch).
 
-        Only transitions EMPTY→UNKNOWN (a filled/conflict cell stays as-is).
-        ``attempts`` counts mark_unknown calls on empty/unknown cells only.
+        EMPTY/UNKNOWN attempts count no-result searches; weak FILLED attempts are
+        counted by ``fill`` so the quality retry loop has a finite bound.
         """
         key = self.cell_key(entity_id, attribute_id)
         cell = self.cells.get(key)
@@ -283,19 +294,11 @@ class CoverageMap(BaseModel):
         return sum(1 for c in self.cells.values() if c.status == CellStatus.FILLED)
 
     def actionable_cells(self, max_attempts: int = 2) -> list[Cell]:
-        """Cells that should be re-dispatched (Tier-0/1 quality loop, ADR 0010 D-S8 fix).
+        """Return cells eligible for initial search or quality retries.
 
-        A cell is actionable when it has NOT yet been searched enough times to give up:
-        - EMPTY: never searched (always actionable).
-        - UNKNOWN: searched but no value found, and attempts < max_attempts (retryable).
-        - FILLED with low confidence and attempts < max_attempts: weak value, re-search
-          for a stronger/corroborating source. ``attempts`` on a FILLED cell is bumped
-          by ``mark_unknown`` only, so a FILLED cell with attempts==0 that we want to
-          re-search is identified by low confidence — but we only re-search it if it has
-          been marked-at-least-once (attempts>0) to avoid infinite re-search of good cells.
-          In practice the engine bumps attempts via mark_unknown when a junk/low-conf
-          finding is rejected, so a FILLED cell only becomes actionable here after a prior
-          rejection cycle. CONFLICT cells are terminal (multi-source already considered).
+        Weak FILLED values are retried and their attempts are counted by ``fill``;
+        this keeps the quality loop actionable while ensuring weak values eventually
+        become terminal-given-up at ``max_attempts``.
         """
         actionable: list[Cell] = []
         for c in self.cells.values():
@@ -306,7 +309,7 @@ class CoverageMap(BaseModel):
             elif (
                 c.status == CellStatus.FILLED
                 and c.confidence < WEAK_CONFIDENCE
-                and 0 < c.attempts < max_attempts
+                and c.attempts < max_attempts
             ):
                 actionable.append(c)
         return actionable

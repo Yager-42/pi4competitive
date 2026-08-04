@@ -171,11 +171,11 @@ def _with_usage_estimate(
     cache_read = _estimate_tokens(serialized[:prefix]) if prefix else 0
     output_tokens = _estimate_tokens(_assistant_content_to_text(message.get("content") or []))
     usage: Usage = empty_usage()
-    usage["input"] = input_tokens
-    usage["output"] = output_tokens
     usage["cacheRead"] = cache_read
     usage["cacheWrite"] = max(0, input_tokens - cache_read)
-    usage["totalTokens"] = input_tokens + output_tokens
+    usage["input"] = max(0, input_tokens - usage["cacheRead"] - usage["cacheWrite"])
+    usage["output"] = output_tokens
+    usage["totalTokens"] = usage["input"] + output_tokens + usage["cacheRead"] + usage["cacheWrite"]
     message = {**message, "usage": usage}  # type: ignore[assignment]
     return message
 
@@ -488,8 +488,7 @@ def create_faux_core(options: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
             asyncio.get_running_loop().create_task(run())
         except RuntimeError:
-            # will start when loop exists
-            outer._pending_run = run  # type: ignore[attr-defined]
+            outer.start(run)
         return outer
 
     def stream_simple(

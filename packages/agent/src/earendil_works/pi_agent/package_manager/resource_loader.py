@@ -32,11 +32,12 @@ def load_skill_resources(resources: list[ResolvedResource]) -> tuple[list[Skill]
     return skills, diagnostics
 
 
-def load_prompt_resources(
+def _load_prompt_resources_with_sources(
     resources: list[ResolvedResource],
-) -> tuple[list[PromptTemplate], list[ResourceDiagnostic]]:
+) -> tuple[list[PromptTemplate], list[ResourceDiagnostic], list[tuple[PromptTemplate, ResolvedResource]]]:
     prompts: list[PromptTemplate] = []
     diagnostics: list[ResourceDiagnostic] = []
+    loaded: list[tuple[PromptTemplate, ResolvedResource]] = []
     for resource in resources:
         if not resource.enabled:
             continue
@@ -57,10 +58,19 @@ def load_prompt_resources(
                             name = value
                         elif key.strip().lower() == "description":
                             description = value
-            prompts.append(PromptTemplate(name, text, description))
+            prompt = PromptTemplate(name, text, description)
+            prompts.append(prompt)
+            loaded.append((prompt, resource))
         except Exception as exc:  # noqa: BLE001
             diagnostics.append(ResourceDiagnostic("error", resource.metadata.source, resource.path,
                                                   f"failed to load prompt: {exc}"))
+    return prompts, diagnostics, loaded
+
+
+def load_prompt_resources(
+    resources: list[ResolvedResource],
+) -> tuple[list[PromptTemplate], list[ResourceDiagnostic]]:
+    prompts, diagnostics, _ = _load_prompt_resources_with_sources(resources)
     return prompts, diagnostics
 
 
@@ -95,7 +105,7 @@ async def materialize_resolved_async(
         raise PackageLoadError(result.errors[-1]["error"])
 
     skills, skill_diagnostics = load_skill_resources(resolved.skills)
-    prompts, prompt_diagnostics = load_prompt_resources(resolved.prompts)
+    prompts, prompt_diagnostics, prompt_sources = _load_prompt_resources_with_sources(resolved.prompts)
     report.skills = skills
     report.prompts = prompts
     report.diagnostics.extend([*skill_diagnostics, *prompt_diagnostics])
@@ -112,7 +122,7 @@ async def materialize_resolved_async(
             if skill.filePath.startswith(package.root):
                 package.skills.append(skill)
                 break
-    for prompt, resource in zip(prompts, [item for item in resolved.prompts if item.enabled]):
+    for prompt, resource in prompt_sources:
         packages[resource.metadata.source].prompts.append(prompt)
     report.packages = list(packages.values())
     return report

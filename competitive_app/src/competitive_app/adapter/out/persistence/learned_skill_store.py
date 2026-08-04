@@ -119,6 +119,19 @@ class SQLiteSkillStore:
             db = await aiosqlite.connect(self._db_path)
             db.row_factory = aiosqlite.Row
             await db.executescript(_BASE_SCHEMA)
+            # Legacy databases may contain duplicate task scores; retain the
+            # latest inserted row before enforcing the one-score-per-task index.
+            await db.execute(
+                """DELETE FROM task_quality_scores
+                WHERE task_id IS NOT NULL AND rowid NOT IN (
+                    SELECT MAX(rowid) FROM task_quality_scores
+                    WHERE task_id IS NOT NULL GROUP BY task_id
+                )"""
+            )
+            await db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_task_quality_scores_task "
+                "ON task_quality_scores(task_id) WHERE task_id IS NOT NULL"
+            )
             await db.commit()
             self._db = db
 
@@ -173,10 +186,13 @@ class SQLiteSkillStore:
                 )
             else:
                 await db.execute(
-                    """UPDATE skill_records SET path=?,content_hash=?,description=?,allowed_tools=?,enabled=?,last_updated=?
+                    """UPDATE skill_records SET name=?,path=?,content_hash=?,is_active=?,
+                    generation=?,origin=?,created_by=?,description=?,allowed_tools=?,enabled=?,last_updated=?
                     WHERE skill_id=?""",
-                    (record.path, record.content_hash, record.description, json.dumps(list(record.allowed_tools)),
-                     int(record.enabled), now, record.skill_id),
+                    (record.name, record.path, record.content_hash, int(record.is_active),
+                     record.lineage.generation, record.lineage.origin, record.lineage.created_by,
+                     record.description, json.dumps(list(record.allowed_tools)), int(record.enabled),
+                     now, record.skill_id),
                 )
             for parent in record.lineage.parent_skill_ids:
                 await db.execute("INSERT OR IGNORE INTO skill_lineage_parents VALUES(?,?)", (record.skill_id, parent))
@@ -387,17 +403,30 @@ class SQLiteSkillStore:
     async def save_task_score(self, score: TaskQualityScore) -> str:
         db = await self._ready()
         async with self._write_lock:
+            values = (
+                score.score_id, score.task_id, score.task_completion, score.response_quality,
+                score.efficiency, score.tool_usage, score.overall_score, score.rationale,
+                score.timestamp or _now_iso(),
+            )
+            if score.task_id:
+                # Replace the task's authoritative row, including legacy DBs
+                # created before the unique task index existed.
+                await db.execute(
+                    "DELETE FROM task_quality_scores WHERE task_id=? AND score_id<>?",
+                    (score.task_id, score.score_id),
+                )
             await db.execute("""INSERT OR REPLACE INTO task_quality_scores
                 (score_id,task_id,task_completion,response_quality,efficiency,tool_usage,overall_score,rationale,timestamp)
-                VALUES(?,?,?,?,?,?,?,?,?)""",
-                             (score.score_id, score.task_id, score.task_completion, score.response_quality,
-                              score.efficiency, score.tool_usage, score.overall_score, score.rationale, score.timestamp or _now_iso()))
+                VALUES(?,?,?,?,?,?,?,?,?)""", values)
             await db.commit()
         return score.score_id
 
     async def get_task_score(self, task_id: str) -> TaskQualityScore | None:
         db = await self._ready()
-        async with db.execute("SELECT * FROM task_quality_scores WHERE task_id=?", (task_id,)) as cur:
+        async with db.execute(
+            "SELECT * FROM task_quality_scores WHERE task_id=? "
+            "ORDER BY timestamp DESC, rowid DESC LIMIT 1", (task_id,)
+        ) as cur:
             row = await cur.fetchone()
         if row is None:
             return None

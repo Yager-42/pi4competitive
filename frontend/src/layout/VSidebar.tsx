@@ -59,21 +59,6 @@ export default function VSidebar() {
             <span>{item.label}</span>
           </NavLink>
         ))}
-        {/* F3 占位(灰,未实现) */}
-        {[
-          { label: '证据库', icon: Radar, soon: 'F3' },
-          { label: '竞争情报中心', icon: Radar, soon: 'F3' },
-        ].map((x) => (
-          <span
-            key={x.label}
-            className="flex h-11 cursor-not-allowed items-center gap-3 rounded-btn px-3.5 text-[15px] text-ink-3/60"
-            title={`${x.label}(待 ${x.soon} 实现)`}
-          >
-            <x.icon size={19} strokeWidth={1.8} />
-            <span>{x.label}</span>
-            <span className="ml-auto text-tag text-ink-3/40">{x.soon}</span>
-          </span>
-        ))}
       </nav>
 
       <div className="mx-3 mb-3 rounded-card border border-line/70 bg-primary-tint/40 p-4">

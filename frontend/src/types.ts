@@ -51,14 +51,16 @@ export interface Coverage {
 export type StageStatus = 'pending' | 'running' | 'ok' | 'failed'
 export type StageName = 'plan' | 'search' | 'write'
 
-/* 证据(SSE evidence 事件 + GET /evidences items) */
+/* 证据: SSE/internal graph uses source; GET /api/v2/evidences uses source_url. */
 export interface Evidence {
   evidence_id?: string
   entity?: string
   attribute?: string
   value?: string
   finding?: string
+  /** Source identifier emitted by SSE and coverage graph projections. */
   source?: string
+  /** Canonical URL field returned by the evidence-list API. */
   source_url?: string
   source_type?: string
   domain?: string

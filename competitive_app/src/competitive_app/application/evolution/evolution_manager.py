@@ -50,6 +50,34 @@ class EvolutionManager:
                     trigger.mark_evolved(context.target_skill.name, context.target_skill.total_selections)
         return records
 
+    async def _rollback_acceptance(self, baseline: Any, candidate: Any) -> None:
+        if baseline is not None:
+            try:
+                await self._store.rollback(baseline.skill_id)
+            except Exception:
+                pass
+        if self._skill_files is not None:
+            try:
+                await self._skill_files.reject_candidate(candidate)
+            except Exception:
+                pass
+            try:
+                await self._skill_files.update_manifest()
+            except Exception:
+                pass
+        clearer = None
+        if self._scope_store is not None:
+            for name in ("remove_scope", "delete_scope", "clear_scope"):
+                candidate_clearer = getattr(self._scope_store, name, None)
+                if candidate_clearer is not None:
+                    clearer = candidate_clearer
+                    break
+        if clearer is not None:
+            try:
+                await _await(clearer(candidate.skill_id))
+            except Exception:
+                pass
+
     async def run_context(self, context: EvolutionContext) -> EvolutionRecord | None:
         if context.evolution_type == "DERIVED":
             return None
@@ -68,11 +96,7 @@ class EvolutionManager:
                 if self._skill_files is not None:
                     await self._skill_files.accept_candidate(candidate, scope=focused.scope)
             except Exception:
-                if baseline is not None:
-                    try:
-                        await self._store.rollback(baseline.skill_id)
-                    except Exception:
-                        pass
+                await self._rollback_acceptance(baseline, candidate)
                 return None
         record = EvolutionRecord(
             evolution_id=f"evo_{uuid.uuid4().hex[:12]}",

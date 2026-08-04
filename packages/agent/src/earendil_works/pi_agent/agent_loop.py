@@ -73,6 +73,20 @@ def create_agent_stream() -> EventStream[AgentEvent, list[AgentMessage]]:
     )
 
 
+def _end_stream_with_error(stream: EventStream[Any, Any], error: BaseException) -> None:
+    """Wake stream consumers and expose background-run failures via ``await_result``."""
+    # EventStream.end() synthesizes a generic error and can overwrite the real cause.
+    setattr(stream, "_done", True)
+    setattr(stream, "_result_error", error)
+    final_result = getattr(stream, "_final_result", None)
+    if final_result is not None and not final_result.done():
+        final_result.set_exception(error)
+    for waiter in list(getattr(stream, "_waiting", ())):
+        if not waiter.done():
+            waiter.set_result((None, True))
+    getattr(stream, "_waiting", []).clear()
+
+
 def agent_loop(
     prompts: list[AgentMessage],
     context: AgentContext,
@@ -84,8 +98,12 @@ def agent_loop(
     stream = create_agent_stream()
 
     async def _run() -> None:
-        messages = await run_agent_loop(prompts, context, config, stream.push, signal, stream_fn)
-        stream.end(messages)
+        try:
+            messages = await run_agent_loop(prompts, context, config, stream.push, signal, stream_fn)
+        except BaseException as error:
+            _end_stream_with_error(stream, error)
+        else:
+            stream.end(messages)
 
     try:
         loop = asyncio.get_running_loop()
@@ -114,8 +132,12 @@ def agent_loop_continue(
     stream = create_agent_stream()
 
     async def _run() -> None:
-        messages = await run_agent_loop_continue(context, config, stream.push, signal, stream_fn)
-        stream.end(messages)
+        try:
+            messages = await run_agent_loop_continue(context, config, stream.push, signal, stream_fn)
+        except BaseException as error:
+            _end_stream_with_error(stream, error)
+        else:
+            stream.end(messages)
 
     try:
         loop = asyncio.get_running_loop()
@@ -537,9 +559,6 @@ async def _execute_tool_calls_sequential(
         finalized_calls.append(finalized)
         messages.append(tool_result_message)
 
-        if _is_aborted(signal):
-            break
-
     return {
         "messages": messages,
         "terminate": _should_terminate_tool_batch(finalized_calls),
@@ -577,8 +596,6 @@ async def _execute_tool_calls_parallel(
             }
             await _emit_tool_execution_end(finalized, emit)
             finalized_entries.append(finalized)
-            if _is_aborted(signal):
-                break
             continue
 
         prep = preparation
@@ -597,8 +614,6 @@ async def _execute_tool_calls_parallel(
             return finalized_inner
 
         finalized_entries.append(_run)
-        if _is_aborted(signal):
-            break
 
     ordered = await asyncio.gather(
         *[

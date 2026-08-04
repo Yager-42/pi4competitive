@@ -7,6 +7,4 @@ def openai_responses_api() -> dict[str, Any]:
     async def load():
         from .openai_responses import open_ai_responses_api
         return open_ai_responses_api()
-    # eager for Python (import cheap); still match lazyApi surface
-    from .openai_responses import open_ai_responses_api
-    return open_ai_responses_api()
+    return lazy_api(load)

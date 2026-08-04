@@ -154,7 +154,7 @@ async def _http_origin_server() -> tuple[asyncio.base_events.Server, int]:
             writer.write(
                 b"HTTP/1.1 200 OK\r\n"
                 b"Content-Type: text/plain\r\n"
-                b"Content-Length: 16\r\n"
+                b"Content-Length: 17\r\n"
                 b"Connection: close\r\n"
                 b"\r\n"
                 + body

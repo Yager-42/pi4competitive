@@ -48,6 +48,9 @@ class ProviderConfig:
     default: bool
     enabled: bool
     window: int = 0  # 上下文窗口（token），0=未知
+    api: str = "openai-completions"
+    requires_api_key: bool = True
+    model_spec: dict[str, Any] | None = None
 
     def require_api_key(self) -> str:
         if not self.api_key:
@@ -63,8 +66,10 @@ def parse_provider_env(value: str | None) -> list[str]:
 
 
 def discover_available_providers(configs: list[ProviderConfig]) -> list[ProviderConfig]:
-    """返回 enabled 且 api_key 非空的 provider（no_key_required 的除外）。按 priority 升序。"""
-    available = [c for c in configs if c.enabled and c.api_key]
+    """返回 enabled 且认证条件满足的 provider，按 priority 升序。"""
+    available = [
+        c for c in configs if c.enabled and (not c.requires_api_key or bool(c.api_key))
+    ]
     return sorted(available, key=lambda p: p.priority)
 
 
@@ -143,16 +148,24 @@ def resolve_provider_config(
         return None
     provider = factory()
     models = provider.getModels() or []
-    model_id = models[0]["id"] if models else ""
+    if not models:
+        return None
+    first_model = models[0]
+    model_id = first_model.get("id")
+    if not isinstance(model_id, str) or not model_id:
+        return None
     return ProviderConfig(
         provider=name,
         model=model_id,
         api_key=api_key,
-        base_url=provider.baseUrl,
+        base_url=getattr(provider, "baseUrl", None) or first_model.get("baseUrl"),
         priority=priority,
         default=default,
         enabled=True,
         window=0,
+        api=first_model.get("api", "openai-completions"),
+        requires_api_key=bool(env_keys),
+        model_spec=dict(first_model),
     )
 
 
@@ -167,18 +180,22 @@ def chain_model_from_config(config: ProviderConfig) -> Model:
         base_url = os.environ["OPENAI_BASE_URL"]
     else:
         base_url = config.base_url or "https://api.openai.com/v1"
-    return {
-        "id": config.model,
-        "name": config.model,
-        "api": "openai-completions",
-        "provider": config.provider,
-        "baseUrl": base_url,
-        "reasoning": False,
-        "input": ["text", "image"],
-        "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-        "contextWindow": 128000,
-        "maxTokens": 8192,
-    }
+    model: dict[str, Any] = dict(config.model_spec or {})
+    model.update(
+        {
+            "id": config.model,
+            "api": config.api,
+            "provider": config.provider,
+            "baseUrl": base_url,
+        }
+    )
+    model.setdefault("name", config.model)
+    model.setdefault("reasoning", False)
+    model.setdefault("input", ["text", "image"])
+    model.setdefault("cost", {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0})
+    model.setdefault("contextWindow", 128000)
+    model.setdefault("maxTokens", 8192)
+    return model
 
 
 __all__ = [

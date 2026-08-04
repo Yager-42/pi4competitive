@@ -35,14 +35,20 @@ def stream(
             outer.end(msg)
             return
 
-        payload = build_anthropic_messages_payload(model, context, options)  # type: ignore[arg-type]
-        on_payload = (options or {}).get("onPayload")
-        if on_payload:
-            replaced = on_payload(payload, model)
-            if hasattr(replaced, "__await__"):
-                replaced = await replaced
-            if replaced is not None:
-                payload = replaced
+        try:
+            payload = build_anthropic_messages_payload(model, context, options)  # type: ignore[arg-type]
+            on_payload = (options or {}).get("onPayload")
+            if on_payload:
+                replaced = on_payload(payload, model)
+                if hasattr(replaced, "__await__"):
+                    replaced = await replaced
+                if replaced is not None:
+                    payload = replaced
+        except Exception as exc:
+            msg = error_message(model, exc)
+            outer.push({"type": "error", "reason": "error", "error": msg})
+            outer.end(msg)
+            return
 
         base = model.get("baseUrl") or "https://api.anthropic.com"
         url = f"{base.rstrip('/')}/v1/messages"

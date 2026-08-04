@@ -118,9 +118,6 @@
 #ifndef SECCOMP_USER_NOTIF_FLAG_CONTINUE
 #  define SECCOMP_USER_NOTIF_FLAG_CONTINUE (1UL << 0)
 #endif
-#ifndef SECCOMP_FILTER_FLAG_TSYNC_ESRCH
-#  define SECCOMP_FILTER_FLAG_TSYNC_ESRCH (1UL << 4)
-#endif
 #ifndef AT_FDCWD
 #  define AT_FDCWD (-100)
 #endif
@@ -137,6 +134,9 @@
 #define OBS_WRITE_MASK ((unsigned)(O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND))
 #define OBS_PATH_MAX 4096
 #define OBS_LINE_CAP (OBS_PATH_MAX * 2 + 256)
+#define OBS_ENCODED_CMD_MAX 700
+#define OBS_ENCODED_ESC_CAP (OBS_ENCODED_CMD_MAX * 6 + 1)
+#define OBS_EVENT_LINE_CAP (OBS_LINE_CAP + OBS_ENCODED_ESC_CAP + 128)
 
 /* Single source of truth for the observed-syscall set. The BPF program and
  * the supervisor's name/path-arg lookup are both derived from this table so
@@ -319,19 +319,73 @@ static int recv_fd(int sock) {
  * in the unix-block set (socket(AF_UNIX)/io_uring), so the worker cannot
  * trap on itself before exec. perror()/snprintf() are deliberately avoided
  * post-filter to keep this set closed. */
+/* Functionally probe CONTINUE by installing a temporary listener in a child,
+ * trapping getpid(), and checking that the parent can resume it.  There is no
+ * seccomp query for the response flag itself, so an unrelated capability
+ * probe cannot establish that CONTINUE is accepted. */
+static int probe_continue_support(void) {
+    int sp[2] = { -1, -1 };
+    if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sp) < 0)
+        return 0;
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(sp[0]); close(sp[1]);
+        return 0;
+    }
+    if (pid == 0) {
+        close(sp[0]);
+        if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) < 0)
+            _exit(2);
+        struct sock_filter f[] = {
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SRT_AUDIT_ARCH, 0, 2),
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (unsigned)SYS_getpid, 1, 0),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
+        };
+        struct sock_fprog p = {
+            .len = (unsigned short)(sizeof(f) / sizeof(f[0])), .filter = f
+        };
+        int listener = (int)syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER,
+                                     SECCOMP_FILTER_FLAG_NEW_LISTENER, &p);
+        if (listener < 0 || send_fd(sp[1], listener) < 0)
+            _exit(2);
+        close(listener);
+        long result = syscall(SYS_getpid);
+        _exit(result > 0 ? 0 : 2);
+    }
+
+    close(sp[1]);
+    int listener = recv_fd(sp[0]);
+    close(sp[0]);
+    int supported = 0;
+    if (listener >= 0) {
+        struct seccomp_notif req = { 0 };
+        struct seccomp_notif_resp resp = { 0 };
+        struct pollfd pfd = { .fd = listener, .events = POLLIN };
+        if (poll(&pfd, 1, 1000) > 0 &&
+            ioctl(listener, SECCOMP_IOCTL_NOTIF_RECV, &req) == 0) {
+            resp.id = req.id;
+            resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+            supported = ioctl(listener, SECCOMP_IOCTL_NOTIF_SEND, &resp) == 0;
+        }
+        close(listener);
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+    if (!supported || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        return 0;
+    return 1;
+}
+
 static void install_observe_filter(int sp_fd) {
     if (sp_fd < 0) return;
 
-    /* The supervisor replies with SECCOMP_USER_NOTIF_FLAG_CONTINUE, which
-     * kernels older than 5.5 reject with EINVAL *without* completing the
-     * notification — the trapped syscall would block forever. CONTINUE is
-     * a response flag with no direct probe, so detect it the way
-     * libseccomp does: validate a filter flag from the same era with a
-     * NULL prog. EFAULT = flag known (nothing installed), EINVAL = too
-     * old — skip the observer entirely and stay fail-open. */
-    if (!(syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER,
-                  SECCOMP_FILTER_FLAG_TSYNC_ESRCH, NULL) == -1 &&
-          errno == EFAULT)) {
+    /* A listener is useless if the supervisor cannot reply CONTINUE: the
+     * trapped workload would block forever. Probe the response operation
+     * itself and stay fail-open when the kernel rejects it. */
+    if (!probe_continue_support()) {
         (void)!write(sp_fd, "E", 1);
         close(sp_fd);
         return;
@@ -445,13 +499,17 @@ static void emit_event(int out, const struct observe_call *oc, int nr, pid_t pid
     if (out < 0) return;
     char esc[OBS_LINE_CAP];
     json_escape_into(esc, sizeof(esc), path, pathlen);
-    char line[OBS_LINE_CAP + 512];
+    char enc_esc[OBS_ENCODED_ESC_CAP];
+    size_t enc_len = enc ? strnlen(enc, OBS_ENCODED_CMD_MAX) : 0;
+    if (enc_len > 0)
+        json_escape_into(enc_esc, sizeof(enc_esc), enc, enc_len);
+    char line[OBS_EVENT_LINE_CAP];
     int n;
-    if (enc && *enc) {
+    if (enc_len > 0) {
         n = snprintf(line, sizeof(line),
                      "{\"nr\":%d,\"syscall\":\"%s\",\"pid\":%d,\"path\":\"%s\","
                      "\"encodedCommand\":\"%s\"}\n",
-                     nr, oc ? oc->name : "syscall", (int)pid, esc, enc);
+                     nr, oc ? oc->name : "syscall", (int)pid, esc, enc_esc);
     } else {
         n = snprintf(line, sizeof(line),
                      "{\"nr\":%d,\"syscall\":\"%s\",\"pid\":%d,\"path\":\"%s\"}\n",
@@ -482,6 +540,49 @@ static int connect_observe_sock(const char *path) {
     return s;
 }
 
+/* Allocation failure must not abandon a live listener: a trapped worker would
+ * otherwise remain blocked forever.  This stack-only path drops diagnostics
+ * but continues every notification until the child exits. */
+static void drain_notify_until_child(pid_t child, int notify_fd) {
+    struct seccomp_notif req = { 0 };
+    struct seccomp_notif_resp resp = { 0 };
+    int pidfd = (int)syscall(__NR_pidfd_open, child, 0);
+    struct pollfd pfds[2] = {
+        { .fd = notify_fd, .events = POLLIN },
+        { .fd = pidfd, .events = POLLIN },
+    };
+    nfds_t nfds = pidfd >= 0 ? 2 : 1;
+    int tmo = pidfd >= 0 ? -1 : 200;
+    for (;;) {
+        int pr = poll(pfds, nfds, tmo);
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (pfds[0].revents & POLLIN) {
+            memset(&req, 0, sizeof(req));
+            if (ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_RECV, &req) == 0) {
+                memset(&resp, 0, sizeof(resp));
+                resp.id = req.id;
+                resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+                (void)ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_SEND, &resp);
+            } else if (errno != EINTR && errno != ENOENT) {
+                break;
+            }
+        }
+        if (pfds[0].revents & (POLLHUP | POLLERR)) break;
+        if (pidfd >= 0) {
+            if (pfds[1].revents) break;
+        } else {
+            siginfo_t si = { 0 };
+            if (waitid(P_PID, (id_t)child, &si,
+                       WEXITED | WNOHANG | WNOWAIT) == 0 &&
+                si.si_pid == child) break;
+        }
+    }
+    if (pidfd >= 0) close(pidfd);
+}
+
 /* Service the notify fd until the inner-init child exits. Runs in the OUTER
  * STUB, which never installed either seccomp filter. Always replies CONTINUE,
  * even when out_sock < 0, so a missing listener never wedges the workload. */
@@ -497,8 +598,11 @@ static void supervise(pid_t child, int notify_fd, int out_sock,
     char *pbuf = malloc(OBS_PATH_MAX);
     char *fbuf1 = malloc(OBS_PATH_MAX * 2);
     char *fbuf2 = malloc(OBS_PATH_MAX * 2);
-    if (!req || !resp || !pbuf || !fbuf1 || !fbuf2) return;
-
+    if (!req || !resp || !pbuf || !fbuf1 || !fbuf2) {
+        free(req); free(resp); free(pbuf); free(fbuf1); free(fbuf2);
+        drain_notify_until_child(child, notify_fd);
+        return;
+    }
     int pidfd = (int)syscall(__NR_pidfd_open, child, 0);
 
     struct pollfd pfds[2];
@@ -757,9 +861,12 @@ int main(int argc, char *argv[]) {
                         observe_sock, strerror(errno));
                     (void)!write(2, buf, (size_t)n);
                 } else if (encoded_cmd && *encoded_cmd) {
-                    char hdr[768];
+                    char hdr_esc[OBS_ENCODED_ESC_CAP];
+                    size_t hdr_len = strnlen(encoded_cmd, OBS_ENCODED_CMD_MAX);
+                    json_escape_into(hdr_esc, sizeof(hdr_esc), encoded_cmd, hdr_len);
+                    char hdr[OBS_ENCODED_ESC_CAP + 64];
                     int n = snprintf(hdr, sizeof(hdr),
-                        "{\"encodedCommand\":\"%.700s\"}\n", encoded_cmd);
+                        "{\"encodedCommand\":\"%s\"}\n", hdr_esc);
                     if (n > 0) {
                         (void)!send(out, hdr, (size_t)n,
                                     MSG_DONTWAIT | MSG_NOSIGNAL);

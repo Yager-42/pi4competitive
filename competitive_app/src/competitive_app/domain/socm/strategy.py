@@ -13,8 +13,9 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Any
+from math import isfinite
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class AntiPatternKind(str, Enum):
@@ -60,7 +61,7 @@ class StrategyMemory(BaseModel):
 class Budget(BaseModel):
     """5-dimension consumable budget (F-R31 termination condition 2).
 
-    Each dimension: max_X (0 = disabled) + consumed_X. `exhausted` is True
+    Each dimension: max_X (0 = disabled) + consumed_X. ``exhausted`` is True
     when any enabled dimension's consumption ratio >= 1.0.
     """
 
@@ -76,19 +77,39 @@ class Budget(BaseModel):
     consumed_iterations: int = 0
     consumed_wall_seconds: float = 0.0
 
+    @field_validator(
+        "max_queries", "max_opens", "max_fetches", "max_iterations",
+        "max_wall_seconds", "consumed_queries", "consumed_opens",
+        "consumed_fetches", "consumed_iterations", "consumed_wall_seconds",
+    )
+    @classmethod
+    def _non_negative(cls, value: int | float) -> int | float:
+        if value < 0 or not isfinite(value):
+            raise ValueError("budget limits and counters must be finite and non-negative")
+        return value
+
+    @staticmethod
+    def _check_amount(value: int | float, name: str) -> None:
+        if value < 0 or not isfinite(value):
+            raise ValueError(f"{name} must be finite and non-negative")
+
     def consume_query(self, n: int = 1) -> None:
+        self._check_amount(n, "query consumption")
         self.consumed_queries += n
 
     def consume_open(self, n: int = 1) -> None:
         # opens and fetches are the same dimension in v0.2.0 (a fetch opens a
         # page); kept distinct names to align with SearchOS BudgetState.
+        self._check_amount(n, "open consumption")
         self.consumed_opens += n
         self.consumed_fetches += n
 
     def consume_iteration(self, n: int = 1) -> None:
+        self._check_amount(n, "iteration consumption")
         self.consumed_iterations += n
 
     def consume_wall(self, seconds: float) -> None:
+        self._check_amount(seconds, "wall-clock consumption")
         self.consumed_wall_seconds += seconds
 
     def ratio(self) -> float:

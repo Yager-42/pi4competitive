@@ -82,6 +82,10 @@ def test_derives_importable_module_level_async_target() -> None:
     )
 
 
+def test_rejects_forged_callable_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_top_level_execute, "__module__", "math")
+    assert derive_tool_execution_target(_top_level_execute) is None
+
 def test_rejects_non_importable_or_context_aware_shapes() -> None:
     bound = _BoundCallable()
     assert derive_tool_execution_target(_nested_execute()) is None

@@ -269,7 +269,10 @@ def _tool_texts(message: dict[str, Any]) -> list[str]:
             continue
         if part.get("type") != "toolCall" or not isinstance(part.get("name"), str):
             continue
-        out.append(f"{part['name']} {bounded_string(part.get('arguments') or {})}")
+        # Tool arguments are model/user-controlled and may contain credentials
+        # just like a tool result. Redact before adding them to classifier input.
+        arguments = _redact_sensitive_result(bounded_string(part.get("arguments") or {}))
+        out.append(f"{part['name']} {arguments}")
     return out
 
 
@@ -524,9 +527,8 @@ def _relevant_result_evidence(
 def _sandbox_trap_evidence(request: RelevantBoundaryRequest) -> str | None:
     if request.get("source") != "sandbox-runtime":
         return None
-    return (
-        "<sandbox-trap>\n"
-        + bounded_string({
+    rendered = _escape_evidence_markup(
+        bounded_string({
             "surface": request.get("surface"),
             "operation": request.get("operation"),
             "path": request.get("path"),
@@ -534,8 +536,8 @@ def _sandbox_trap_evidence(request: RelevantBoundaryRequest) -> str | None:
             "destination": request.get("destination"),
             "process": request.get("toolName"),
         })
-        + "\n</sandbox-trap>"
     )
+    return f"<sandbox-trap>\n{rendered}\n</sandbox-trap>"
 
 
 def _select_evidence(

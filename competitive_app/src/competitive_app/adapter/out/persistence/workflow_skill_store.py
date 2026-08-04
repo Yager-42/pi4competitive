@@ -189,7 +189,12 @@ class WorkflowSkillStore:
     async def mark_consumed(self, observation_id: str) -> bool:
         db = await self._ready()
         async with self._write_lock:
-            cur = await db.execute("UPDATE skill_observations SET consumed=1 WHERE observation_id=?", (observation_id,))
+            # Compare-and-set makes consumption atomic: exactly one concurrent
+            # consumer can claim an unconsumed observation.
+            cur = await db.execute(
+                "UPDATE skill_observations SET consumed=1 "
+                "WHERE observation_id=? AND consumed=0", (observation_id,)
+            )
             await db.commit()
         return cur.rowcount > 0
 

@@ -929,6 +929,7 @@ def expand_glob_pattern(
     pattern = glob_to_regex(normalized_pattern)
     flags = re.IGNORECASE if case_insensitive else 0
     regex = re.compile(pattern, flags)
+    results: list[str] = []
     for root, dirs, files in os.walk(base_dir, followlinks=False):
         for name in files + dirs:
             full_path = os.path.join(root, name)

@@ -63,7 +63,13 @@ def should_compact(
         return False
     reserve = int(settings.get("reserveTokens") or 0)
     used = estimate_context_tokens(messages)
-    return used >= max(0, context_window - reserve)
+    # A zero/unknown context window must not make an empty conversation
+    # immediately eligible for compaction. For a positive window with no
+    # available reserve, require at least one token of actual content.
+    if context_window <= 0:
+        return False
+    threshold = max(1, context_window - reserve)
+    return used >= threshold
 
 
 def find_turn_start_index(messages: list[AgentMessage], from_index: int | None = None) -> int:
@@ -124,11 +130,20 @@ async def generate_summary(
     stream_fn: Any = None,
     model: Any = None,
 ) -> str:
-    """Fallback summary without LLM when stream_fn/model missing."""
+    """Summarize with the supplied model when available, with deterministic fallback."""
     serialized = serialize_conversation(messages)
-    if len(serialized) <= 500:
-        return serialized
-    return serialized[:500] + "\n…"
+    if not stream_fn or not model:
+        if len(serialized) <= 500:
+            return serialized
+        return serialized[:500] + "\n…"
+    if not messages:
+        return "(empty conversation)"
+    # Keep the model call isolated from the active agent/session callbacks.
+    from .plan import isolated_summary
+
+    return await isolated_summary(
+        messages, "Summarize the conversation concisely.", stream_fn, model
+    )
 
 
 async def generate_summary_with_usage(

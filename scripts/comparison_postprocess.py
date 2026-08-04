@@ -146,6 +146,7 @@ def main() -> None:
         ("three_t2", ROOT, "search", "comp_three_t2"),
         ("six_t2", WORKTREE, "collect", "comp_six_t2"),
     ]
+    OUT.mkdir(parents=True, exist_ok=True)
     results = {}
     for label, repo, stage, cwd in groups:
         r = analyze_group(label, repo, stage, cwd)

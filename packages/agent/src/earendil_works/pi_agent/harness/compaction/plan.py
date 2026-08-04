@@ -37,11 +37,16 @@ def validate_compaction_plan(
         message = entry.get("message") or {}
         for block in message.get("content") or []:
             if isinstance(block, dict) and block.get("type") == "toolCall":
-                calls[str(block.get("id"))] = ownership[entry["id"]]
-        if message.get("role") == "toolResult":
-            call_id = str(message.get("toolCallId"))
-            if call_id in calls and calls[call_id] != ownership[entry["id"]]:
-                raise ValueError("tool call and result must remain atomic")
+                call_id = block.get("id")
+                if call_id is not None:
+                    calls[str(call_id)] = ownership[entry["id"]]
+    for entry in entries:
+        message = entry.get("message") or {}
+        if message.get("role") != "toolResult":
+            continue
+        call_id = str(message.get("toolCallId"))
+        if call_id not in calls or calls[call_id] != ownership[entry["id"]]:
+            raise ValueError("tool call and result must remain atomic")
 
 
 def mechanical_summary(messages: list[dict[str, Any]]) -> str:

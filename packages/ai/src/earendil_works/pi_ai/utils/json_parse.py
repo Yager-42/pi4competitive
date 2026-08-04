@@ -13,13 +13,37 @@ def parse_partial_json(text: str) -> Any:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # Try closing open braces/brackets
+        # Track the actual nesting order so mixed arrays/objects are closed
+        # inside-out. Delimiters in JSON strings do not affect the stack.
+        stack: list[str] = []
+        in_string = False
+        escaped = False
+        for char in text:
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char in "[{":
+                stack.append(char)
+            elif char in "]}":
+                expected = "[" if char == "]" else "{"
+                if stack and stack[-1] == expected:
+                    stack.pop()
+
         repaired = text
-        open_braces = repaired.count("{") - repaired.count("}")
-        open_brackets = repaired.count("[") - repaired.count("]")
         if repaired.endswith(","):
             repaired = repaired[:-1]
-        repaired += "]" * max(0, open_brackets) + "}" * max(0, open_braces)
+        if in_string:
+            if escaped:
+                repaired += "\\"
+            repaired += '"'
+        repaired += "".join("]" if opening == "[" else "}" for opening in reversed(stack))
         try:
             return json.loads(repaired)
         except json.JSONDecodeError:

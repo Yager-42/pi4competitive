@@ -22,6 +22,8 @@ class InMemorySessionRepo:
             "id": options.get("id") or create_session_id(),
             "createdAt": create_timestamp(),
         }
+        if metadata["id"] in self._sessions:
+            raise SessionError("already_exists", f"Session already exists: {metadata['id']}")
         storage = InMemorySessionStorage({"metadata": metadata})
         session = to_session(storage)
         self._sessions[metadata["id"]] = session
@@ -54,6 +56,8 @@ class InMemorySessionRepo:
             "id": options.get("id") or create_session_id(),
             "createdAt": create_timestamp(),
         }
+        if metadata["id"] in self._sessions:
+            raise SessionError("already_exists", f"Session already exists: {metadata['id']}")
         storage = InMemorySessionStorage({"metadata": metadata, "entries": forked_entries})
         session = to_session(storage)
         self._sessions[metadata["id"]] = session

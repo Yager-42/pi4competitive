@@ -545,7 +545,7 @@ class TaskProjectionStore:
             source_type, domain = _classify_source(source)
             rows.append(
                 (
-                    str(_node_id(n)) or f"ev_{uuid.uuid4().hex[:12]}",
+                    f"{task_id}:{str(_node_id(n)).strip() or f'ev_{uuid.uuid4().hex}'}",
                     task_id,
                     _node_field(n, "entity"),
                     _node_field(n, "attribute"),

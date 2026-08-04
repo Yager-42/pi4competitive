@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import errno
+import inspect
 import ipaddress
 import os
 import re
@@ -34,6 +35,12 @@ from urllib.parse import unquote, urlsplit
 from .process import log_for_debugging
 
 CONNECT_TIMEOUT_SECONDS = 30.0
+MAX_REQUEST_BODY_SIZE = 10 * 1024 * 1024
+
+
+class RequestBodyTooLarge(ValueError):
+    """Raised before buffering a request body beyond the proxy limit."""
+
 
 # Hop-by-hop headers per RFC 7230 §6.1 + proxy-specific headers.
 HOP_BY_HOP = frozenset(
@@ -468,7 +475,7 @@ async def _read_headers(reader: asyncio.StreamReader) -> tuple[str, dict[str, st
         if not line or line in (b"\r\n", b"\n"):
             break
         name, _, value = line.decode("latin1").partition(":")
-        headers[name.strip()] = value.strip()
+        headers[name.strip().lower()] = value.strip()
     return start_line, headers
 
 
@@ -591,6 +598,16 @@ class HttpProxyServer:
             await _send_simple(writer, 400, "Bad Request")
             return
         hostname, port = parsed
+        if not is_valid_host(hostname):
+            log_for_debugging(f"Invalid CONNECT host: {hostname!r}", level="error")
+            await _send_simple(writer, 400, "Bad Request")
+            return
+        canonical_hostname = canonicalize_host(hostname)
+        if canonical_hostname is None:
+            log_for_debugging(f"Invalid CONNECT host: {hostname!r}", level="error")
+            await _send_simple(writer, 400, "Bad Request")
+            return
+        hostname = canonical_hostname
 
         allowed = await _call_filter(self._filter, port, hostname)
         if not allowed:
@@ -668,16 +685,23 @@ class HttpProxyServer:
             await writer.drain()
             return
 
-        # Read the request body (Content-Length or chunked).
-        body = await _read_body(reader, headers)
+        # Read the request body (Content-Length or chunked), with a hard
+        # bound so untrusted clients cannot force unbounded buffering.
+        try:
+            body = await _read_body(reader, headers)
+        except RequestBodyTooLarge:
+            await _send_simple(writer, 413, "Payload Too Large")
+            return
 
         forwarded = strip_hop_by_hop(headers)
-        forwarded["Host"] = f"{parts.hostname}:{parts.port}" if parts.port else parts.hostname
-        forwarded["Connection"] = "close"
+        forwarded["host"] = (
+            f"{parts.hostname}:{parts.port}" if parts.port else parts.hostname
+        )
+        forwarded["connection"] = "close"
         path = parts.path or "/"
         if parts.query:
             path += "?" + parts.query
-        abs_url = f"{parts.scheme}://{forwarded['Host']}{path}"
+        abs_url = f"{parts.scheme}://{forwarded['host']}{path}"
 
         parent_url = None
         if self._parent_proxy and not should_bypass_parent_proxy(
@@ -714,7 +738,7 @@ class HttpProxyServer:
                         await asyncio.open_connection(proxy_host, proxy_port)
                     )
                 if auth:
-                    forwarded["Proxy-Authorization"] = auth
+                    forwarded["proxy-authorization"] = auth
                 await _write_upstream_request(
                     upstream_writer, method, abs_url, forwarded, body
                 )
@@ -750,7 +774,7 @@ async def _write_upstream_request(
     lines = [f"{method} {target} HTTP/1.1"]
     for name, value in headers.items():
         lines.append(f"{name}: {value}")
-    if body:
+    if body and _header_get(headers, "content-length") is None:
         lines.append(f"Content-Length: {len(body)}")
     payload = ("\r\n".join(lines) + "\r\n\r\n").encode("latin1") + body
     writer.write(payload)
@@ -778,6 +802,10 @@ async def _read_body(
                     if trailer in (b"\r\n", b"\n", b""):
                         break
                 break
+            if size < 0 or size > MAX_REQUEST_BODY_SIZE - len(chunks):
+                raise RequestBodyTooLarge(
+                    f"request body exceeds {MAX_REQUEST_BODY_SIZE} bytes"
+                )
             chunks.extend(await reader.readexactly(size))
             await reader.readline()  # trailing CRLF
         return bytes(chunks)
@@ -787,6 +815,10 @@ async def _read_body(
             length = int(content_length)
         except ValueError:
             return b""
+        if length > MAX_REQUEST_BODY_SIZE:
+            raise RequestBodyTooLarge(
+                f"request body exceeds {MAX_REQUEST_BODY_SIZE} bytes"
+            )
         if length > 0:
             return await reader.readexactly(length)
     return b""
@@ -797,75 +829,86 @@ async def _relay_response(
     writer: asyncio.StreamWriter,
     method: str,
 ) -> None:
-    try:
-        start_line, headers = await _read_headers(upstream_reader)
-    except ConnectionError:
-        return
-    status_parts = start_line.split(" ", 2)
-    status_code = int(status_parts[1]) if len(status_parts) >= 2 and status_parts[1].isdigit() else 0
-
-    outgoing = strip_hop_by_hop(headers)
-    outgoing["Connection"] = "close"
-    payload = start_line + "\r\n"
-    for name, value in outgoing.items():
-        payload += f"{name}: {value}\r\n"
-    payload += "\r\n"
-    writer.write(payload.encode("latin1"))
-    await writer.drain()
-
-    no_body = (
-        method.upper() == "HEAD"
-        or status_code in (204, 304)
-        or (100 <= status_code < 200)
-    )
-    if no_body:
-        return
-    content_length = headers.get("content-length")
-    if content_length:
+    while True:
         try:
-            remaining = int(content_length)
-        except ValueError:
-            remaining = 0
-        while remaining > 0:
-            chunk = await upstream_reader.read(min(65536, remaining))
+            start_line, headers = await _read_headers(upstream_reader)
+        except ConnectionError:
+            return
+        status_parts = start_line.split(" ", 2)
+        status_code = (
+            int(status_parts[1])
+            if len(status_parts) >= 2 and status_parts[1].isdigit()
+            else 0
+        )
+
+        outgoing = strip_hop_by_hop(headers)
+        outgoing["Connection"] = "close"
+        payload = start_line + "\r\n"
+        for name, value in outgoing.items():
+            payload += f"{name}: {value}\r\n"
+        payload += "\r\n"
+        writer.write(payload.encode("latin1"))
+        await writer.drain()
+
+        # Informational responses (for example 100 Continue) are interim;
+        # forward them, then consume and relay the final response as well.
+        # 101 Switching Protocols is a terminal protocol upgrade.
+        if 100 <= status_code < 200 and status_code != 101:
+            continue
+
+        no_body = (
+            method.upper() == "HEAD"
+            or status_code in (204, 304)
+            or status_code == 101
+        )
+        if no_body:
+            return
+        content_length = headers.get("content-length")
+        if content_length:
+            try:
+                remaining = int(content_length)
+            except ValueError:
+                remaining = 0
+            while remaining > 0:
+                chunk = await upstream_reader.read(min(65536, remaining))
+                if not chunk:
+                    break
+                writer.write(chunk)
+                await writer.drain()
+                remaining -= len(chunk)
+            return
+        if "chunked" in headers.get("transfer-encoding", "").lower():
+            # Relay the chunked stream verbatim until the terminal 0-chunk.
+            while True:
+                line = await upstream_reader.readline()
+                if not line:
+                    break
+                writer.write(line)
+                await writer.drain()
+                size_str = line.split(b";", 1)[0].strip()
+                try:
+                    size = int(size_str, 16)
+                except ValueError:
+                    break
+                if size == 0:
+                    while True:
+                        trailer = await upstream_reader.readline()
+                        if trailer in (b"\r\n", b"\n", b""):
+                            break
+                        writer.write(trailer)
+                        await writer.drain()
+                    break
+                chunk = await upstream_reader.readexactly(size + 2)  # data + CRLF
+                writer.write(chunk)
+                await writer.drain()
+            return
+        # Close-delimited body: relay until upstream EOF.
+        while True:
+            chunk = await upstream_reader.read(65536)
             if not chunk:
                 break
             writer.write(chunk)
             await writer.drain()
-            remaining -= len(chunk)
-        return
-    if "chunked" in headers.get("transfer-encoding", "").lower():
-        # Relay the chunked stream verbatim until the terminal 0-chunk.
-        while True:
-            line = await upstream_reader.readline()
-            if not line:
-                break
-            writer.write(line)
-            await writer.drain()
-            size_str = line.split(b";", 1)[0].strip()
-            try:
-                size = int(size_str, 16)
-            except ValueError:
-                break
-            if size == 0:
-                while True:
-                    trailer = await upstream_reader.readline()
-                    if trailer in (b"\r\n", b"\n", b""):
-                        break
-                    writer.write(trailer)
-                    await writer.drain()
-                break
-            chunk = await upstream_reader.readexactly(size + 2)  # data + CRLF
-            writer.write(chunk)
-            await writer.drain()
-        return
-    # Close-delimited body: relay until upstream EOF.
-    while True:
-        chunk = await upstream_reader.read(65536)
-        if not chunk:
-            break
-        writer.write(chunk)
-        await writer.drain()
 
 
 
@@ -885,7 +928,7 @@ def _parse_connect_target(target: str) -> tuple[str, int] | None:
 async def _send_simple(
     writer: asyncio.StreamWriter, status: int, text: str
 ) -> None:
-    reason = {400: "Bad Request", 403: "Forbidden", 500: "Internal Server Error", 502: "Bad Gateway"}.get(status, "")
+    reason = {400: "Bad Request", 403: "Forbidden", 413: "Payload Too Large", 500: "Internal Server Error", 502: "Bad Gateway"}.get(status, "")
     writer.write(f"HTTP/1.1 {status} {reason}\r\nContent-Length: {len(text)}\r\nConnection: close\r\n\r\n{text}".encode("latin1"))
     await writer.drain()
 
@@ -894,7 +937,7 @@ async def _call_filter(
     filter_cb: FilterCallback, port: int, host: str
 ) -> bool:
     result = filter_cb(port, host)
-    if asyncio.iscoroutine(result):
+    if inspect.isawaitable(result):
         return bool(await result)
     return bool(result)
 

@@ -6,6 +6,7 @@ Host additions (non-copied): journal event whitelist + guarded append
 
 from __future__ import annotations
 
+import re
 import logging
 from typing import Any
 
@@ -63,8 +64,27 @@ _REDACTED = "[REDACTED]"
 
 
 def _is_redacted_key(key: str) -> bool:
-    normalized = str(key).lower()
-    return normalized in _REDACT_KEYS or normalized.endswith(("_key", "_token", "_secret"))
+    """Recognize credential keys across snake/camel/kebab/header conventions."""
+    raw = str(key)
+    words = re.findall(r"[A-Z]+(?=[A-Z][a-z]|$)|[A-Z]?[a-z]+|[0-9]+", raw)
+    normalized_words = [word.lower() for word in words]
+    compact = "".join(normalized_words)
+    compact_lower = re.sub(r"[^a-z0-9]", "", raw.lower())
+    if any(marker in compact_lower for marker in ("authorization", "secret", "password", "passwd", "credential")):
+        return True
+    # ``max_tokens`` is ordinary model metadata; only redact a singular token
+    # key when it is a distinct separator-delimited word.
+    if re.search(r"(?:^|[^a-z])token(?:$|[^a-z])", raw.lower()):
+        return True
+    if compact in _REDACT_KEYS or compact in {
+        "apikey", "accesstoken", "refreshtoken", "privatekey", "clientsecret",
+    }:
+        return True
+    credential_words = {
+        "key", "token", "secret", "password", "passwd", "credential",
+        "credentials", "authorization", "auth",
+    }
+    return any(word in credential_words for word in normalized_words)
 
 
 def redact_payload(payload: Any, _seen: set[int] | None = None) -> Any:

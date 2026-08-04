@@ -4,8 +4,8 @@ upstream: packages/coding-agent/src/core/extensions/runner.ts
 """
 from __future__ import annotations
 
-import asyncio
 import copy
+import inspect
 from collections.abc import Callable
 from typing import Any
 
@@ -13,7 +13,7 @@ from .types import Extension, ExtensionError, ExtensionRuntime, LoadExtensionsRe
 
 
 async def _await(value: Any) -> Any:
-    return await value if asyncio.iscoroutine(value) else value
+    return await value if inspect.isawaitable(value) else value
 
 
 class _Context:
@@ -113,7 +113,10 @@ class ExtensionRunner:
 
     def emit_error(self, error: ExtensionError) -> None:
         for listener in tuple(self._error_listeners):
-            listener(error)
+            try:
+                listener(error)
+            except Exception:  # noqa: BLE001 — error reporting must not break dispatch
+                continue
 
     def has_handlers(self, event: str) -> bool:
         return any(extension.handlers.get(event) for extension in self.extensions)

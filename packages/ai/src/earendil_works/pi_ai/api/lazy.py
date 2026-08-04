@@ -32,12 +32,9 @@ async def forward_stream(
     async for event in source:
         target.push(event)
     if hasattr(source, "result"):
-        try:
-            result = await source.result()  # type: ignore[misc]
-            target.end(result)
-            return
-        except Exception:
-            pass
+        result = await source.result()  # type: ignore[misc]
+        target.end(result)
+        return
     target.end()
 
 

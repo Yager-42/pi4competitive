@@ -26,6 +26,7 @@ export function VButton({
   children,
   variant = 'primary',
   className = '',
+  type = 'button',
   ...p
 }: {
   children: ReactNode
@@ -40,7 +41,7 @@ export function VButton({
         ? 'bg-primary-tint text-primary-deep hover:bg-primary-soft/40'
         : 'bg-transparent text-ink-2 hover:bg-primary-tint hover:text-primary-deep'
   return (
-    <button className={`${base} ${styles} ${className}`} {...p}>
+    <button type={type} className={`${base} ${styles} ${className}`} {...p}>
       {children}
     </button>
   )

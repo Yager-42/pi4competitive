@@ -100,6 +100,10 @@ def convert_to_llm(messages: list[AgentMessage]) -> list[Message]:
                 }
             )
         elif role == "custom":
+            # ``display`` controls whether this persisted message is sent to
+            # the model; hidden custom entries remain UI/session metadata.
+            if not bool(m.get("display")):
+                continue
             content = m.get("content")
             if isinstance(content, str):
                 content = [{"type": "text", "text": content}]

@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -248,8 +249,12 @@ def _validate_fetch_params(params: dict[str, Any]) -> str:
     if extra:
         raise ProviderError(f"unexpected properties: {sorted(extra)}")
     url = _as_str(params.get("url")).strip()
-    if not url:
-        raise ProviderError("url must be a non-empty string")
+    try:
+        parsed = urlsplit(url)
+    except ValueError as exc:
+        raise ProviderError("url must be a full HTTP/HTTPS URL") from exc
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc or not parsed.hostname:
+        raise ProviderError("url must be a full HTTP/HTTPS URL")
     return url
 
 
@@ -265,7 +270,7 @@ async def _post_json(
     # api_key is in body for Tavily REST; never log it
     body = {**payload, "api_key": api_key}
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
             _check_aborted(signal)
             resp = await client.post(
                 url,

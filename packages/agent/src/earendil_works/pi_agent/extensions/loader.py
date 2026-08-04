@@ -80,9 +80,9 @@ async def load_extensions(
                 extensions.append(_create_extension(str(raw_path), str(path)))
                 continue
             extension = await load_extension_from_factory(
-                factory, resolved_cwd, resolved_runtime, str(raw_path)
+                factory, resolved_cwd, resolved_runtime, str(path)
             )
-            extension.resolvedPath = str(path)
+            extension.path = str(raw_path)
             extensions.append(extension)
         except Exception as exc:  # noqa: BLE001
             errors.append({"path": str(raw_path), "error": f"Failed to load extension: {exc}"})

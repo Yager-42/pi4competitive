@@ -490,6 +490,16 @@ async def build_application_state(
             manifest_path = Path(config.sandbox.manifest) if config.sandbox.manifest else sandbox_root / "approved_tools.json"
             manifest = _write_native_manifest(sandbox_registry, manifest_path)
             environment = {name: os.environ.get(name) for name in NATIVE_WORKER_ENVIRONMENT}
+            capability_root = getattr(capability_report, "root", None)
+            if capability_root is not None:
+                capability_root_entry = str(Path(capability_root).resolve())
+                existing_pythonpath = environment.get("PYTHONPATH") or ""
+                pythonpath_entries = [
+                    entry for entry in existing_pythonpath.split(os.pathsep) if entry
+                ]
+                if capability_root_entry not in pythonpath_entries:
+                    pythonpath_entries.append(capability_root_entry)
+                environment["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
             provider = NativeSandboxProvider(
                 sandbox_root=sandbox_root,
                 environment=environment,
@@ -515,6 +525,18 @@ async def build_application_state(
             raise
         tool_executor = sandbox_executor
         sandbox_lifecycle = lifecycle
+    async def _rollback_resources() -> None:
+        """Close resources opened before service composition fails."""
+        if sandbox_lifecycle is not None:
+            try:
+                await sandbox_lifecycle.shutdown()
+            except Exception:
+                pass
+        for resource in (workflow_skill_store, skill_store, store):
+            try:
+                await resource.close()
+            except Exception:
+                pass
     # --- services ----------------------------------------------------------
     registry = RuntimeRegistry()
     model_resolver = _ModelResolver(
@@ -600,12 +622,10 @@ async def build_application_state(
         )
     except KeyError:
         judge_model = model_resolver.resolve(None)
-    # batch4 v0.3.4: whether a real LLM call can be made. Faux mode works
-    # without keys; real mode needs OPENAI_API_KEY + OPENAI_BASE_URL. Surfaced
-    # via /api/v2/meta + /api/v2/llm/ping (single source of truth here).
-    llm_configured = config.use_faux or (
-        bool(os.environ.get("OPENAI_API_KEY")) and bool(os.environ.get("OPENAI_BASE_URL"))
-    )
+    # The built-in OpenAI provider always uses api.openai.com/v1 when no
+    # gateway override is supplied, so a base URL is not a prerequisite.
+    # A key is the actual readiness signal for the configured provider.
+    llm_configured = config.use_faux or bool(os.environ.get("OPENAI_API_KEY"))
     if config.workflow_skill.enabled and config.workflow_skill.eval_config.enabled:
         try:
             llm_adapter = PiLlmAdapter(models, judge_model)
@@ -650,50 +670,54 @@ async def build_application_state(
         evolution_cycle_runner = EvolutionCycleRunner(
             evolution_manager, GitRatchet(), skill_store, skill_files
         )
-    task_service = TaskService(
-        store=store,
-        repo=repo,
-        registry=registry,
-        harness_factory=harness_factory,
-        capability_tools=capability_tools,
-        sessions_cwd=config.sessions_cwd,
-        socm_store=socm_store,
-        judge_model=judge_model,
-        models=models,
-        skill_snapshot=skill_snapshot if config.workflow_skill.enabled else None,
-        skill_store=skill_store,
-        skill_composer=skill_composer,
-        skill_judgment_analyzer=judgment_analyzer,
-        task_quality_judge=quality_judge,
-        post_task_observer=post_task_observer if config.workflow_skill.enabled else None,
-        evolution_cycle_runner=evolution_cycle_runner,
-        sandbox_lifecycle=sandbox_lifecycle,
-        llm_configured=llm_configured,
-        runs_root=config.runs_root,
-    )
+    try:
+        task_service = TaskService(
+            store=store,
+            repo=repo,
+            registry=registry,
+            harness_factory=harness_factory,
+            capability_tools=capability_tools,
+            sessions_cwd=config.sessions_cwd,
+            socm_store=socm_store,
+            judge_model=judge_model,
+            models=models,
+            skill_snapshot=skill_snapshot if config.workflow_skill.enabled else None,
+            skill_store=skill_store,
+            skill_composer=skill_composer,
+            skill_judgment_analyzer=judgment_analyzer,
+            task_quality_judge=quality_judge,
+            post_task_observer=post_task_observer if config.workflow_skill.enabled else None,
+            evolution_cycle_runner=evolution_cycle_runner,
+            sandbox_lifecycle=sandbox_lifecycle,
+            llm_configured=llm_configured,
+            runs_root=config.runs_root,
+        )
 
-    return ApplicationState(
-        config=config,
-        models=models,
-        repo=repo,
-        store=store,
-        socm_store=socm_store,
-        registry=registry,
-        session_service=session_service,
-        task_service=task_service,
-        skill_store=skill_store,
-        workflow_skill_store=workflow_skill_store,
-        skill_selector=skill_selector if config.workflow_skill.enabled else None,
-        skill_snapshot=skill_snapshot if config.workflow_skill.enabled else None,
-        skill_composer=skill_composer,
-        skill_files=skill_files,
-        post_task_observer=post_task_observer if config.workflow_skill.enabled else None,
-        evolution_manager=evolution_manager,
-        capability_report=capability_report,
-        capability_diagnostics=diagnostics,
-        sandbox=sandbox_lifecycle,
-        llm_configured=llm_configured,
-    )
+        return ApplicationState(
+            config=config,
+            models=models,
+            repo=repo,
+            store=store,
+            socm_store=socm_store,
+            registry=registry,
+            session_service=session_service,
+            task_service=task_service,
+            skill_store=skill_store,
+            workflow_skill_store=workflow_skill_store,
+            skill_selector=skill_selector if config.workflow_skill.enabled else None,
+            skill_snapshot=skill_snapshot if config.workflow_skill.enabled else None,
+            skill_composer=skill_composer,
+            skill_files=skill_files,
+            post_task_observer=post_task_observer if config.workflow_skill.enabled else None,
+            evolution_manager=evolution_manager,
+            capability_report=capability_report,
+            capability_diagnostics=diagnostics,
+            sandbox=sandbox_lifecycle,
+            llm_configured=llm_configured,
+        )
+    except BaseException:
+        await _rollback_resources()
+        raise
 
 
 def _native_sandbox_additional_allow_read(path: str) -> list[str]:
@@ -703,9 +727,7 @@ def _native_sandbox_additional_allow_read(path: str) -> list[str]:
     the strict native schema (unsupported fields fail startup, never
     silently weaken)."
     """
-    if not path:
-        return []
-    config_path = Path(path).expanduser()
+    config_path = Path(path or "~/.pi/agent/extensions/pi-sandbox/config.json").expanduser()
     if not config_path.is_file():
         return []
     from .adapter.out.sandbox.native.config import parse_pi_sandbox_config

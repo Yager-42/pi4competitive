@@ -104,6 +104,17 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    /* socketpair() is a separate syscall on supported 64-bit targets; block
+     * its AF_UNIX form as well, otherwise it bypasses the socket() rule. */
+    rc = seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), SCMP_SYS(socketpair), 1,
+                          SCMP_A0(SCMP_CMP_MASKED_EQ, 0xffffffff, AF_UNIX));
+    if (rc < 0) {
+        fprintf(stderr, "Error: Failed to add socketpair seccomp rule: %s\n",
+                strerror(-rc));
+        seccomp_release(ctx);
+        return 1;
+    }
+
     /* Block io_uring entirely. IORING_OP_SOCKET (Linux 5.19+) creates sockets
      * in kernel context without going through the socket() syscall, bypassing
      * the rule above. seccomp cannot inspect io_uring SQEs (they live in a
@@ -125,7 +136,7 @@ int main(int argc, char *argv[]) {
     }
 
     /* Export the filter to a file */
-    int fd = open(output_file, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+    int fd = open(output_file, O_CREAT | O_WRONLY | O_TRUNC | O_NOFOLLOW, 0600);
     if (fd < 0) {
         fprintf(stderr, "Error: Failed to open output file: %s\n", strerror(errno));
         seccomp_release(ctx);

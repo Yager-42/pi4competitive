@@ -29,15 +29,11 @@ async function safeJson<T>(path: string, init?: RequestInit, fallback?: T): Prom
 
 /* POST /api/v2/tasks {query} → {task_id, status, questions?} */
 export async function createTask(query: string): Promise<CreateTaskResp> {
-  return safeJson<CreateTaskResp>(
-    '/api/v2/tasks',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
-    },
-    { task_id: `demo-${Date.now()}`, status: 'pending' },
-  )
+  return safeJson<CreateTaskResp>('/api/v2/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  })
 }
 
 /* POST /api/v2/tasks/{id}/clarify {answers} → 启动研究 */
@@ -45,14 +41,13 @@ export async function submitClarify(
   taskId: string,
   answers: ClarifyAnswer[],
 ): Promise<{ ok: boolean; status?: string }> {
-  return safeJson(
+  return safeJson<{ ok: boolean; status?: string }>(
     `/api/v2/tasks/${taskId}/clarify`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ answers }),
     },
-    { ok: true },
   )
 }
 
@@ -89,6 +84,8 @@ export function openTaskStream(taskId: string, handlers: SSEHandlers): () => voi
         /* keep raw */
       }
       handlers.onEvent(t, parsed)
+      // Terminal events end the stream; prevent EventSource auto-reconnect.
+      if (t === 'done' || t === 'error') es.close()
     })
   }
   es.onerror = (e) => {
@@ -122,14 +119,13 @@ export async function refineSection(
   sectionId: string,
   annotations: string[],
 ): Promise<{ ok: boolean; message?: string }> {
-  return safeJson(
+  return safeJson<{ ok: boolean; message?: string }>(
     `/api/v2/reports/${reportId}/refine`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ section_id: sectionId, annotations }),
     },
-    { ok: false, message: '请求失败' },
   )
 }
 
@@ -140,14 +136,13 @@ export async function submitFeedback(
   totalBlocks: number,
   data: Record<string, unknown> = {},
 ): Promise<{ ok: boolean; revision_rate?: number }> {
-  return safeJson(
+  return safeJson<{ ok: boolean; revision_rate?: number }>(
     `/api/v2/reports/${reportId}/feedback`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ edited_blocks: editedBlocks, total_blocks: totalBlocks, data }),
     },
-    { ok: true },
   )
 }
 
@@ -185,25 +180,21 @@ export async function fetchSubscriptions(): Promise<Subscription[]> {
 
 /* POST /api/v2/subscriptions {query, brands} */
 export async function createSubscription(query: string, brands: string[]): Promise<Subscription | null> {
-  return safeJson<Subscription | null>(
-    '/api/v2/subscriptions',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, brands }),
-    },
-    null,
-  )
+  return safeJson<Subscription | null>('/api/v2/subscriptions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, brands }),
+  })
 }
 
 /* DELETE /api/v2/subscriptions/{sub_id} */
 export async function deleteSubscription(subId: string): Promise<{ ok: boolean }> {
-  return safeJson(`/api/v2/subscriptions/${subId}`, { method: 'DELETE' }, { ok: true })
+  return safeJson<{ ok: boolean }>(`/api/v2/subscriptions/${subId}`, { method: 'DELETE' })
 }
 
 /* POST /api/v2/subscriptions/{sub_id}/run → {ok, task_id, status} */
 export async function runSubscription(subId: string): Promise<{ ok: boolean; task_id?: string; status?: string }> {
-  return safeJson(`/api/v2/subscriptions/${subId}/run`, { method: 'POST' }, { ok: false })
+  return safeJson<{ ok: boolean; task_id?: string; status?: string }>(`/api/v2/subscriptions/${subId}/run`, { method: 'POST' })
 }
 
 /* ============================================================ F4 补缺口 */
@@ -214,26 +205,27 @@ export async function fetchTasks(): Promise<Task[]> {
     .then((r) => r.tasks ?? [])
 }
 
-/* GET /api/v2/tasks/{id} → Task(单任务兜底) */
-export async function fetchTask(taskId: string): Promise<Task | null> {
-  return safeJson<Task | null>(`/api/v2/tasks/${taskId}`, undefined, null)
+export async function fetchTask(taskId: string, signal?: AbortSignal): Promise<Task | null> {
+  return safeJson<Task | null>(
+    `/api/v2/tasks/${taskId}`,
+    signal ? { signal } : undefined,
+    null,
+  )
 }
 
 /* POST /api/v2/tasks/{id}/abort → {task_id, status:"aborted"} */
 export async function abortTask(taskId: string): Promise<{ task_id: string; status: string }> {
-  return safeJson(
+  return safeJson<{ task_id: string; status: string }>(
     `/api/v2/tasks/${taskId}/abort`,
     { method: 'POST' },
-    { task_id: taskId, status: 'aborted' },
   )
 }
 
 /* POST /api/v2/tasks/{id}/resume → {task_id, status}(completed→completed; failed/aborted→pending; running→409) */
 export async function resumeTask(taskId: string): Promise<{ task_id: string; status: string }> {
-  return safeJson(
+  return safeJson<{ task_id: string; status: string }>(
     `/api/v2/tasks/${taskId}/resume`,
     { method: 'POST' },
-    { task_id: taskId, status: 'pending' },
   )
 }
 

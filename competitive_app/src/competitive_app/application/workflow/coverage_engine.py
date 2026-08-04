@@ -239,6 +239,7 @@ class CoverageEngine:
                         "help.exhausted",
                         {"dimension": "stall", "task_id": self._task_id},
                     )
+                    await self._update_projection()
                     break
             else:
                 after.stalled_iterations = 0
@@ -248,6 +249,8 @@ class CoverageEngine:
             latest = await self._socm_store.load(self._session_id)
             latest.budget.consume_iteration()
             await self._socm_store.save(self._session_id, latest)
+            # Keep the task projection in sync with SOCM after every iteration.
+            await self._update_projection()
             self._journal_append(
                 "budget",
                 {
@@ -286,11 +289,24 @@ class CoverageEngine:
         if not subtasks:
             return
 
-        # Pre-consume query/fetch budget for the subtasks we're about to dispatch
-        # (Sensor role, PR4 engine-layer): each subtask costs 1 query budget.
-        # PR5 will move fine-grained per-tool counting into a Sensor extension.
-        for _subtask in subtasks:
-            await self._consume_query_budget()
+        # A subtask consumes one query. Never dispatch beyond the remaining
+        # query allowance (max_queries == 0 means the dimension is disabled).
+        latest = await self._socm_store.load(self._session_id)
+        max_queries = latest.budget.max_queries
+        if max_queries > 0:
+            remaining = max_queries - latest.budget.consumed_queries
+            if remaining <= 0:
+                return
+            subtasks = subtasks[:remaining]
+        allowed_subtasks: list[dict[str, Any]] = []
+        for subtask in subtasks:
+            if not await self._consume_query_budget():
+                break
+            allowed_subtasks.append(subtask)
+        if not allowed_subtasks:
+            return
+        subtasks = allowed_subtasks
+
 
         pool: dict[str, asyncio.Task[Any]] = {}
         queue = list(subtasks)
@@ -336,16 +352,34 @@ class CoverageEngine:
             # Reap every completed task (SearchOS whole-pool reap pattern).
             finished_labels = [lbl for lbl, t in pool.items() if t.done()]
             for lbl in finished_labels:
-                pool.pop(lbl, None)
+                task = pool.pop(lbl, None)
+                if task is None:
+                    continue
+                try:
+                    task.result()
+                except asyncio.CancelledError:
+                    pass
+                except Exception:  # noqa: BLE001
+                    # Retrieve task exceptions so asyncio never reports an
+                    # unobserved failure; one failed sub-agent must not hide
+                    # failures from the event loop.
+                    _log.exception("search sub-agent failed (%s)", lbl)
             # Refill from queue.
             while queue and len(pool) < self._max_parallel:
                 await _spawn_one(queue.pop(0))
 
-    async def _consume_query_budget(self) -> None:
-        """Decrement the queries budget dimension for one dispatched subtask."""
+
+    async def _consume_query_budget(self) -> bool:
+        """Consume one query if the configured query budget permits it."""
         latest = await self._socm_store.load(self._session_id)
+        if latest.budget.max_queries > 0 and (
+            latest.budget.consumed_queries >= latest.budget.max_queries
+        ):
+            return False
         latest.budget.consume_query(1)
         await self._socm_store.save(self._session_id, latest)
+        return True
+
 
     async def _run_subagent_ephemeral(self, subtask: dict[str, Any]) -> None:
         """Run one sub-agent on a fresh ephemeral harness (PR4 parallel, F-R28).
@@ -377,13 +411,16 @@ class CoverageEngine:
             state = await self._socm_store.load(self._session_id)
             # ContextVar: tell the Extraction extension which entity to extract for.
             current_subtask.set(subtask)
-            await self._run_subagent_prompt(harness, agent, state, subtask)
-            # Drain the extraction buffer (judge fills SOCM) at sub-agent exit.
-            if intake is not None:
-                try:
-                    await intake.flush()
-                except Exception:  # noqa: BLE001
-                    _log.exception("extraction flush failed for subtask %s", subtask.get("question"))
+            try:
+                await self._run_subagent_prompt(harness, agent, state, subtask)
+            finally:
+                # Drain even when the prompt is cancelled or raises, so fetched
+                # observations are never silently discarded.
+                if intake is not None:
+                    try:
+                        await intake.flush()
+                    except Exception:  # noqa: BLE001
+                        _log.exception("extraction flush failed for subtask %s", subtask.get("question"))
             # v0.3.1 SSE: subagent_end after flush (evidence already in SOCM).
             await self._emit_event(
                 "subagent_end",

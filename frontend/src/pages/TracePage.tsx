@@ -18,7 +18,11 @@ function groupByStage(spans: TraceSpan[]): { stage: string; spans: TraceSpan[] }
     if (!map.has(stage)) map.set(stage, [])
     map.get(stage)!.push(s)
   }
-  return STAGE_ORDER.filter((st) => map.has(st)).map((st) => ({ stage: st, spans: map.get(st)! }))
+  const orderedStages = [
+    ...STAGE_ORDER.filter((stage) => map.has(stage)),
+    ...[...map.keys()].filter((stage) => !STAGE_ORDER.includes(stage)),
+  ]
+  return orderedStages.map((stage) => ({ stage, spans: map.get(stage)! }))
 }
 
 export default function TracePage() {
@@ -28,10 +32,25 @@ export default function TracePage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!reportId) return
+    let active = true
+    setSpans([])
+    setLoading(Boolean(reportId))
+    if (!reportId) return () => { active = false }
+
     fetchTrace(reportId)
-      .then(setSpans)
-      .finally(() => setLoading(false))
+      .then((next) => {
+        if (active) setSpans(next)
+      })
+      .catch(() => {
+        if (active) setSpans([])
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
   }, [reportId])
 
   const totals = useMemo(() => {

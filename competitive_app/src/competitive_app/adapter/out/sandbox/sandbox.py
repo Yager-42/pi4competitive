@@ -31,6 +31,18 @@ def _mask_value(value: Any, mask_output: Callable[[str], str]) -> Any:
         return {key: _mask_value(child, mask_output) for key, child in value.items()}
     return value
 
+def _mask_frame(frame: RpcFrame, mask_output: Callable[[str], str]) -> RpcFrame:
+    masked = _mask_value(frame.to_mapping(), mask_output)
+    return RpcFrame(
+        protocol_version=masked["protocolVersion"],
+        scope_id=masked["scopeId"],
+        tool_call_id=masked["toolCallId"],
+        sequence=masked["sequence"],
+        type=masked["type"],
+        result=masked.get("result"),
+        error=masked.get("error"),
+    )
+
 
 class Sandbox:
     """Compose runtime, fixed path translator, and security guard."""
@@ -67,17 +79,13 @@ class Sandbox:
         self._guard.validate_command(FIXED_WORKER_COMMAND)
         command = self._translator.translate_command(FIXED_WORKER_COMMAND)
 
+        masked_terminal: RpcFrame | None = None
+
         async def deliver(frame: RpcFrame) -> None:
-            masked = _mask_value(frame.to_mapping(), self._translator.mask_output)
-            masked_frame = RpcFrame(
-                protocol_version=masked["protocolVersion"],
-                scope_id=masked["scopeId"],
-                tool_call_id=masked["toolCallId"],
-                sequence=masked["sequence"],
-                type=masked["type"],
-                result=masked.get("result"),
-                error=masked.get("error"),
-            )
+            nonlocal masked_terminal
+            masked_frame = _mask_frame(frame, self._translator.mask_output)
+            if frame.is_final:
+                masked_terminal = masked_frame
             result = on_frame(masked_frame)
             if inspect.isawaitable(result):
                 await result
@@ -85,7 +93,9 @@ class Sandbox:
         terminal = await self._runtime.execute_worker(
             request, deliver, command=command, signal=signal
         )
-        return terminal
+        if masked_terminal is not None:
+            return masked_terminal
+        return _mask_frame(terminal, self._translator.mask_output)
 
     async def close(self) -> None:
         await self._runtime.close()

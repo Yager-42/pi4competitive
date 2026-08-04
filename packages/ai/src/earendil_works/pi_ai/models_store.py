@@ -26,7 +26,7 @@ class InMemoryModelsStore:
 
     async def read(self, provider_id: str) -> ModelsStoreEntry | None:
         entry = self._entries.get(provider_id)
-        return copy.deepcopy(entry) if entry else None
+        return copy.deepcopy(entry) if entry is not None else None
 
     async def write(self, provider_id: str, entry: ModelsStoreEntry) -> None:
         self._entries[provider_id] = copy.deepcopy(entry)

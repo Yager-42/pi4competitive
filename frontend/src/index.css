@@ -44,6 +44,11 @@
   --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px;
 }
 
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
 @layer base {
   * { box-sizing: border-box; }
 

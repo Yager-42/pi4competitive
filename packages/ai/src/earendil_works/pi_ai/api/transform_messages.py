@@ -71,14 +71,20 @@ def context_to_anthropic_messages(context: Context) -> tuple[str | None, list[di
     for msg in context.get("messages") or []:
         role = msg.get("role")
         if role == "user":
-            messages.append({"role": "user", "content": _user_content(msg)})
+            messages.append({"role": "user", "content": _anthropic_user_content(msg)})
         elif role == "assistant":
             content = []
             for block in msg.get("content") or []:
                 if block.get("type") == "text":
                     content.append({"type": "text", "text": block.get("text") or ""})
                 elif block.get("type") == "thinking":
-                    content.append({"type": "thinking", "thinking": block.get("thinking") or ""})
+                    thinking_block: dict[str, Any] = {
+                        "type": "thinking",
+                        "thinking": block.get("thinking") or "",
+                    }
+                    if block.get("thinkingSignature"):
+                        thinking_block["signature"] = block["thinkingSignature"]
+                    content.append(thinking_block)
                 elif block.get("type") == "toolCall":
                     content.append(
                         {
@@ -120,6 +126,7 @@ def tools_to_anthropic(tools: list[dict[str, Any]] | None) -> list[dict[str, Any
 
 
 def _user_content(msg: Message) -> Any:
+    """Render user content using OpenAI's multimodal shape."""
     content = msg.get("content")
     if isinstance(content, str):
         return content
@@ -133,6 +140,29 @@ def _user_content(msg: Message) -> Any:
                     "type": "image_url",
                     "image_url": {
                         "url": f"data:{block.get('mimeType')};base64,{block.get('data')}",
+                    },
+                }
+            )
+    return parts if parts else ""
+
+
+def _anthropic_user_content(msg: Message) -> Any:
+    """Render user content using Anthropic's native image source shape."""
+    content = msg.get("content")
+    if isinstance(content, str):
+        return content
+    parts = []
+    for block in content or []:
+        if block.get("type") == "text":
+            parts.append({"type": "text", "text": block.get("text") or ""})
+        elif block.get("type") == "image":
+            parts.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": block.get("mimeType"),
+                        "data": block.get("data"),
                     },
                 }
             )

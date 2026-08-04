@@ -46,14 +46,16 @@ def _tool_text(content: Any) -> str:
     return str(content)
 
 
-def make_journal_extension_factory(journal: RunJournal | None):
+def make_journal_extension_factory(journal: RunJournal | None = None):
     """Build an extension factory hooking harness lifecycle events → journal.
 
-    Returned callable is the ``register(api)`` function for
-    ``load_extension_from_factory`` (先例：``make_extraction_extension_factory``)。
-    journal 为 None → 不注册任何 handler，静默 no-op（poirot 无 journal 语义）。
+    When no explicit journal is passed, resolve the active run's journal from
+    ``current_run_journal`` so harness wiring cannot silently omit the bridge.
+    Outside a run the factory remains a quiet no-op.
     """
 
+    if journal is None:
+        journal = current_run_journal.get()
     if journal is None:
         def register_noop(api: Any = None) -> None:
             return None
@@ -148,4 +150,4 @@ def make_journal_extension_factory(journal: RunJournal | None):
     return register
 
 
-__all__ = ["make_journal_extension_factory"]
+__all__ = ["current_run_journal", "make_journal_extension_factory"]

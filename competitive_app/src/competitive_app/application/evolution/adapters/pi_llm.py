@@ -22,20 +22,16 @@ class PiLlmAdapter:
 
     async def complete_json(self, prompt: str) -> dict[str, Any] | list[Any] | None:
         text = await self.complete_simple(prompt)
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(text):
+            if char not in "[{":
+                continue
             try:
-                return json.loads(text[start : end + 1])
+                value, _ = decoder.raw_decode(text, index)
             except json.JSONDecodeError:
-                pass
-        start = text.find("[")
-        end = text.rfind("]")
-        if start >= 0 and end > start:
-            try:
-                return json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                pass
+                continue
+            if isinstance(value, (dict, list)):
+                return value
         return None
 
     async def invoke(self, prompt: str) -> str:

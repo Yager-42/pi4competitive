@@ -9,10 +9,9 @@ Host delta: import path only (COPY 100%, plan P4-llm-fallback-observability §2)
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
-_CST = timezone(timedelta(hours=8))
 
 
 @dataclass(frozen=True)
@@ -28,4 +27,5 @@ class RunEvent:
 
 
 def utc_now_iso() -> str:
-    return datetime.now(_CST).isoformat()
+    """Return an ISO-8601 timestamp explicitly anchored to UTC."""
+    return datetime.now(timezone.utc).isoformat()

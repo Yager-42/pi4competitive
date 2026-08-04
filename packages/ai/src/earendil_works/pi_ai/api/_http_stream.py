@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import AsyncIterator, Callable
@@ -42,6 +43,8 @@ def error_message(
         error_type: ErrorType = "aborted"
     elif status_code is not None:
         error_type = "http_error"
+    elif isinstance(error, json.JSONDecodeError):
+        error_type = "parse"
     elif isinstance(error, httpx.TimeoutException):
         error_type = "timeout"
     elif isinstance(error, (httpx.ConnectError, ConnectionError)):
@@ -174,7 +177,27 @@ async def stream_openai_chat_completions(
                     stream.end(msg)
                     return
 
-                async for line in resp.aiter_lines():
+                line_iter = resp.aiter_lines().__aiter__()
+                while True:
+                    next_line = asyncio.create_task(line_iter.__anext__())
+                    try:
+                        while not next_line.done():
+                            await asyncio.wait({next_line}, timeout=0.1)
+                            if is_aborted(options):
+                                next_line.cancel()
+                                await asyncio.gather(next_line, return_exceptions=True)
+                                msg = error_message(model, "aborted", aborted=True)
+                                stream.push({"type": "error", "reason": "aborted", "error": msg})
+                                stream.end(msg)
+                                return
+                        try:
+                            line = next_line.result()
+                        except StopAsyncIteration:
+                            break
+                    finally:
+                        if not next_line.done():
+                            next_line.cancel()
+                            await asyncio.gather(next_line, return_exceptions=True)
                     if is_aborted(options):
                         msg = error_message(model, "aborted", aborted=True)
                         stream.push({"type": "error", "reason": "aborted", "error": msg})
@@ -187,9 +210,22 @@ async def stream_openai_chat_completions(
                         break
                     try:
                         chunk = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
+                    except json.JSONDecodeError as exc:
+                        msg = error_message(model, exc)
+                        stream.push({"type": "error", "reason": "error", "error": msg})
+                        stream.end(msg)
+                        return
+                    if not isinstance(chunk, dict):
+                        msg = error_message(model, "Invalid SSE data frame")
+                        stream.push({"type": "error", "reason": "error", "error": msg})
+                        stream.end(msg)
+                        return
                     choice = (chunk.get("choices") or [{}])[0]
+                    if not isinstance(choice, dict):
+                        msg = error_message(model, "Invalid SSE choice frame")
+                        stream.push({"type": "error", "reason": "error", "error": msg})
+                        stream.end(msg)
+                        return
                     delta = choice.get("delta") or {}
                     if choice.get("finish_reason"):
                         finish_reason = choice["finish_reason"]
@@ -229,7 +265,7 @@ async def stream_openai_chat_completions(
                             buf["name"] = fn["name"]
                         if fn.get("arguments"):
                             buf["arguments"] += fn["arguments"]
-                        # emit start once
+                        # emit start once and keep the partial tool block current
                         content_index = None
                         for i, block in enumerate(partial["content"]):
                             if block.get("type") == "toolCall" and block.get("id") == buf["id"]:
@@ -253,7 +289,13 @@ async def stream_openai_chat_completions(
                                     "partial": _clone(partial),
                                 }
                             )
+                        block = partial["content"][content_index]
+                        if fn.get("name"):
+                            block["name"] = buf["name"]
                         if fn.get("arguments"):
+                            parsed_args = parse_partial_json(buf["arguments"])
+                            if isinstance(parsed_args, dict):
+                                block["arguments"] = parsed_args
                             stream.push(
                                 {
                                     "type": "toolcall_delta",

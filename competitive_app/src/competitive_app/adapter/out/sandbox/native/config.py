@@ -47,10 +47,11 @@ def _reject_unknown_keys(
 ) -> None:
     unknown = [key for key in value if key not in allowed]
     if unknown:
+        rendered = ", ".join(str(key) for key in unknown)
         raise ValueError(
             "invalid pi-sandbox configuration: unknown "
             f"{location} {'key' if len(unknown) == 1 else 'keys'}: "
-            f"{', '.join(unknown)}"
+            f"{rendered}"
         )
 
 

@@ -8,7 +8,8 @@ Feature F-A10/F-A11:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -16,6 +17,26 @@ from typing import Any
 class _ActiveTask:
     runner: Any
     task: asyncio.Task[Any]
+
+
+@dataclass(slots=True)
+class _TaskStream:
+    """Buffered fan-out stream for independent SSE subscribers."""
+
+    history: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=256))
+    subscribers: set[asyncio.Queue[dict[str, Any]]] = field(default_factory=set)
+
+    def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self.subscribers.add(queue)
+        for event in self.history:
+            queue.put_nowait(event)
+        return queue
+
+    def publish(self, event: dict[str, Any]) -> None:
+        self.history.append(event)
+        for queue in tuple(self.subscribers):
+            queue.put_nowait(event)
 
 
 class RuntimeRegistry:
@@ -28,9 +49,9 @@ class RuntimeRegistry:
         self._queued: dict[str, list[asyncio.Task[Any]]] = {}
         # task_id → active workflow runner
         self._tasks: dict[str, _ActiveTask] = {}
-        # v0.3.1 SSE: task_id → event queue (pre-registered on create_task so
-        # an early SSE connection doesn't miss events before the runner emits).
-        self._streams: dict[str, asyncio.Queue[Any]] = {}
+        # task_id → buffered fan-out stream. Kept after completion so a client
+        # racing task completion can still subscribe to the terminal event.
+        self._streams: dict[str, _TaskStream] = {}
 
     # ---------------------------------------------------------------- harnesses
 
@@ -100,10 +121,6 @@ class RuntimeRegistry:
             current = self._tasks.get(task_id)
             if current is not None and current.task is completed:
                 self._tasks.pop(task_id, None)
-            # v0.3.1 SSE: drop the event queue once the task is done. SSE clients
-            # that reconnect after completion read the terminal state from the
-            # store (state_snapshot), not from this queue.
-            self._streams.pop(task_id, None)
             if not completed.cancelled():
                 # Surface exceptions so asyncio doesn't warn; callers handle via DB.
                 completed.exception()
@@ -113,30 +130,35 @@ class RuntimeRegistry:
 
     # --------------------------------------------------- v0.3.1 SSE streams
 
-    def register_stream(self, task_id: str) -> asyncio.Queue[Any]:
-        """Pre-register an event queue for a task (before the runner emits).
+    def register_stream(self, task_id: str) -> asyncio.Queue[dict[str, Any]]:
+        """Pre-register a buffered fan-out stream before runner startup."""
+        stream = _TaskStream()
+        self._streams[task_id] = stream
+        return stream.subscribe()
 
-        Called by task_service on create_task/resume_task so an SSE client
-        connecting during pending→running doesn't miss early events.
-        """
-        q: asyncio.Queue[Any] = asyncio.Queue()
-        self._streams[task_id] = q
-        return q
+    def get_stream(self, task_id: str) -> asyncio.Queue[dict[str, Any]] | None:
+        stream = self._streams.get(task_id)
+        return stream.subscribe() if stream is not None else None
 
-    def get_stream(self, task_id: str) -> asyncio.Queue[Any] | None:
-        return self._streams.get(task_id)
+    def publish_stream(self, task_id: str, event: dict[str, Any]) -> None:
+        stream = self._streams.get(task_id)
+        if stream is not None:
+            stream.publish(event)
 
     def unregister_stream(self, task_id: str) -> None:
         self._streams.pop(task_id, None)
+
 
     async def abort_task(self, task_id: str, reason: str = "api_abort") -> bool:
         active = self._tasks.get(task_id)
         if active is None or active.task.done():
             return False
-        active.task.cancel()
+        # The cancellation message preserves the caller's reason for runner
+        # diagnostics while retaining the existing cancellation contract.
+        active.task.cancel(reason)
         try:
             await active.task
-        except (asyncio.CancelledError, Exception):
+        except asyncio.CancelledError:
             pass
         return True
 
@@ -144,19 +166,32 @@ class RuntimeRegistry:
 
     async def shutdown(self) -> None:
         for item in list(self._tasks.values()):
-            item.task.cancel()
+            item.task.cancel("shutdown")
         if self._tasks:
             await asyncio.gather(
                 *(item.task for item in self._tasks.values()), return_exceptions=True
             )
         self._tasks.clear()
-        for harness in self._harnesses.values():
-            harness.agent.abort()
-            await harness.shutdown()
-        self._harnesses.clear()
-        self._locks.clear()
-        self._queued.clear()
-        self._streams.clear()
+
+        async def _close(harness: Any) -> None:
+            try:
+                harness.agent.abort()
+            except Exception:
+                pass
+            try:
+                await harness.shutdown()
+            except Exception:
+                pass
+
+        try:
+            await asyncio.gather(
+                *(_close(h) for h in self._harnesses.values()), return_exceptions=True
+            )
+        finally:
+            self._harnesses.clear()
+            self._locks.clear()
+            self._queued.clear()
+            self._streams.clear()
 
 
 __all__ = ["RuntimeRegistry"]

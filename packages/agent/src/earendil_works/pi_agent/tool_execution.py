@@ -6,6 +6,7 @@ about Docker, the application, or any provider policy.
 """
 from __future__ import annotations
 
+import importlib
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -94,6 +95,13 @@ def derive_tool_execution_target(
     if not isinstance(qualname, str) or not qualname:
         return None
     if "<locals>" in qualname or "<lambda>" in qualname or "." in qualname:
+        return None
+    try:
+        imported = importlib.import_module(module)
+        resolved = getattr(imported, qualname)
+    except (ImportError, AttributeError, TypeError):
+        return None
+    if resolved is not original:
         return None
     return ToolExecutionTarget(module=module, qualname=qualname)
 

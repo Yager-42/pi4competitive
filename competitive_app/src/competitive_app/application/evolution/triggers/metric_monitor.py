@@ -4,7 +4,8 @@ Upstream: https://github.com/HezaoHezao/poirot/blob/86bf279ad90c180f0ba696755620
 Frozen SHA: 86bf279ad90c180f0ba696755620dd7d6661465e
 Copyright (c) HezaoHezao; upstream project MIT licensed.
 Host delta: async App store and only FIX output; DERIVED/manual capture remain
-unreachable per frozen workflow contract. Thresholds 5/0.3/10 are unchanged.
+unreachable per frozen workflow contract; fallback/completion rules remain fixed and
+the configured threshold controls effective-rate diagnosis.
 """
 from __future__ import annotations
 
@@ -17,7 +18,6 @@ from ....domain.evolution.skill_types import SkillRecord
 _FALLBACK_THRESHOLD = 0.4
 _LOW_COMPLETION_THRESHOLD = 0.35
 _HIGH_APPLIED_FOR_FIX = 0.4
-_MODERATE_EFFECTIVE_THRESHOLD = 0.55
 _MIN_APPLIED_FOR_DERIVED = 0.25
 
 
@@ -49,13 +49,12 @@ class MetricMonitorTrigger:
     def mark_evolved(self, skill_name: str, total_selections: int) -> None:
         self._last_evolve_selections[skill_name] = total_selections
 
-    @staticmethod
-    def _diagnose_skill_health(record: SkillRecord) -> tuple[str | None, str]:
+    def _diagnose_skill_health(self, record: SkillRecord) -> tuple[str | None, str]:
         if record.fallback_rate > _FALLBACK_THRESHOLD:
             return "FIX", f"高 fallback_rate({record.fallback_rate:.0%})：skill 常被选但未应用，指令不清或过时。"
         if record.applied_rate > _HIGH_APPLIED_FOR_FIX and record.completion_rate < _LOW_COMPLETION_THRESHOLD:
             return "FIX", f"低 completion_rate({record.completion_rate:.0%}) 但高 applied_rate({record.applied_rate:.0%})：skill 指令可能错或不全。"
-        if record.effective_rate < _MODERATE_EFFECTIVE_THRESHOLD and record.applied_rate > _MIN_APPLIED_FOR_DERIVED:
+        if record.effective_rate < self._threshold and record.applied_rate > _MIN_APPLIED_FOR_DERIVED:
             return "DERIVED", f"中等 effective_rate({record.effective_rate:.0%})：可派生增强版。"
         return None, ""
 

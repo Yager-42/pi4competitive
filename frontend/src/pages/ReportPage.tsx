@@ -11,6 +11,16 @@ import { ChevronLeft, Activity, Network, ShieldCheck, Sparkles, Loader2 } from '
 import { fetchReport, refineSection, submitFeedback } from '../lib/api'
 import type { Report, ReportSection } from '../types'
 
+
+function safeHttpUrl(raw?: string): string | null {
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? raw : null
+  } catch {
+    return null
+  }
+}
 export default function ReportPage() {
   const { reportId } = useParams<{ reportId: string }>()
   const navigate = useNavigate()
@@ -76,6 +86,7 @@ export default function ReportPage() {
 
   const cov = report.coverage
   const ratio = cov?.ratio ?? (cov && cov.total ? cov.filled / cov.total : 0)
+  const sources = (report.sources ?? []).slice(0, 20).map((src) => ({ src, href: safeHttpUrl(src) }))
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg">
@@ -177,18 +188,22 @@ export default function ReportPage() {
 
           <div className="mt-3 text-tag font-semibold uppercase tracking-wider text-ink-3">来源</div>
           <div className="mt-2 flex flex-col gap-1">
-            {(report.sources ?? []).slice(0, 20).map((src, i) => (
-              <a
-                key={i}
-                href={src}
-                target="_blank"
-                rel="noreferrer"
-                className="truncate rounded-btn px-2 py-1 text-tag text-ink-2 hover:bg-primary-tint hover:text-primary-deep"
-              >
-                {src}
-              </a>
+            {sources.map(({ src, href }, i) => (
+              href ? (
+                <a
+                  key={i}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate rounded-btn px-2 py-1 text-tag text-ink-2 hover:bg-primary-tint hover:text-primary-deep"
+                >
+                  {src}
+                </a>
+              ) : (
+                <span key={i} className="truncate rounded-btn px-2 py-1 text-tag text-ink-3">{src}</span>
+              )
             ))}
-            {(report.sources ?? []).length === 0 && <span className="text-tag text-ink-3">(无)</span>}
+            {sources.length === 0 && <span className="text-tag text-ink-3">(无)</span>}
           </div>
 
           {/* feedback 修正率 */}

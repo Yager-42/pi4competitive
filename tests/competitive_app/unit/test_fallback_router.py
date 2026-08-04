@@ -10,7 +10,11 @@ ADAPT (plan §3 阶段 3): 角色路由断言 → env 链断言; ProviderConfig 
 from __future__ import annotations
 
 import pytest
+import asyncio
+
+from competitive_app.application.model.fallback_stream import FallbackStream
 from competitive_app.application.model.router import (
+    PROVIDER_REGISTRY,
     ProviderConfig,
     ProviderConfigError,
     build_fallback_chain,
@@ -19,6 +23,8 @@ from competitive_app.application.model.router import (
     parse_provider_env,
     resolve_provider_config,
 )
+
+from types import SimpleNamespace
 
 
 def _pc(name: str) -> ProviderConfig:
@@ -123,3 +129,100 @@ def test_chain_model_from_config_factory_base_url(monkeypatch) -> None:
     model = chain_model_from_config(config)
     assert model["provider"] == "opencode"
     assert model["baseUrl"] == "https://opencode.example"
+
+def test_discover_includes_ambient_provider_without_api_key() -> None:
+    config = resolve_provider_config("openai-codex", priority=0)
+    assert config is not None
+    assert config.api_key == ""
+    assert config.requires_api_key is False
+    assert discover_available_providers([config]) == [config]
+
+
+def test_resolve_empty_catalog_is_unavailable(monkeypatch) -> None:
+    monkeypatch.setitem(
+        PROVIDER_REGISTRY,
+        "empty-catalog",
+        (lambda: SimpleNamespace(getModels=lambda: [], baseUrl="https://example.test"), ()),
+    )
+    assert resolve_provider_config("empty-catalog", priority=0) is None
+
+def test_resolve_catalog_without_model_id_is_unavailable(monkeypatch) -> None:
+    monkeypatch.setitem(
+        PROVIDER_REGISTRY,
+        "invalid-catalog",
+        (lambda: SimpleNamespace(getModels=lambda: [{"api": "openai-responses"}], baseUrl=None), ()),
+    )
+    assert resolve_provider_config("invalid-catalog", priority=0) is None
+
+
+def test_resolve_and_chain_model_preserve_catalog_protocol(monkeypatch) -> None:
+    monkeypatch.setitem(
+        PROVIDER_REGISTRY,
+        "responses-provider",
+        (
+            lambda: SimpleNamespace(
+                getModels=lambda: [
+                    {
+                        "id": "response-model",
+                        "name": "Response Model",
+                        "api": "openai-responses",
+                        "reasoning": True,
+                        "input": ["text"],
+                        "contextWindow": 42,
+                        "maxTokens": 7,
+                    }
+                ],
+
+                baseUrl="https://example.test",
+            ),
+            (),
+        ),
+    )
+    config = resolve_provider_config("responses-provider", priority=0)
+    assert config is not None
+    model = chain_model_from_config(config)
+    assert config.api == "openai-responses"
+    assert model["api"] == "openai-responses"
+    assert model["name"] == "Response Model"
+    assert model["reasoning"] is True
+    assert model["contextWindow"] == 42
+    assert model["maxTokens"] == 7
+
+@pytest.mark.asyncio
+async def test_fallback_timeout_error_tracks_last_provider() -> None:
+    calls: list[str] = []
+    journal: list[tuple[str, dict]] = []
+
+    class _NeverDelegate:
+        def streamSimple(self, model, context, options=None):
+            calls.append(model["provider"])
+
+            async def never():
+                await asyncio.Event().wait()
+                yield {}  # pragma: no cover
+
+            return never()
+
+    def model(provider: str) -> dict:
+        return {
+            "id": f"m-{provider}",
+            "name": provider,
+            "api": "openai-completions",
+            "provider": provider,
+        }
+
+    first = model("first")
+    second = model("second")
+    stream = FallbackStream(
+        _NeverDelegate(),
+        chain=[first, second],
+        first_packet_timeout_ms=1,
+        emit_fallback_event=lambda event_type, payload: journal.append((event_type, payload)),
+    )(first, {"messages": []})
+    result = await stream.result()
+
+    assert calls == ["first", "second"]
+    assert result["provider"] == "second"
+    assert result["error"]["type"] == "timeout"
+    exhausted = next(payload for event, payload in journal if event == "llm.fallback_exhausted")
+    assert exhausted["lastProvider"] == "second"

@@ -241,48 +241,102 @@ class TaskService:
         """
         task_id = task_id or uuid.uuid4().hex
         query = _display_title(research_brief)
+        # Capture an existing clarify row before creating any session so a
+        # failed transition can restore it without leaving a pending orphan.
+        existing = await self._store.get_task(task_id)
         session = await self._repo.create({"cwd": self._sessions_cwd})
         meta = await session.get_metadata()
         session_id = meta["id"]
-        await self._store.index_session(
-            session_id=session_id,
-            file_path=meta["path"],
-            cwd=self._sessions_cwd,
-            model="",  # default model (F-R7); resolved inside harness
-            system_prompt="",
-        )
-        stop_after_stage = _metadata_stop_after(metadata)
-        # Reuse the existing task row (awaiting_clarify → pending) or create one.
-        existing = await self._store.get_task(task_id)
-        if existing is None:
-            await self._store.create_task(
-                task_id=task_id,
-                query=query,
-                status="pending",
-                metadata=metadata,
-                projection=empty_projection(),
+        operation: Any | None = None
+        stream_registered = False
+        task_touched = False
+        try:
+            await self._store.index_session(
                 session_id=session_id,
+                file_path=meta["path"],
+                cwd=self._sessions_cwd,
+                model="",  # default model (F-R7); resolved inside harness
+                system_prompt="",
             )
-        else:
-            await self._store.update_task_status(
-                task_id, "pending", projection=empty_projection(), session_id=session_id
-            )
-            await self._store.update_task_metadata(task_id, metadata)
-        # v0.3.1 SSE: pre-register the event queue before starting the runner.
-        self._registry.register_stream(task_id)
-        self._registry.start_task(
-            task_id,
-            self,
-            self._run_research(
+            stop_after_stage = _metadata_stop_after(metadata)
+            task_touched = True
+            if existing is None:
+                await self._store.create_task(
+                    task_id=task_id,
+                    query=query,
+                    status="pending",
+                    metadata=metadata,
+                    projection=empty_projection(),
+                    session_id=session_id,
+                )
+            else:
+                await self._store.update_task_status(
+                    task_id, "pending", projection=empty_projection(), session_id=session_id
+                )
+                await self._store.update_task_metadata(task_id, metadata)
+            # v0.3.1 SSE: pre-register buffered fan-out stream before runner.
+            self._registry.register_stream(task_id)
+            stream_registered = True
+            operation = self._run_research(
                 task_id, research_brief, session, session_id, stop_after_stage=stop_after_stage
-            ),
-        )
+            )
+            self._registry.start_task(task_id, self, operation)
+        except BaseException:
+            if operation is not None:
+                operation.close()
+            if stream_registered:
+                self._registry.unregister_stream(task_id)
+            if task_touched:
+                await self._rollback_task_row(task_id, existing)
+            await self._cleanup_created_session(meta)
+            raise
         return {
             "task_id": task_id,
             "session_id": session_id,
             "status": "pending",
             "query": query,
         }
+
+    async def _rollback_task_row(self, task_id: str, existing: dict[str, Any] | None) -> None:
+        """Undo task-row mutations while preserving an awaiting-clarify row."""
+        try:
+            await self._store.delete_task(task_id)
+            if existing is not None:
+                await self._store.create_task(
+                    task_id=task_id,
+                    query=existing.get("query", ""),
+                    status=existing["status"],
+                    metadata=existing.get("metadata") or {},
+                    projection=existing.get("projection") or empty_projection(),
+                    session_id=existing.get("session_id"),
+                )
+        except Exception:
+            # Preserve the startup exception; best-effort cleanup is still
+            # preferable to masking the original failure.
+            pass
+
+    async def _cleanup_created_session(self, meta: dict[str, Any]) -> None:
+        """Remove JSONL, index, and any eagerly-created workspace on rollback."""
+        session_id = meta.get("id")
+        if self._sandbox_lifecycle is not None and session_id:
+            try:
+                await self._sandbox_lifecycle.delete_workspace(session_id=session_id)
+            except Exception:
+                pass
+        try:
+            await self._repo.delete({"path": meta["path"], "cwd": self._sessions_cwd})
+        except Exception:
+            pass
+        if self._socm_store is not None and session_id:
+            try:
+                await self._socm_store.delete(session_id)
+            except Exception:
+                pass
+        if session_id:
+            try:
+                await self._store.delete_session(session_id)
+            except Exception:
+                pass
 
     async def list_tasks(self) -> dict[str, Any]:
         tasks = await self._store.list_tasks()
@@ -302,11 +356,9 @@ class TaskService:
             return {"task_id": task_id, "status": "completed"}
         if self._registry.task_active(task_id):
             raise TaskConflictError(f"task {task_id} is already running")
-        # F-R16: resume from the first non-ok stage.
+        # Validate every recovery prerequisite while the terminal status is
+        # still intact; failures must not leave an unstarted task as pending.
         start_stage = self._first_non_ok_stage(task.get("projection"))
-        # Flip status out of terminal state BEFORE starting the runner, so polling
-        # callers don't see the stale failed/aborted status and short-circuit.
-        await self._store.update_task_status(task_id, "pending")
         session_id = task.get("session_id")
         if not session_id:
             raise TaskConflictError(f"task {task_id} has no session to resume")
@@ -314,14 +366,28 @@ class TaskService:
         if research_brief is None:
             raise TaskConflictError(f"task {task_id} brief not recoverable")
         session = await self._open_session(session_id)
-        self._registry.register_stream(task_id)  # v0.3.1 SSE: pre-register queue
-        self._registry.start_task(
-            task_id,
-            self,
-            self._run_research(
+
+        original_status = task["status"]
+        operation: Any | None = None
+        stream_registered = False
+        try:
+            await self._store.update_task_status(task_id, "pending")
+            self._registry.register_stream(task_id)  # pre-register buffered stream
+            stream_registered = True
+            operation = self._run_research(
                 task_id, research_brief, session, session_id, start_stage=start_stage
-            ),
-        )
+            )
+            self._registry.start_task(task_id, self, operation)
+        except BaseException:
+            if operation is not None:
+                operation.close()
+            if stream_registered:
+                self._registry.unregister_stream(task_id)
+            try:
+                await self._store.update_task_status(task_id, original_status)
+            except Exception:
+                pass
+            raise
         return {"task_id": task_id, "status": "pending"}
 
     async def abort_task(self, task_id: str) -> dict[str, Any]:
@@ -879,9 +945,7 @@ class TaskService:
                 guarded_append(self._journal_for(task_id), "trace.span", data)
                 return
             guarded_append(self._journal_for(task_id), f"task.{event_type}", data)
-            q = self._registry.get_stream(task_id)
-            if q is not None:
-                q.put_nowait({"type": event_type, "data": data})
+            self._registry.publish_stream(task_id, {"type": event_type, "data": data})
 
         return emit
 
@@ -938,7 +1002,12 @@ class TaskService:
                 "completed",
                 "failed",
             }:
-                await self._evolution_cycle_runner.run_cycle()
+                # Evolution is observational post-task work: a broken manager or
+                # ratchet must never rewrite the already-persisted run outcome.
+                try:
+                    await self._evolution_cycle_runner.run_cycle()
+                except Exception:  # noqa: BLE001
+                    pass
         except asyncio.CancelledError:
             if agent is not None:
                 agent.abort()

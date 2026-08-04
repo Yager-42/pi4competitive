@@ -230,6 +230,18 @@ class _FallbackCall(AssistantMessageEventStream):
                         self.push(event)
                     self.end(outcome.message)
                     return
+                if outcome.kind == "timeout" and outcome.message is None:
+                    from earendil_works.pi_ai.api._http_stream import error_message
+
+                    outcome.message = error_message(
+                        chain_model, TimeoutError("first packet timeout")
+                    )
+                    # asyncio.TimeoutError is not an httpx timeout; retain ADR
+                    # 0015's structured timeout classification explicitly.
+                    outcome.message["error"] = {
+                        "type": "timeout",
+                        "message": "first packet timeout",
+                    }
                 if outcome.message is not None:
                     last_error = outcome.message
                 if outcome.kind != "timeout" and not _should_fallback((last_error or {}).get("error")):

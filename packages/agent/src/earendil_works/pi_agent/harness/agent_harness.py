@@ -129,6 +129,7 @@ class AgentHarness:
             "entries": entries,
             "activeTurnEntryIds": list(active_ids),
         }
+        native_result = False
         if runner:
             before = await runner.emit(
                 {"type": "session_before_compact", "preparation": preparation,
@@ -166,9 +167,28 @@ class AgentHarness:
             else:
                 result = await compact(self.agent.state.messages, settings,
                                        self.agent.stream_function, self.agent.state.model)
+                native_result = True
         else:
             result = await compact(self.agent.state.messages, settings,
                                    self.agent.stream_function, self.agent.state.model)
+            native_result = True
+        if native_result and result is not None:
+            cut_index = max(0, int(result.get("cutIndex") or 0))
+            kept_messages = result.get("keptMessages") or []
+            first_kept = next(
+                (entry["id"] for entry in entries if kept_messages and entry["message"] == kept_messages[0]),
+                None,
+            )
+            if first_kept is None and cut_index < len(entries):
+                first_kept = entries[cut_index]["id"]
+            await self.session.append_compaction(
+                str(result.get("summary") or ""),
+                first_kept,
+                int(result.get("tokensBefore") or 0),
+                retained_tail=kept_messages if first_kept is None and kept_messages else None,
+            )
+            rebuilt = await self.session.build_context()
+            self.agent.state.messages = list(rebuilt.get("messages") or [])
         if runner:
             await runner.emit({"type": "session_compact", "compactionEntry": result,
                                "fromExtension": bool(before and (before.get("compaction") or before.get("compactionPlan"))),
@@ -176,8 +196,10 @@ class AgentHarness:
         return result
 
     async def shutdown(self) -> None:
-        await self.agent.shutdown_extensions()
-        self.close()
+        try:
+            await self.agent.shutdown_extensions()
+        finally:
+            self.close()
 
     def close(self) -> None:
         if self._unsub:

@@ -139,8 +139,8 @@ async def runs_app_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def _read_events(path: Path) -> list[dict[str, Any]]:
-    raw = path.read_text(encoding="utf-8")
-    return [json.loads(block) for block in raw.split("\n\n") if block.strip()]
+    # events.jsonl is strict line-delimited JSON: one object per line.
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 

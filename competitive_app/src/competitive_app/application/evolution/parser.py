@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import re
 import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -86,6 +87,19 @@ def parse_skill_file(
         allowed = tuple(str(v) for v in allowed_raw)
     else:
         raise ValueError("allowed-tools must be a list or string")
+    enabled_raw = fm.get("enabled", True)
+    if isinstance(enabled_raw, str):
+        normalized = enabled_raw.strip().lower()
+        if normalized in {"true", "yes", "on", "1"}:
+            enabled = True
+        elif normalized in {"false", "no", "off", "0"}:
+            enabled = False
+        else:
+            raise ValueError("enabled must be a boolean")
+    elif isinstance(enabled_raw, bool):
+        enabled = enabled_raw
+    else:
+        raise ValueError("enabled must be a boolean")
     skill_id = read_or_create_skill_id(path.parent, name, origin, generation)
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
     return SkillRecord(
@@ -102,7 +116,7 @@ def parse_skill_file(
         ),
         description=description,
         allowed_tools=allowed,
-        enabled=bool(fm.get("enabled", True)),
+        enabled=enabled,
     )
 
 
@@ -124,18 +138,30 @@ def scope_from_skill_file(skill_file: Path | str) -> str | None:
 
 
 def install_local(source_dir: Path | str, name: str, dest_root: Path | str) -> str:
-    """Copy a local skill directory only; remote package installation is omitted."""
+    """Copy and validate a local skill without destroying a valid install."""
     if not _NAME_RE.fullmatch(name):
         raise ValueError(f"invalid skill name: {name!r}")
     source = Path(source_dir)
+    if not source.is_dir():
+        raise NotADirectoryError(f"skill source directory not found: {source}")
+    source_skill = source / "SKILL.md"
+    if not source_skill.is_file():
+        raise FileNotFoundError(f"skill source dir {source} has no SKILL.md")
+    parse_skill_file(source_skill, origin="BUILTIN")
+
     destination = Path(dest_root) / name
-    if destination.exists():
-        shutil.rmtree(destination)
-    shutil.copytree(source, destination)
-    skill_file = destination / "SKILL.md"
-    if not skill_file.is_file():
-        raise FileNotFoundError(f"installed skill dir {destination} has no SKILL.md")
-    return parse_skill_file(skill_file).skill_id
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging_root = Path(tempfile.mkdtemp(prefix=f".{name}.", dir=str(destination.parent)))
+    staged = staging_root / name
+    try:
+        shutil.copytree(source, staged)
+        parse_skill_file(staged / "SKILL.md")
+        if destination.exists():
+            shutil.rmtree(destination)
+        staged.replace(destination)
+        return parse_skill_file(destination / "SKILL.md").skill_id
+    finally:
+        shutil.rmtree(staging_root, ignore_errors=True)
 
 
 # Compatibility alias for the upstream local-copy helper; no remote operation.

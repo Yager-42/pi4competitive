@@ -14,6 +14,7 @@ worker runs on the host; the SRT policy is the path boundary).
 from __future__ import annotations
 
 import re
+import os
 import shutil
 from pathlib import Path
 
@@ -24,17 +25,29 @@ _SCOPE_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
 def canonical_workspace_root(root: str | Path) -> Path:
     path = Path(root).expanduser()
-    if path.exists() and path.is_symlink():
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW
+        fd = os.open(path, flags)
+        try:
+            mode = os.fstat(fd).st_mode
+            if (mode & 0o170000) != 0o40000:
+                raise SandboxPermissionError(
+                    "sandbox root must be a directory", path=str(path), operation="workspace_root"
+                )
+        finally:
+            os.close(fd)
+    except SandboxPermissionError:
+        raise
+    except OSError as error:
+        raise SandboxPermissionError(
+            "sandbox root must be a directory", path=str(path), operation="workspace_root"
+        ) from error
+    if path.is_symlink():
         raise SandboxPermissionError(
             "sandbox root must not be a symlink", path=str(path), operation="workspace_root"
         )
-    path.mkdir(parents=True, exist_ok=True)
-    resolved = path.resolve(strict=True)
-    if resolved.is_symlink() or not resolved.is_dir():
-        raise SandboxPermissionError(
-            "sandbox root must be a directory", path=str(resolved), operation="workspace_root"
-        )
-    return resolved
+    return path.resolve(strict=True)
 
 
 def ensure_workspace(root: str | Path, scope_id: str) -> Path:
@@ -44,25 +57,31 @@ def ensure_workspace(root: str | Path, scope_id: str) -> Path:
         )
     canonical_root = canonical_workspace_root(root)
     workspace = canonical_root / scope_id
-    if workspace.parent != canonical_root:
-        raise SandboxPermissionError(
-            "workspace must be a direct sandbox-root child", path=str(workspace), operation="workspace"
+    try:
+        root_fd = os.open(
+            canonical_root,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
         )
-    if workspace.is_symlink():
+        try:
+            try:
+                os.mkdir(scope_id, mode=0o700, dir_fd=root_fd)
+            except FileExistsError:
+                pass
+            workspace_fd = os.open(
+                scope_id,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
+                dir_fd=root_fd,
+            )
+            os.close(workspace_fd)
+        finally:
+            os.close(root_fd)
+    except OSError as error:
         raise SandboxPermissionError(
-            "sandbox workspace must not be a symlink", path=str(workspace), operation="workspace"
-        )
-    if workspace.exists() and not workspace.is_dir():
-        raise SandboxPermissionError(
-            "sandbox workspace must be a directory", path=str(workspace), operation="workspace"
-        )
-    workspace.mkdir(parents=False, exist_ok=True)
-    resolved = workspace.resolve(strict=True)
-    if resolved.parent != canonical_root or resolved.is_symlink():
-        raise SandboxPermissionError(
-            "sandbox workspace escaped its root", path=str(resolved), operation="workspace"
-        )
-    return resolved
+            "sandbox workspace must be a non-symlink directory",
+            path=str(workspace),
+            operation="workspace",
+        ) from error
+    return workspace
 
 
 def remove_workspace(root: str | Path, scope_id: str) -> None:

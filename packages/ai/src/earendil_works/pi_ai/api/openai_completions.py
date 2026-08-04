@@ -7,7 +7,7 @@ from typing import Any
 from ..types import Context, Model, SimpleStreamOptions, StreamOptions
 from ..utils.event_stream import AssistantMessageEventStream
 from .transform_messages import build_openai_completions_payload
-from ._http_stream import stream_openai_chat_completions
+from ._http_stream import error_message, stream_openai_chat_completions
 
 
 def stream(
@@ -36,22 +36,20 @@ openAICompletionsApi = open_ai_completions_api
 
 
 def _deferred(model, context, options, payload):
-    import asyncio
     from ..utils.event_stream import create_assistant_message_event_stream
 
     outer = create_assistant_message_event_stream()
 
     async def run():
-        inner = await stream_openai_chat_completions(model, context, options, payload=payload)
-        async for event in inner:
-            outer.push(event)
         try:
+            inner = await stream_openai_chat_completions(model, context, options, payload=payload)
+            async for event in inner:
+                outer.push(event)
             outer.end(await inner.result())
-        except Exception:
-            outer.end()
+        except Exception as exc:
+            msg = error_message(model, exc)
+            outer.push({"type": "error", "reason": "error", "error": msg})
+            outer.end(msg)
 
-    try:
-        asyncio.get_running_loop().create_task(run())
-    except RuntimeError:
-        pass
+    outer.start(run)
     return outer

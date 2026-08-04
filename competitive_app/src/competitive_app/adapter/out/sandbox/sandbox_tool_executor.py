@@ -72,7 +72,12 @@ class SandboxToolExecutor:
             arguments=params,
         )
 
+        delivered_terminal: RpcFrame | None = None
+
         async def deliver(frame: RpcFrame) -> None:
+            nonlocal delivered_terminal
+            if frame.is_final:
+                delivered_terminal = frame
             if frame.type == "update" and frame.result is not None:
                 on_update(
                     AgentToolResult(
@@ -82,7 +87,8 @@ class SandboxToolExecutor:
                 )
 
         sandbox = await self._provider.acquire(scope_id)
-        terminal = await sandbox.execute_worker(request, deliver, signal=signal)
+        returned_terminal = await sandbox.execute_worker(request, deliver, signal=signal)
+        terminal = delivered_terminal or returned_terminal
         if terminal.type == "error":
             error = terminal.error or {}
             raise SandboxToolExecutionError(

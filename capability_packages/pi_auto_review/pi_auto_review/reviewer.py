@@ -423,19 +423,26 @@ def _parse_model_ref(model_ref: str) -> tuple[str | None, str]:
     return provider, model_id
 
 
-async def resolve_reviewer(registry: ModelRegistryView, config: Config) -> ReviewerRuntime:
+async def resolve_reviewer(
+    registry: ModelRegistryView,
+    config: Config,
+    session_id: str = "pi-auto-review",
+) -> ReviewerRuntime:
     provider, model_id = _parse_model_ref(config["model"])
     available = await registry.getAvailable()
     registered = (
         next(
-            (candidate for candidate in available if candidate.get("id") == model_id),
+            (
+                candidate
+                for candidate in available
+                if candidate.get("provider") == provider and candidate.get("id") == model_id
+            ),
             None,
         )
         if provider
         else next(
             (
-                candidate
-                for candidate in available
+                candidate for candidate in available
                 if candidate.get("id") == model_id or candidate.get("name") == model_id
             ),
             None,
@@ -464,7 +471,7 @@ async def resolve_reviewer(registry: ModelRegistryView, config: Config) -> Revie
     return {
         "model": model,
         "auth": auth.get("auth") or {},
-        "sessionId": "pi-auto-review",
+        "sessionId": session_id,
     }
 
 
@@ -570,7 +577,7 @@ async def complete(
     try:
         if controller.signal.aborted:
             raise ValueError("review aborted before model resolution")
-        runtime = await resolve_reviewer(registry, config)
+        runtime = await resolve_reviewer(registry, config, session_id)
         last_error: Exception | None = None
         retry_errors: list[str] = []
         for attempt in range(1, config["retries"] + 2):

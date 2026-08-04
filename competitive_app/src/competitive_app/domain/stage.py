@@ -55,6 +55,13 @@ def validate_stage_output(stage: str, output: dict[str, Any]) -> StageResult:
 
     Returns a StageResult; ok=False if required keys missing or empty.
     """
+    if stage not in STAGE_OUTPUT_SCHEMA:
+        return StageResult(
+            stage=stage,
+            ok=False,
+            output=output,
+            error=f"unknown stage: {stage}",
+        )
     required = STAGE_OUTPUT_SCHEMA.get(stage, set())
     missing = [k for k in required if k not in output]
     if missing:

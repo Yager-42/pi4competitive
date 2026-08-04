@@ -55,19 +55,37 @@ def split_patterns(entries: list[str]) -> tuple[list[str], list[str]]:
     return plain, patterns
 
 
-def _should_skip_name(name: str) -> bool:
-    return name.startswith(".") or name in _SKIP_DIR_NAMES
+def _resolve_within(path: Path, root: Path) -> Path | None:
+    try:
+        resolved = path.resolve(strict=False)
+        resolved.relative_to(root.resolve())
+        return resolved
+    except (OSError, RuntimeError, ValueError):
+        return None
 
 
-def collect_files(dir_path: Path, file_pattern: re.Pattern[str], *, skip_node_modules: bool = True) -> list[str]:
-    """Recursively collect files matching *file_pattern* under *dir_path*."""
+def collect_files(
+    dir_path: Path,
+    file_pattern: re.Pattern[str],
+    *,
+    skip_node_modules: bool = True,
+    boundary: Path | None = None,
+) -> list[str]:
+    """Recursively collect files matching *file_pattern* within *boundary*."""
     files: list[str] = []
-    if not dir_path.is_dir():
+    root = (boundary or dir_path).resolve()
+    start = _resolve_within(dir_path, root)
+    if start is None or not start.is_dir():
         return files
+    visited: set[Path] = set()
 
     def walk(current: Path) -> None:
+        current_resolved = _resolve_within(current, root)
+        if current_resolved is None or current_resolved in visited:
+            return
+        visited.add(current_resolved)
         try:
-            entries = sorted(current.iterdir(), key=lambda p: p.name)
+            entries = sorted(current_resolved.iterdir(), key=lambda p: p.name)
         except OSError:
             return
         for entry in entries:
@@ -76,96 +94,117 @@ def collect_files(dir_path: Path, file_pattern: re.Pattern[str], *, skip_node_mo
                 continue
             if skip_node_modules and name in _SKIP_DIR_NAMES:
                 continue
+            target = _resolve_within(entry, root)
+            if target is None:
+                continue
             try:
-                if entry.is_symlink():
-                    target = entry.resolve(strict=False)
-                    is_dir = target.is_dir()
-                    is_file = target.is_file()
-                else:
-                    is_dir = entry.is_dir()
-                    is_file = entry.is_file()
+                is_dir = target.is_dir()
+                is_file = target.is_file()
             except OSError:
                 continue
             if is_dir:
-                walk(entry)
-            elif is_file and file_pattern.search(name):
-                files.append(str(entry.resolve()))
+                walk(target)
+            elif is_file and file_pattern.search(target.name):
+                files.append(str(target))
 
-    walk(dir_path)
+    walk(start)
     return files
 
 
-def collect_skill_entries(dir_path: Path, *, mode: str = "pi") -> list[str]:
-    """Discover SKILL.md folders + top-level .md skills (mode=pi)."""
+def collect_skill_entries(
+    dir_path: Path, *, mode: str = "pi", boundary: Path | None = None
+) -> list[str]:
+    """Discover SKILL.md folders + top-level .md skills within *boundary*."""
     entries: list[str] = []
-    if not dir_path.is_dir():
+    root = (boundary or dir_path).resolve()
+    start = _resolve_within(dir_path, root)
+    if start is None or not start.is_dir():
         return entries
+    visited: set[Path] = set()
 
     def walk(current: Path, *, is_root: bool) -> None:
+        current_resolved = _resolve_within(current, root)
+        if current_resolved is None or current_resolved in visited:
+            return
+        visited.add(current_resolved)
         try:
-            dir_entries = list(current.iterdir())
+            dir_entries = sorted(current_resolved.iterdir(), key=lambda p: p.name)
         except OSError:
             return
 
-        skill_md = current / "SKILL.md"
-        if skill_md.is_file():
-            entries.append(str(skill_md.resolve()))
+        skill_md = _resolve_within(current_resolved / "SKILL.md", root)
+        if skill_md is not None and skill_md.is_file():
+            entries.append(str(skill_md))
             return
 
-        for entry in sorted(dir_entries, key=lambda p: p.name):
+        for entry in dir_entries:
             name = entry.name
             if name.startswith(".") or name in _SKIP_DIR_NAMES:
                 continue
+            target = _resolve_within(entry, root)
+            if target is None:
+                continue
             try:
-                is_dir = entry.is_dir()
-                is_file = entry.is_file()
+                is_dir = target.is_dir()
+                is_file = target.is_file()
             except OSError:
                 continue
             if mode == "pi" and is_root and is_file and name.endswith(".md"):
-                entries.append(str(entry.resolve()))
+                entries.append(str(target))
                 continue
             if is_dir:
-                walk(entry, is_root=False)
+                walk(target, is_root=False)
 
-    walk(dir_path, is_root=True)
+    walk(start, is_root=True)
     return entries
 
 
-def resolve_extension_entries(dir_path: Path) -> list[str] | None:
-    """Explicit extension entries from package.json pi.extensions, index.py, or register.py."""
-    package_json = dir_path / "package.json"
-    if package_json.is_file():
-        manifest = read_pi_manifest(dir_path)
+def resolve_extension_entries(
+    dir_path: Path, *, boundary: Path | None = None
+) -> list[str] | None:
+    """Explicit extension entries, constrained to the package boundary."""
+    root = (boundary or dir_path).resolve()
+    directory = _resolve_within(dir_path, root)
+    if directory is None or not directory.is_dir():
+        return None
+    package_json = directory / "package.json"
+    package_json_target = _resolve_within(package_json, root)
+    if package_json_target is not None and package_json_target.is_file():
+        manifest = read_pi_manifest(directory)
         if manifest and manifest.extensions:
             found: list[str] = []
             for ext_path in manifest.extensions:
                 if is_override_pattern(ext_path):
                     continue
-                resolved = (dir_path / ext_path).resolve()
-                if resolved.exists():
+                resolved = _resolve_within(directory / ext_path, root)
+                if resolved is not None and resolved.exists():
                     found.append(str(resolved))
             if found:
                 return found
 
     for candidate in ("register.py", "index.py"):
-        index = dir_path / candidate
-        if index.is_file():
-            return [str(index.resolve())]
+        index = _resolve_within(directory / candidate, root)
+        if index is not None and index.is_file():
+            return [str(index)]
     return None
 
 
-def collect_auto_extension_entries(dir_path: Path) -> list[str]:
-    """Discover Python extension modules under a directory."""
-    if not dir_path.is_dir():
+def collect_auto_extension_entries(
+    dir_path: Path, *, boundary: Path | None = None
+) -> list[str]:
+    """Discover Python extension modules under a package boundary."""
+    root = (boundary or dir_path).resolve()
+    start = _resolve_within(dir_path, root)
+    if start is None or not start.is_dir():
         return []
 
-    root_entries = resolve_extension_entries(dir_path)
+    root_entries = resolve_extension_entries(start, boundary=root)
     if root_entries is not None:
         return root_entries
 
     entries: list[str] = []
     try:
-        dir_entries = sorted(dir_path.iterdir(), key=lambda p: p.name)
+        dir_entries = sorted(start.iterdir(), key=lambda p: p.name)
     except OSError:
         return entries
 
@@ -173,26 +212,32 @@ def collect_auto_extension_entries(dir_path: Path) -> list[str]:
         name = entry.name
         if name.startswith(".") or name in _SKIP_DIR_NAMES:
             continue
+        target = _resolve_within(entry, root)
+        if target is None:
+            continue
         try:
-            is_dir = entry.is_dir()
-            is_file = entry.is_file()
+            is_dir = target.is_dir()
+            is_file = target.is_file()
         except OSError:
             continue
         if is_file and name.endswith(".py") and name != "__init__.py":
-            entries.append(str(entry.resolve()))
+            entries.append(str(target))
         elif is_dir:
-            nested = resolve_extension_entries(entry)
+            nested = resolve_extension_entries(target, boundary=root)
             if nested:
                 entries.extend(nested)
     return entries
 
 
-def collect_resource_files(dir_path: Path, resource_type: ResourceType) -> list[str]:
+def collect_resource_files(
+    dir_path: Path, resource_type: ResourceType, *, boundary: Path | None = None
+) -> list[str]:
     if resource_type == "skills":
-        return collect_skill_entries(dir_path, mode="pi")
+        return collect_skill_entries(dir_path, mode="pi", boundary=boundary)
     if resource_type == "extensions":
-        return collect_auto_extension_entries(dir_path)
-    return collect_files(dir_path, _PATTERN_RES[resource_type])
+        return collect_auto_extension_entries(dir_path, boundary=boundary)
+    return collect_files(dir_path, _PATTERN_RES[resource_type], boundary=boundary)
+
 
 
 def read_pi_manifest(package_root: Path) -> PiManifest | None:
@@ -341,15 +386,23 @@ def collect_files_from_manifest_entries(
     root: Path,
     resource_type: ResourceType,
 ) -> list[str]:
+    package_root = root.resolve()
     source_entries = [e for e in entries if not is_override_pattern(e)]
     resolved: list[str] = []
     for entry in source_entries:
         if not has_glob_pattern(entry):
-            resolved.append(str((root / entry).resolve()))
+            match = _resolve_within(package_root / entry, package_root)
+            if match is not None:
+                resolved.append(str(match))
             continue
-        # pathlib glob relative to package root
-        for match in root.glob(entry):
-            resolved.append(str(match.resolve()))
+        try:
+            matches = package_root.glob(entry)
+        except (OSError, ValueError, NotImplementedError):
+            continue
+        for match in matches:
+            target = _resolve_within(match, package_root)
+            if target is not None:
+                resolved.append(str(target))
     return collect_files_from_paths(resolved, resource_type)
 
 

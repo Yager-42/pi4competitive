@@ -84,6 +84,93 @@ def parse_header_line(line: str, file_path: str) -> dict[str, Any]:
     }
 
 
+def _is_json_safe(value: Any) -> bool:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return True
+    if isinstance(value, list):
+        return all(_is_json_safe(item) for item in value)
+    if isinstance(value, dict):
+        return all(isinstance(key, str) and _is_json_safe(item) for key, item in value.items())
+    return False
+
+
+def _validate_entry_fields(parsed: dict[str, Any]) -> None:
+    entry_type = parsed["type"]
+    known_types = {
+        "message", "thinking_level_change", "model_change", "active_tools_change",
+        "compaction", "branch_summary", "custom", "custom_message", "label",
+        "session_info", "leaf",
+    }
+    if entry_type not in known_types:
+        raise ValueError(f"has unknown entry type {entry_type!r}")
+
+    def require(name: str, expected: type | tuple[type, ...]) -> Any:
+        value = parsed.get(name)
+        if not isinstance(value, expected):
+            raise ValueError(f"has invalid {name}")
+        return value
+
+    if entry_type == "message":
+        message = require("message", dict)
+        if not isinstance(message.get("role"), str):
+            raise ValueError("has invalid message role")
+        if "content" not in message or not isinstance(message["content"], (str, list)):
+            raise ValueError("has invalid message content")
+        if isinstance(message["content"], list) and not all(
+            isinstance(block, dict) for block in message["content"]
+        ):
+            raise ValueError("has invalid message content")
+    elif entry_type == "thinking_level_change":
+        require("thinkingLevel", str)
+    elif entry_type == "model_change":
+        require("provider", str)
+        require("modelId", str)
+    elif entry_type == "active_tools_change":
+        names = require("activeToolNames", list)
+        if not all(isinstance(name, str) for name in names):
+            raise ValueError("has invalid activeToolNames")
+    elif entry_type == "compaction":
+        require("summary", str)
+        tokens = require("tokensBefore", int)
+        if isinstance(tokens, bool):
+            raise ValueError("has invalid tokensBefore")
+        if "firstKeptEntryId" in parsed and parsed["firstKeptEntryId"] is not None:
+            require("firstKeptEntryId", str)
+        if "retainedTail" in parsed:
+            tail = require("retainedTail", list)
+            if not all(isinstance(message, dict) for message in tail):
+                raise ValueError("has invalid retainedTail")
+        if "usage" in parsed and parsed["usage"] is not None:
+            require("usage", dict)
+        if "fromHook" in parsed and not isinstance(parsed["fromHook"], bool):
+            raise ValueError("has invalid fromHook")
+    elif entry_type == "branch_summary":
+        require("fromId", str)
+        require("summary", str)
+        if "usage" in parsed and parsed["usage"] is not None:
+            require("usage", dict)
+        if "fromHook" in parsed and not isinstance(parsed["fromHook"], bool):
+            raise ValueError("has invalid fromHook")
+    elif entry_type == "custom":
+        require("customType", str)
+    elif entry_type == "custom_message":
+        require("customType", str)
+        content = parsed.get("content")
+        if not isinstance(content, (str, list, dict)) or not _is_json_safe(content):
+            raise ValueError("has invalid content")
+        if not isinstance(parsed.get("display"), bool):
+            raise ValueError("has invalid display")
+    elif entry_type == "label":
+        require("targetId", str)
+        if "label" in parsed and parsed["label"] is not None:
+            require("label", str)
+    elif entry_type == "session_info":
+        require("name", str)
+    elif entry_type == "leaf":
+        if parsed.get("targetId") is not None:
+            require("targetId", str)
+
+
 def parse_entry_line(line: str, file_path: str, line_number: int) -> SessionTreeEntry:
     try:
         parsed = json.loads(line)
@@ -99,10 +186,10 @@ def parse_entry_line(line: str, file_path: str, line_number: int) -> SessionTree
         raise _invalid_entry(file_path, line_number, "has invalid parentId")
     if not isinstance(parsed.get("timestamp"), str) or not parsed["timestamp"]:
         raise _invalid_entry(file_path, line_number, "is missing timestamp")
-    if parsed.get("type") == "leaf" and parsed.get("targetId") is not None and not isinstance(
-        parsed.get("targetId"), str
-    ):
-        raise _invalid_entry(file_path, line_number, "has invalid targetId")
+    try:
+        _validate_entry_fields(parsed)
+    except ValueError as error:
+        raise _invalid_entry(file_path, line_number, str(error)) from error
     return parsed  # type: ignore[return-value]
 
 

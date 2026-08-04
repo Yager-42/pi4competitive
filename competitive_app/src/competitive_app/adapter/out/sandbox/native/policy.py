@@ -83,6 +83,11 @@ WORKSPACE_SECRET_DENY_WRITE_BASENAMES = [
     ".env.staging",
     ".env.staging.local",
     ".env.ci",
+    # Linux bwrap cannot express extension globs for newly-created files;
+    # deny the common root-level variants as concrete mount targets.
+    ".env.preview",
+    "server.key",
+    "cert.pem",
 ]
 
 WORKSPACE_SECRET_DENY_WRITE_DIRECTORIES = ["secrets", ".secrets"]
@@ -112,6 +117,7 @@ WORKSPACE_SECRET_SCAN_MAX_DEPTH = 4
 
 DARWIN_SECRET_DENY_WRITE_GLOBS = [
     "**/.env",
+    "**/.env.*",
     "**/.env.local",
     "**/.env.development",
     "**/.env.development.local",
@@ -183,8 +189,10 @@ def _collect_nested_secret_deny_write_paths(
                 continue
             full_path = os.path.join(directory, entry.name)
             try:
-                is_dir = entry.is_dir()
-                is_file = entry.is_file()
+                is_dir = entry.is_dir(follow_symlinks=False)
+                is_file = entry.is_file(follow_symlinks=False)
+                if entry.is_symlink():
+                    continue
             except OSError:
                 continue
             if is_dir:
@@ -251,6 +259,7 @@ def create_default_policy(
             ],
             "allowWrite": [workspace, "/dev/null"],
             "denyWrite": [
+                os.path.join(workspace, "approved_tools.json"),
                 os.path.join(workspace, ".pi", "settings.json"),
                 os.path.join(workspace, ".pi", "sandbox.json"),
                 os.path.join(workspace, ".pi", "pi-auto-review.json"),
@@ -269,6 +278,10 @@ def create_default_policy(
                 *( [] if package_is_in_workspace else [str(PACKAGE_ROOT)] ),
                 str(INTERPRETER_BIN_DIR),
                 *create_workspace_secret_deny_write_paths(workspace),
+                # Linux bwrap cannot enforce wildcard denyWrite paths; keep
+                # the rules explicit so manager initialization fails closed
+                # instead of silently allowing arbitrary new secret files.
+                *(DARWIN_SECRET_DENY_WRITE_GLOBS if sys.platform == "linux" else []),
             ],
         },
         "network": {

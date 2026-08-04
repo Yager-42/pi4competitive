@@ -140,9 +140,9 @@ class LocalFileSystem:
     ) -> Result[None, FileError]:
         p = self._resolve(path)
         try:
+            if p.exists() and not p.is_dir():
+                return err(FileError("already_exists", f"path exists and is not a directory: {p}", str(p)))
             p.mkdir(parents=bool((options or {}).get("recursive", False)), exist_ok=True)
-            return ok(None)
-        except FileExistsError:
             return ok(None)
         except PermissionError as e:
             return err(FileError("permission_denied", str(e), str(p), e))

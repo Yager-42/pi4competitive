@@ -488,8 +488,8 @@ def _extract_report_title(markdown: str) -> str:
         return ""
     for line in markdown.lstrip().splitlines():
         stripped = line.strip()
-        if stripped.startswith("#"):
-            return stripped.lstrip("#").strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip()
     return ""
 
 

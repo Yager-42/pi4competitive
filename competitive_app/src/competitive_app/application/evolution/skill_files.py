@@ -31,10 +31,13 @@ class SkillFiles:
             path = Path(candidate.path)
             if not path.is_file():
                 raise FileNotFoundError(path)
+            # Build the manifest while no dependent projection state has been
+            # committed.  A serialization/fsync/replace failure therefore
+            # leaves both the marker and scope metadata untouched.
+            await self._write_manifest_locked()
             (path.parent / ".skill_id").write_text(candidate.skill_id, encoding="utf-8")
             if self._scope_store is not None and scope is not None:
                 await self._scope_store.set_scope(candidate.skill_id, scope, str(path))
-            await self._write_manifest_locked()
         return str(path)
 
     async def reject_candidate(self, candidate: SkillRecord) -> None:

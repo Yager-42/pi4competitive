@@ -12,6 +12,7 @@ derived scope.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ from earendil_works.pi_agent.package_manager import load_capability_packages
 from competitive_app.adapter.out.sandbox.approved_registry import ApprovedToolRegistry
 from competitive_app.adapter.out.sandbox.native.native_runtime import NativeRuntime
 from competitive_app.adapter.out.sandbox.native.native_sandbox_provider import (
+    NATIVE_WORKER_ENVIRONMENT,
     NativeSandboxProvider,
 )
 from competitive_app.adapter.out.sandbox.sandbox_tool_executor import SandboxToolExecutor
@@ -57,8 +59,15 @@ async def _sandbox_executor(tmp_path: Path) -> tuple[SandboxToolExecutor, AgentT
     registry = ApprovedToolRegistry.from_tools(list(capability.tools))
     manifest_path = tmp_path / "approved_tools.json"
     _write_native_manifest(registry, manifest_path)
+    environment = {name: os.environ.get(name) for name in NATIVE_WORKER_ENVIRONMENT}
+    pythonpath = [entry for entry in (environment.get("PYTHONPATH") or "").split(os.pathsep) if entry]
+    for entry in (str(ROOT), str(ROOT / "capability_packages")):
+        if entry not in pythonpath:
+            pythonpath.append(entry)
+    environment["PYTHONPATH"] = os.pathsep.join(pythonpath)
     provider = NativeSandboxProvider(
         sandbox_root=tmp_path / "sandboxes",
+        environment=environment,
         manifest_path=manifest_path,
         runtime_factory=_runtime_factory,
     )
@@ -154,7 +163,10 @@ async def test_main_tool_call_runs_through_native_sandbox(tmp_path: Path) -> Non
 async def test_extension_provided_tool_runs_through_native_sandbox(tmp_path: Path) -> None:
     executor, tool = await _sandbox_executor(tmp_path)
     assert tool.executionTarget is not None
-    assert tool.executionTarget.module.startswith("capability_packages.")
+    assert (
+        tool.executionTarget.module.startswith("capability_packages.")
+        or tool.executionTarget.module.startswith("echo_example.")
+    )
     harness = _FauxHarness(tmp_path, executor, tool, derive_sandbox_id("extension-scope"))
     harness._set_responses(["extension"])
     agent = harness.agent()

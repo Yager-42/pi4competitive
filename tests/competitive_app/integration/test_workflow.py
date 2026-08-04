@@ -35,15 +35,16 @@ def _plan_response(target: str = "ACME", competitor: str = "Beta") -> str:
     )
 
 
-def _judge_response(value: str = "$10/mo") -> str:
-    """Judge extraction result: one finding for a_price."""
+def _judge_response(value: str = "$10/mo", slug: str = "acme") -> str:
+    """Judge extraction result with a source/excerpt from the fetched slug."""
+    source = f"https://example.com/{slug}"
     return json.dumps(
         [
             {
                 "attribute": "a_price",
                 "value": value,
-                "source": "https://example.com/pricing",
-                "source_excerpt": f"costs {value} per month",
+                "source": source,
+                "source_excerpt": f"The plan costs {value} per month.",
                 "confidence": 0.9,
             }
         ]
@@ -94,7 +95,7 @@ def _entity_responses(slug: str, price: str) -> list:
     return [
         faux_assistant_message([faux_tool_call("test_fetch", {"url": f"https://example.com/{slug}"})]),
         faux_assistant_message("done searching"),
-        faux_assistant_message(_judge_response(price)),
+        faux_assistant_message(_judge_response(price, slug)),
     ]
 
 
@@ -309,7 +310,7 @@ async def test_resume_preserves_socm_partial_progress(app_state, faux, mock_fetc
             faux_assistant_message(_plan_response()),
             faux_assistant_message([faux_tool_call("test_fetch", {"url": "https://example.com/acme"})]),
             faux_assistant_message("done"),
-            faux_assistant_message(_judge_response("$10/mo")),
+            faux_assistant_message(_judge_response("$10/mo", "acme")),
         ]
     )
     async with await _client(app_state) as client:

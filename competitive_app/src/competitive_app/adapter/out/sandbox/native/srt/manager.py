@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import inspect
 import os
 import secrets
 from typing import Any, Awaitable, Callable
@@ -188,7 +189,7 @@ async def filter_network_request(
     log_for_debugging(f"No matching config rule, asking user: {host}:{port}")
     try:
         result = sandbox_ask_callback({"host": host, "port": port})
-        if asyncio.iscoroutine(result):
+        if inspect.isawaitable(result):
             user_allowed = bool(await result)
         else:
             user_allowed = bool(result)
@@ -318,14 +319,12 @@ async def initialize(
                 f"https={redact_url(_parent_proxy.https_url)}"
             )
 
-        deps = await check_dependencies_async()
-        if deps["errors"]:
-            _config = None
-            raise RuntimeError(
-                f"Sandbox dependencies not available: {', '.join(deps['errors'])}"
-            )
-
         try:
+            deps = await check_dependencies_async()
+            if deps["errors"]:
+                raise RuntimeError(
+                    f"Sandbox dependencies not available: {', '.join(deps['errors'])}"
+                )
             if enable_log_monitor and get_platform() == "macos":
                 _log_monitor_shutdown = start_macos_sandbox_log_monitor(
                     _sandbox_violation_store.add_violation,
@@ -389,6 +388,8 @@ async def initialize(
             _config = None
             _manager_context = None
             await _reset_infra()
+            if _initialization_done is not None:
+                _initialization_done.set()
             raise
 
 
@@ -440,8 +441,9 @@ def _get_fs_write_config() -> FsWriteRestrictionConfig:
         for p in paths:
             stripped = remove_trailing_glob_suffix(p)
             if get_platform() == "linux" and contains_glob_chars(stripped):
-                log_for_debugging(f"Skipping glob pattern on Linux/WSL: {p}")
-                continue
+                raise ValueError(
+                    "unsafe Linux filesystem glob cannot be enforced: " + p
+                )
             out.append(stripped)
         return out
 
@@ -581,10 +583,9 @@ async def wrap_with_sandbox(
             for p in paths:
                 stripped = remove_trailing_glob_suffix(p)
                 if platform == "linux" and contains_glob_chars(stripped):
-                    log_for_debugging(
-                        f"[Sandbox] Skipping glob write pattern on Linux: {p}"
+                    raise ValueError(
+                        "unsafe Linux filesystem glob cannot be enforced: " + p
                     )
-                    continue
                 out.append(stripped)
             return out
 
@@ -633,9 +634,15 @@ async def wrap_with_sandbox(
 
     network_custom = custom_config.get("network") if custom_config else None
     has_network_config = (
-        network_custom.get("allowedDomains") is not None
+        any(
+            field in network_custom
+            for field in ("allowedDomains", "deniedDomains", "strictAllowlist")
+        )
         if network_custom is not None
-        else (_config or {}).get("network", {}).get("allowedDomains") is not None
+        else any(
+            field in ((_config or {}).get("network") or {})
+            for field in ("allowedDomains", "deniedDomains", "strictAllowlist")
+        )
     )
     needs_network_restriction = bool(has_network_config)
     needs_network_proxy = bool(has_network_config)
@@ -830,9 +837,10 @@ async def _reset_infra() -> None:
 
 async def reset() -> None:
     """Tear down the whole session (monitors, bridges, proxies, state)."""
-    global _config, _initialization_done, _initialization_error
+    global _config, _initialization_lock, _initialization_done, _initialization_error
     await _reset_infra()
     _config = None
+    _initialization_lock = None
     _initialization_done = None
     _initialization_error = None
     _sandbox_violation_store.clear()
@@ -870,6 +878,7 @@ def get_seccomp_availability() -> bool:
     """Linux readiness helper: seccomp helper verified + on disk."""
     config = _config or {}
     seccomp = config.get("seccomp") or {}
-    if seccomp.get("argv0"):
-        return True
-    return get_apply_seccomp_binary_path(seccomp.get("applyPath")) is not None
+    apply_path = seccomp.get("applyPath")
+    if seccomp.get("argv0") and not apply_path:
+        return False
+    return get_apply_seccomp_binary_path(apply_path) is not None

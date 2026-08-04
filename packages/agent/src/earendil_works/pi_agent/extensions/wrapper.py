@@ -47,7 +47,7 @@ def _remap_generated_module(
     if not parts or any(part in ("", ".", "..") for part in parts):
         return target
 
-    real_name = f"{root_path.name}.{'.'.join(parts)}"
+    real_name = ".".join(parts)
     # Host delta (P3.3): also publish the generated module object under its
     # real name so host-side lineage checks can import the same file object
     # even when the package root is not importable from sys.path (pytest,

@@ -14,8 +14,8 @@ Host delta (ADAPT):
   publication of the generic boundary-broker service
   (``pi_agent.boundary_approval``), and cleanup on shutdown. Failure at any
   step disables the session's broker and fails closed (no service published).
-- The reviewer's host dependencies (model registry, transcript entries,
-  session id, session signal, audit sink) are injected by App wiring through
+- The reviewer's host dependencies (model registry, transcript entries, session
+  id, session signal, audit sink) are injected by App wiring through
   ``bind_runtime(...)`` — explicit DI, never global-singleton guessing.
   Absent dependencies make the reviewer raise, which the broker converts to a
   deny.
@@ -28,6 +28,7 @@ import asyncio
 import logging
 import os
 import sys
+from contextvars import ContextVar
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -46,8 +47,12 @@ from pi_auto_review.reviewer import Config
 
 logger = logging.getLogger("pi_auto_review")
 
-# Host dependencies injected by App wiring (explicit DI per ADR 0013 D-NSBX5).
-_RUNTIME: dict[str, Any] = {}
+# Keep host dependencies scoped to the current extension-loading context.  A
+# process-global dictionary could leak one session's model/transcript callbacks
+# into another concurrently loaded harness.
+_RUNTIME: ContextVar[dict[str, Any] | None] = ContextVar(
+    "pi_auto_review_runtime", default=None
+)
 
 
 def bind_runtime(
@@ -57,38 +62,59 @@ def bind_runtime(
     session_id_provider: Callable[[], str] | None = None,
     signal_provider: Callable[[], Any] | None = None,
     audit: Callable[[Any], None] | None = None,
-) -> None:
-    """Bind the host surfaces the reviewer needs; call from App wiring.
+) -> Callable[[], None]:
+    """Bind reviewer host surfaces and return a cleanup callback.
 
-    Any dependency left unbound makes the reviewer raise and the broker deny.
+    Bindings are context-local and replacement-safe.  Host wiring should invoke
+    the returned callback when its owning extension/session is torn down.
     """
+    values = dict(_RUNTIME.get() or {})
     if model_registry is not None:
-        _RUNTIME["model_registry"] = model_registry
+        values["model_registry"] = model_registry
     if entries_provider is not None:
-        _RUNTIME["entries_provider"] = entries_provider
+        values["entries_provider"] = entries_provider
     if session_id_provider is not None:
-        _RUNTIME["session_id_provider"] = session_id_provider
+        values["session_id_provider"] = session_id_provider
     if signal_provider is not None:
-        _RUNTIME["signal_provider"] = signal_provider
+        values["signal_provider"] = signal_provider
     if audit is not None:
-        _RUNTIME["audit"] = audit
+        values["audit"] = audit
+    token = _RUNTIME.set(values)
+
+    def cleanup() -> None:
+        try:
+            _RUNTIME.reset(token)
+        except ValueError:
+            # ContextVar tokens cannot be reset from a different context.
+            _RUNTIME.set(None)
+
+    return cleanup
 
 
 def _unbind_runtime() -> None:
-    _RUNTIME.clear()
+    _RUNTIME.set(None)
 
 
-def _registry() -> Any:
-    registry = _RUNTIME.get("model_registry")
+def _runtime_values() -> dict[str, Any]:
+    return _RUNTIME.get() or {}
+
+
+def _registry(ctx: Any | None = None) -> Any:
+    registry = _runtime_values().get("model_registry")
+    if registry is None and ctx is not None:
+        registry = getattr(ctx, "modelRegistry", None)
     if registry is None:
         raise ValueError("pi-auto-review model registry is not bound")
     return registry
 
 
 def _entries(ctx: Any) -> list[Any]:
-    provider = _RUNTIME.get("entries_provider")
+    provider = _runtime_values().get("entries_provider")
     if provider is not None:
-        return list(provider())
+        entries = provider()
+        if asyncio.iscoroutine(entries):
+            raise RuntimeError("entries_provider must return a synchronous snapshot")
+        return list(entries)
     manager = getattr(ctx, "sessionManager", None)
     build = getattr(manager, "build_context", None)
     if build is None:
@@ -96,14 +122,17 @@ def _entries(ctx: Any) -> list[Any]:
     try:
         context = build()
         if asyncio.iscoroutine(context):
-            return []
+            context.close()
+            raise RuntimeError("async session context requires an entries_provider")
         return [{"message": message} for message in (context.get("messages") or [])]
+    except RuntimeError:
+        raise
     except Exception:  # noqa: BLE001
         return []
 
 
 def _session_id(ctx: Any) -> str:
-    provider = _RUNTIME.get("session_id_provider")
+    provider = _runtime_values().get("session_id_provider")
     if provider is not None:
         return provider()
     manager = getattr(ctx, "sessionManager", None)
@@ -117,14 +146,14 @@ def _session_id(ctx: Any) -> str:
 
 
 def _signal(ctx: Any) -> Any:
-    provider = _RUNTIME.get("signal_provider")
+    provider = _runtime_values().get("signal_provider")
     if provider is not None:
         return provider()
     return getattr(ctx, "signal", None)
 
 
 def _audit() -> Callable[[Any], None] | None:
-    return _RUNTIME.get("audit")
+    return _runtime_values().get("audit")
 
 
 def create_pi_auto_review_extension(
@@ -145,23 +174,21 @@ def create_pi_auto_review_extension(
     def install(pi: Any) -> None:
         broker: Any = None
         unpublish: Callable[[], None] | None = None
-        context: Any = None
         trusted_config = trusted
 
         def on_session_start(event: dict[str, Any], ctx: Any) -> None:
-            nonlocal broker, unpublish, context
+            nonlocal broker, unpublish
             if unpublish is not None:
                 unpublish()
                 unpublish = None
             if broker is not None:
                 broker.clear()
                 broker = None
-            context = None
             try:
                 session_conf = session_config(
                     str(ctx.cwd), trusted_config, allow_untrusted
                 )
-                registry = _registry()
+                registry = _registry(ctx)
                 broker = create_reviewer_broker(
                     registry,
                     session_conf,
@@ -173,25 +200,22 @@ def create_pi_auto_review_extension(
                 from earendil_works.pi_agent.boundary_approval import publish_boundary_broker
 
                 unpublish = publish_boundary_broker(broker)
-                context = ctx
                 logger.debug("pi-auto-review broker active for session")
             except Exception as error:  # noqa: BLE001
                 if broker is not None:
                     broker.clear()
                     broker = None
                 unpublish = None
-                context = None
                 logger.error("pi-auto-review: session disabled: %s", error)
 
         def on_session_shutdown(event: dict[str, Any], ctx: Any) -> None:
-            nonlocal broker, unpublish, context
+            nonlocal broker, unpublish
             if unpublish is not None:
                 unpublish()
                 unpublish = None
             if broker is not None:
                 broker.clear()
                 broker = None
-            context = None
 
         pi.on("session_start", on_session_start)
         pi.on("session_shutdown", on_session_shutdown)

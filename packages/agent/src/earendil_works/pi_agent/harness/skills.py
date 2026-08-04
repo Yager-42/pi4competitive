@@ -3,6 +3,7 @@
 upstream: packages/agent/src/harness/skills.ts
 """
 from __future__ import annotations
+import html
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,9 +25,12 @@ def format_skills_for_system_prompt(skills: list[Skill]) -> str:
         return ""
     lines = ["<skills>"]
     for s in visible:
+        safe_name = html.escape(s.name, quote=True)
+        safe_path = html.escape(s.filePath, quote=True)
+        safe_description = html.escape(s.description, quote=True)
         lines.append(
-            f'  <skill name="{s.name}" path="{s.filePath}">\n'
-            f"    <description>{s.description}</description>\n"
+            f'  <skill name="{safe_name}" path="{safe_path}">\n'
+            f"    <description>{safe_description}</description>\n"
             f"  </skill>"
         )
     lines.append("</skills>")
@@ -40,27 +44,40 @@ def load_skill_from_file(path: str | Path) -> Skill:
     name = p.stem
     description = ""
     content = text
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) >= 3:
-            front = parts[1]
-            content = parts[2].lstrip("\n")
+    disable_model_invocation = False
+    lines = text.splitlines(keepends=True)
+    if lines and lines[0].rstrip("\r\n") == "---":
+        closing_index = next(
+            (i for i, line in enumerate(lines[1:], start=1) if line.rstrip("\r\n").strip() == "---"),
+            None,
+        )
+        if closing_index is not None:
+            front = "".join(lines[1:closing_index])
+            content = "".join(lines[closing_index + 1 :]).lstrip("\r\n")
             for line in front.splitlines():
-                if ":" in line:
-                    k, v = line.split(":", 1)
-                    k = k.strip().lower()
-                    v = v.strip().strip("\"'")
-                    if k == "name":
-                        name = v
-                    elif k == "description":
-                        description = v
+                if ":" not in line:
+                    continue
+                k, v = line.split(":", 1)
+                k = k.strip().lower()
+                v = v.strip().strip("\"'")
+                if k == "name":
+                    name = v
+                elif k == "description":
+                    description = v
+                elif k == "disablemodelinvocation":
+                    disable_model_invocation = v.lower() == "true"
     if not description:
         # first non-empty line as description fallback
         for line in content.splitlines():
             if line.strip():
                 description = line.strip().lstrip("# ").strip()
-                break
-    return Skill(name=name, description=description, content=content, filePath=str(p.resolve()))
+    return Skill(
+        name=name,
+        description=description,
+        content=content,
+        filePath=str(p.resolve()),
+        disableModelInvocation=disable_model_invocation,
+    )
 
 
 def load_skills_from_paths(paths: list[str | Path]) -> list[Skill]:

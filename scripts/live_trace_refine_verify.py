@@ -72,6 +72,16 @@ async def main() -> None:
             summary["task_id"] = tid
             summary["status"] = status
             summary["elapsed"] = round(time.time() - t0, 1)
+            if status not in {"completed", "failed", "aborted"}:
+                raise TimeoutError(
+                    f"task {tid} did not reach a terminal state before timeout (status={status!r})"
+                )
+            if status != "completed":
+                (OUT / "summary.json").write_text(
+                    json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                print(json.dumps(summary, ensure_ascii=False, indent=2))
+                return
 
             # 1. trace
             tr = await c.get(f"/api/v2/tasks/{tid}/trace")

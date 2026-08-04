@@ -8,7 +8,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/vendor/earendil-works-pi"
 SHA_FILE="$ROOT/docs/plans/UPSTREAM_SHA.txt"
 
-PACKAGES=("${@:-ai agent coding-agent}")
+if (($#)); then
+  PACKAGES=("$@")
+else
+  PACKAGES=(ai agent coding-agent)
+fi
 SPARSE_PATHS=()
 for p in "${PACKAGES[@]}"; do
   SPARSE_PATHS+=("packages/${p}")

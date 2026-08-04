@@ -44,13 +44,17 @@ class ResponseContractChecker:
         if rule_id == "lead_with_conclusion":
             return checks.check_lead_with_conclusion(content)
         if rule_id == "paragraph_limit":
-            return checks.check_paragraph_limit(content, int(params.get("max", checks.PARAGRAPH_LIMIT)))
+            return checks.check_paragraph_limit(
+                content,
+                int(params.get("max", checks.PARAGRAPH_LIMIT)),
+                bool(params.get("strict", False)),
+            )
         if rule_id == "no_unfounded_claims":
             return checks.check_no_unfounded_claims(content)
         if rule_id == "semantic_density":
             density = checks.semantic_density(content)
             return checks.SEMANTIC_DENSITY_MIN <= density <= checks.SEMANTIC_DENSITY_MAX
-        return True
+        return False
 
 
 __all__ = ["ResponseContractChecker"]

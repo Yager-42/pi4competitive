@@ -96,8 +96,13 @@ async def _ask_network(
                 + "\n"
             ).encode()
         )
-        await writer.drain()
-        return bool(await future)
+        allowed = bool(await future)
+        if not allowed:
+            return False
+        # Re-resolve immediately before the proxy dials.  Approval must not
+        # turn a hostname that has since rebound to a private address into a
+        # permitted connection.
+        return (await validate_public_hostname(normalized)) is not None
     finally:
         pending.pop(request_id, None)
 
@@ -189,16 +194,17 @@ async def _main() -> int:
     await SandboxManager.initialize(
         init_message["runtimeConfig"], _ask_callback, False
     )
-
     command = " ".join(_shell_quote(arg) for arg in init_message["invocation"])
     wrapped = await SandboxManager.wrap_with_sandbox(
         command, "/bin/bash", None, None, os.getcwd()
     )
 
+    target_env = dict(os.environ)
+    target_env.pop("PI_SANDBOX_IPC_FD", None)
     target = await asyncio.create_subprocess_exec(
         *wrapped,
         cwd=os.getcwd(),
-        env=os.environ,
+        env=target_env,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

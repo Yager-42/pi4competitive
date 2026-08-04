@@ -88,6 +88,10 @@ class Frontier(BaseModel):
         attempts < MAX_TASK_ATTEMPTS.
         """
         done = done_ids or set()
+        # A persisted/retried task at the cap must not remain misleadingly pending.
+        for t in self.tasks:
+            if t.status == FrontierTaskStatus.PENDING and t.attempts >= MAX_TASK_ATTEMPTS:
+                t.status = FrontierTaskStatus.CANCELLED
         # Unblock tasks whose deps are now terminal.
         for t in self.tasks:
             if t.status == FrontierTaskStatus.BLOCKED and self._deps_terminal(t, done):
@@ -117,16 +121,13 @@ class Frontier(BaseModel):
         return False
 
     def retry(self, task_id: str) -> bool:
-        """Reset a RUNNING task back to PENDING so it can be re-dispatched.
-
-        ``attempts`` was already incremented on dequeue; the ``MAX_TASK_ATTEMPTS``
-        cap in ``dequeue`` will eventually exclude a persistently-failing task.
-        The coverage engine must call this when a sub-agent crashes/times out
-        without resolving (otherwise the task is stuck in RUNNING forever).
-        """
+        """Reset a RUNNING task, or cancel it after the retry cap."""
         for t in self.tasks:
             if t.id == task_id and t.status == FrontierTaskStatus.RUNNING:
-                t.status = FrontierTaskStatus.PENDING
+                if t.attempts >= MAX_TASK_ATTEMPTS:
+                    t.status = FrontierTaskStatus.CANCELLED
+                else:
+                    t.status = FrontierTaskStatus.PENDING
                 return True
         return False
 
@@ -165,7 +166,10 @@ class Frontier(BaseModel):
                 continue
             if not t.target_cells:
                 continue
-            if new_cells.issubset(frozenset(t.target_cells)):
+            if (
+                new_cells.issubset(frozenset(t.target_cells))
+                or frozenset(t.target_cells).issubset(new_cells)
+            ):
                 return t
         return None
 
@@ -177,14 +181,28 @@ class Frontier(BaseModel):
         for t in self.tasks:
             if t.id == task_id:
                 return t.is_terminal()
-        # Unknown dep treated as terminal (can't block forever on missing).
-        return True
+        # A missing prerequisite is unresolved, not terminal. Eviction and
+        # restored partial state must never make dependents dispatchable.
+        return False
 
     def _evict_if_over_cap(self) -> None:
         if len(self.tasks) <= MAX_FRONTIER_CAP:
             return
+        # Never evict a pending prerequisite while an active dependent names it.
+        protected_ids = {
+            dep
+            for t in self.tasks
+            if t.status in {
+                FrontierTaskStatus.PENDING,
+                FrontierTaskStatus.RUNNING,
+                FrontierTaskStatus.BLOCKED,
+            }
+            for dep in t.blocked_by
+        }
         pending = [
-            t for t in self.tasks if t.status == FrontierTaskStatus.PENDING
+            t
+            for t in self.tasks
+            if t.status == FrontierTaskStatus.PENDING and t.id not in protected_ids
         ]
         pending.sort(key=lambda t: (t.priority, t.created_at))
         evict = pending[: len(self.tasks) - MAX_FRONTIER_CAP]

@@ -9,7 +9,7 @@ from typing import Any, Generic, Literal, NotRequired, Protocol, TypedDict, Type
 from earendil_works.pi_agent.types import AgentMessage
 
 TValue = TypeVar("TValue")
-TError = TypeVar("TError")
+TError = TypeVar("TError", bound=BaseException)
 TMetadata = TypeVar("TMetadata", bound="SessionMetadata")
 
 

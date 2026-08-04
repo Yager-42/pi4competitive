@@ -178,18 +178,27 @@ async def ripgrep(
         return stdout, stderr, process.returncode or 0
 
     wait_task = asyncio.ensure_future(_wait())
-    if abort_signal is not None:
-        abort_task = asyncio.ensure_future(asyncio.shield(abort_signal))
-        done, _pending = await asyncio.wait(
-            {wait_task, abort_task}, return_when=asyncio.FIRST_COMPLETED
-        )
-        if wait_task not in done:
-            _kill_process(process)
-            raise asyncio.CancelledError("ripgrep aborted")
-    else:
-        await wait_task
-    stdout, stderr, code = wait_task.result()
-    return _parse_ripgrep_output(stdout, stderr, code)
+    abort_task: asyncio.Future | None = None
+    try:
+        if abort_signal is not None:
+            abort_task = asyncio.ensure_future(asyncio.shield(abort_signal))
+            done, _pending = await asyncio.wait(
+                {wait_task, abort_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if wait_task not in done:
+                _kill_process(process)
+                wait_task.cancel()
+                await asyncio.gather(wait_task, return_exceptions=True)
+                raise asyncio.CancelledError("ripgrep aborted")
+        else:
+            await wait_task
+        stdout, stderr, code = wait_task.result()
+        return _parse_ripgrep_output(stdout, stderr, code)
+    finally:
+        if abort_task is not None and not abort_task.done():
+            abort_task.cancel()
+        if abort_task is not None:
+            await asyncio.gather(abort_task, return_exceptions=True)
 
 
 

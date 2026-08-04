@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ....domain.research_brief import ResearchBrief
 
@@ -90,6 +90,12 @@ class FeedbackRequest(BaseModel):
     edited_blocks: int = Field(ge=0, description="Blocks the user manually edited.")
     total_blocks: int = Field(ge=0, description="Total blocks in the report.")
     data: dict[str, Any] = Field(default_factory=dict, description="Extra feedback payload.")
+
+    @model_validator(mode="after")
+    def validate_block_counts(self) -> "FeedbackRequest":
+        if self.edited_blocks > self.total_blocks:
+            raise ValueError("edited_blocks cannot exceed total_blocks")
+        return self
 
 
 __all__ = [

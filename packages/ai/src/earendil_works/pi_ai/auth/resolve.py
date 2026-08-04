@@ -85,20 +85,23 @@ async def _resolve_stored_oauth(
     oauth: OAuthAuth,
     stored: Credential,
 ) -> AuthResult | None:
-    expires = int(stored.get("expires") or 0)
-    if time.time() * 1000 < expires:
-        return await oauth["toAuth"](stored)
-    # refresh
-    async def mutator(current: Credential | None) -> Credential | None:
-        if current is None or current.get("type") != "oauth":
-            return current
-        if time.time() * 1000 < int(current.get("expires") or 0):
-            return None  # no write
-        return await oauth["refresh"](current)
+    try:
+        expires = int(stored.get("expires") or 0)
+        if time.time() * 1000 < expires:
+            return await oauth["toAuth"](stored)
+        # refresh
+        async def mutator(current: Credential | None) -> Credential | None:
+            if current is None or current.get("type") != "oauth":
+                return current
+            if time.time() * 1000 < int(current.get("expires") or 0):
+                return current  # another task refreshed it; do not overwrite
+            return await oauth["refresh"](current)
 
-    post = await credentials.modify(provider_id, mutator)
-    use = post if post and post.get("type") == "oauth" else stored
-    return await oauth["toAuth"](use)
+        post = await credentials.modify(provider_id, mutator)
+        use = post if post and post.get("type") == "oauth" else stored
+        return await oauth["toAuth"](use)
+    except Exception as exc:
+        raise ModelsError("auth", f"OAuth resolution failed for {provider_id}", cause=exc) from exc
 
 
 async def _resolve_api_key(

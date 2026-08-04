@@ -408,7 +408,7 @@ def _bridge_socat_args(
     listen_path: str, target_port: int
 ) -> list[str]:
     return [
-        f"UNIX-LISTEN:{listen_path},fork,reuseaddr",
+        f"UNIX-LISTEN:{listen_path},fork,reuseaddr,mode=0600",
         (
             f"TCP:localhost:{target_port},keepalive,keepidle=10,"
             "keepintvl=5,keepcnt=3"
@@ -949,7 +949,7 @@ async def generate_filesystem_args(
             emitted_deny_write_dests.append(raw_dest)
 
     for tmpfs_dir in tmpfs_dirs:
-        if any(tmpfs_dir.startswith(dest + "/") for dest in emitted_deny_write_dests):
+        if any(tmpfs_dir == dest or tmpfs_dir.startswith(dest + "/") for dest in emitted_deny_write_dests):
             log_for_debugging(
                 "[Sandbox Linux] Re-applying denyRead tmpfs re-exposed by "
                 f"denyWrite bind: {tmpfs_dir}"

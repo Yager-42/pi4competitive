@@ -13,10 +13,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sqlite3
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 REPO = Path(os.environ["RESUME_REPO"])
 TASK_ID = os.environ["RESUME_TASK_ID"]
@@ -46,18 +46,33 @@ os.environ["SESSIONS_CWD"] = SESSIONS_CWD
 os.environ["APP_DB"] = APP_DB
 
 
-def reset_task_for_resume() -> None:
-    """Flip status completed→pending and strip stop_after_stage so resume runs through."""
-    c = sqlite3.connect(APP_DB)
-    row = c.execute("SELECT metadata_json, projection_json FROM tasks WHERE task_id=?", (TASK_ID,)).fetchone()
-    meta = json.loads(row[0]) if row and row[0] else {}
-    meta.pop("stop_after_stage", None)  # don't stop early this time
-    c.execute(
-        "UPDATE tasks SET status=?, metadata_json=? WHERE task_id=?",
-        ("pending", json.dumps(meta, ensure_ascii=False), TASK_ID),
-    )
-    c.commit()
-    c.close()
+async def prepare_task_for_resume(state: Any) -> None:
+    """Validate and prepare a stopped task using the application's services.
+
+    The resume endpoint owns the actual preconditions and runner startup. This
+    helper only removes the stop marker and moves the validated terminal task to
+    pending through the shared store API so the endpoint can resume it normally.
+    """
+    task = await state.task_service.get_task(TASK_ID)
+    status = task.get("status")
+    if status not in {"completed", "failed", "aborted"}:
+        raise RuntimeError(f"task {TASK_ID} is not resumable from status {status!r}")
+    if state.task_service._first_non_ok_stage(task.get("projection")) is None:
+        raise RuntimeError(f"task {TASK_ID} has no incomplete stage to resume")
+    if state.registry.task_active(TASK_ID):
+        raise RuntimeError(f"task {TASK_ID} is already running")
+    session_id = task.get("session_id")
+    if not session_id:
+        raise RuntimeError(f"task {TASK_ID} has no session to resume")
+    metadata = dict(task.get("metadata") or {})
+    if not metadata.get("stop_after_stage"):
+        raise RuntimeError(f"task {TASK_ID} has no stop_after_stage marker")
+    if await state.task_service._load_research_brief(session_id) is None:
+        raise RuntimeError(f"task {TASK_ID} brief not recoverable")
+    metadata.pop("stop_after_stage", None)
+    await state.store.update_task_metadata(TASK_ID, metadata)
+    if not await state.store.update_task_status(TASK_ID, "pending"):
+        raise RuntimeError(f"task {TASK_ID} changed while preparing resume")
     print(f"[{ARCH}] reset task {TASK_ID} → pending, stripped stop_after_stage")
 
 
@@ -67,12 +82,12 @@ async def main() -> None:
     from competitive_app.adapter.in_.fastapi.app import create_app
     from competitive_app.wiring import build_application_state, load_config_from_env
 
-    reset_task_for_resume()
     state = await build_application_state(load_config_from_env())
     app = create_app()
     app.state.application = state
     OUT.mkdir(parents=True, exist_ok=True)
     try:
+        await prepare_task_for_resume(state)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t", timeout=900) as c:
             t0 = time.time()
             r = await c.post(f"/api/v2/tasks/{TASK_ID}/resume")
@@ -84,6 +99,13 @@ async def main() -> None:
                 if status in {"completed", "failed", "aborted"}:
                     break
                 await asyncio.sleep(4)
+            if status not in {"completed", "failed", "aborted"}:
+                raise TimeoutError(
+                    f"task {TASK_ID} did not reach a terminal state before timeout "
+                    f"(status={status!r})"
+                )
+            if status != "completed":
+                raise RuntimeError(f"task {TASK_ID} ended with status {status!r}")
             elapsed = time.time() - t0
             proj = (await c.get(f"/api/v2/tasks/{TASK_ID}")).json()["projection"]
             rep = (await c.get(f"/api/v2/tasks/{TASK_ID}/report")).json()

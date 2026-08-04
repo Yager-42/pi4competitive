@@ -2,7 +2,7 @@
 .git
 .venv
 data
-vendor
+vendor/*
 frontend/node_modules
 **/__pycache__
 **/*.pyc

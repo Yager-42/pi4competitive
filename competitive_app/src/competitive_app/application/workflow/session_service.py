@@ -9,9 +9,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Protocol
 
-from earendil_works.pi_agent.agent import Agent, AbortController
+from earendil_works.pi_agent.agent import Agent
 
-from ...domain.task import Task  # noqa: F401  (kept for layering clarity; not used yet)
 from .runtime_registry import RuntimeRegistry
 
 
@@ -43,9 +42,8 @@ class SessionConflictError(Exception):
     """Raised when a prompt cannot acquire the session lock in time (→ 409)."""
 
 
-class SessionAbortedError(Exception):
+class SessionAbortedError(SessionConflictError):
     """Raised when a queued prompt was cancelled by abort (→ 409)."""
-
 
 class SessionNotFoundError(Exception):
     """Raised when a session_id is not in the index (→ 404)."""
@@ -86,17 +84,22 @@ class SessionService:
         resolved_model = self._resolve_model(model)
         session = await self._repo.create({"cwd": cwd})
         meta = await session.get_metadata()
-        harness = await self._harness_factory.build(
-            session=session, model=resolved_model, system_prompt=system_prompt
-        )
-        self._registry.register_harness(meta["id"], harness)
-        await self._store.index_session(
-            session_id=meta["id"],
-            file_path=meta["path"],
-            cwd=cwd,
-            model=model,
-            system_prompt=system_prompt,
-        )
+        harness: Any | None = None
+        try:
+            harness = await self._harness_factory.build(
+                session=session, model=resolved_model, system_prompt=system_prompt
+            )
+            self._registry.register_harness(meta["id"], harness)
+            await self._store.index_session(
+                session_id=meta["id"],
+                file_path=meta["path"],
+                cwd=cwd,
+                model=model,
+                system_prompt=system_prompt,
+            )
+        except BaseException:
+            await self._cleanup_created_session(meta, harness)
+            raise
         return {
             "session_id": meta["id"],
             "status": "idle",
@@ -134,12 +137,21 @@ class SessionService:
             harness = self._registry.register_harness(session_id, harness)
         agent = harness.agent
         lock = self._registry.lock_for(session_id)
+        waiter = asyncio.current_task()
+        if waiter is None:
+            raise RuntimeError("prompt must run in an asyncio task")
+        self._registry.register_queued(session_id, waiter)
         try:
-            await asyncio.wait_for(lock.acquire(), timeout=self._prompt_lock_timeout)
-        except asyncio.TimeoutError as exc:
-            raise SessionConflictError(
-                f"session {session_id} is busy; prompt queue timeout"
-            ) from exc
+            try:
+                await asyncio.wait_for(lock.acquire(), timeout=self._prompt_lock_timeout)
+            except asyncio.TimeoutError as exc:
+                raise SessionConflictError(
+                    f"session {session_id} is busy; prompt queue timeout"
+                ) from exc
+            except asyncio.CancelledError as exc:
+                raise SessionAbortedError(f"session {session_id} prompt aborted") from exc
+        finally:
+            self._registry.unregister_queued(session_id, waiter)
         try:
             await harness.prompt(content)
         finally:
@@ -172,6 +184,26 @@ class SessionService:
         )
         context = await session.build_context()
         return {"session_id": session_id, "messages": list(context["messages"])}
+
+    async def _cleanup_created_session(self, meta: dict[str, Any], harness: Any | None) -> None:
+        """Best-effort compensation for a failed create_session transaction."""
+        session_id = meta.get("id")
+        if session_id:
+            self._registry.drop_harness(session_id)
+        if harness is not None:
+            try:
+                await harness.shutdown()
+            except Exception:
+                pass
+        try:
+            await self._repo.delete({"path": meta["path"], "cwd": meta.get("cwd", "")})
+        except Exception:
+            pass
+        if session_id:
+            try:
+                await self._store.delete_session(session_id)
+            except Exception:
+                pass
 
     def _resolve_model(self, model: str) -> dict[str, Any]:
         try:

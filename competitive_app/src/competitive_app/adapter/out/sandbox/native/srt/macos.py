@@ -668,6 +668,11 @@ def wrap_command_with_sandbox_macos(
     has_env_restrictions = bool(unset_env_vars) or bool(set_env_vars)
     has_git_config = bool(git_safe_directories)
 
+    shell_name = bin_shell or "bash"
+    shell = which(shell_name)
+    if not shell:
+        raise RuntimeError(f"Shell '{shell_name}' not found in PATH")
+
     if (
         not needs_network_restriction
         and not has_read_restrictions
@@ -675,7 +680,7 @@ def wrap_command_with_sandbox_macos(
         and not has_env_restrictions
         and not has_git_config
     ):
-        return ["bash", "-c", command]
+        return [shell if bin_shell else "bash", "-c", command]
 
     log_tag = generate_log_tag(command)
 
@@ -720,10 +725,6 @@ def wrap_command_with_sandbox_macos(
         for name, value in git_cfg.items():
             proxy_env_args.append(f"{name}={value}")
 
-    shell_name = bin_shell or "bash"
-    shell = which(shell_name)
-    if not shell:
-        raise RuntimeError(f"Shell '{shell_name}' not found in PATH")
 
     unset_env_args: list[str] = []
     for name in unset_env_vars or []:
@@ -809,11 +810,10 @@ def start_macos_sandbox_log_monitor(
         )
 
     process: asyncio.subprocess.Process | None = None
-    stop_event: asyncio.Event | None = None
+    stop_event: asyncio.Event = asyncio.Event()
 
     async def _run() -> None:
-        nonlocal process, stop_event
-        stop_event = asyncio.Event()
+        nonlocal process
         try:
             process = await asyncio.create_subprocess_exec(
                 "log",

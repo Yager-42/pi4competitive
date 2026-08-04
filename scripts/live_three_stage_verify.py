@@ -67,7 +67,23 @@ async def main() -> None:
                 if status in {"completed", "failed", "aborted"}:
                     break
                 await asyncio.sleep(5)
+            if status not in {"completed", "failed", "aborted"}:
+                raise TimeoutError(
+                    f"task {tid} did not reach a terminal state before timeout (status={status!r})"
+                )
             elapsed = time.time() - t0
+            if status != "completed":
+                summary = {
+                    "task_id": tid,
+                    "session_id": sid,
+                    "status": status,
+                    "elapsed_seconds": round(elapsed, 1),
+                }
+                (OUT / "summary.json").write_text(
+                    json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                print(json.dumps(summary, ensure_ascii=False, indent=2))
+                return
             proj = (await c.get(f"/api/v2/tasks/{tid}")).json()["projection"]
             rep = (await c.get(f"/api/v2/tasks/{tid}/report")).json()
             report_md = rep.get("report") or ""

@@ -28,7 +28,7 @@ def _dead_model(creds: dict[str, str]) -> dict:
 
 def _read_events(path: Path) -> list[dict[str, Any]]:
     raw = path.read_text(encoding="utf-8")
-    return [__import__("json").loads(block) for block in raw.split("\n\n") if block.strip()]
+    return [__import__("json").loads(line) for line in raw.splitlines() if line.strip()]
 
 
 @pytest.mark.live

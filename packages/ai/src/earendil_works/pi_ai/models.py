@@ -188,11 +188,13 @@ class ModelsImpl:
         return {"source": resolution.get("source", ""), "type": "api_key"}
 
     async def getAvailable(self, provider_id: str | None = None) -> list[Model]:
-        providers = (
-            [self._providers[provider_id]]
-            if provider_id and provider_id in self._providers
-            else self.getProviders()
-        )
+        if provider_id is not None:
+            provider = self._providers.get(provider_id)
+            if provider is None:
+                return []
+            providers = [provider]
+        else:
+            providers = self.getProviders()
         out: list[Model] = []
         for provider in providers:
             auth = await self.checkAuth(provider.id)
@@ -353,7 +355,7 @@ def create_provider(input: dict[str, Any]) -> Provider:
     baseline: list[Model] = list(input.get("models") or [])
     dynamic: list[Model] = []
     fetch_models = input.get("fetchModels")
-    inflight: list[Awaitable[None] | None] = [None]
+    inflight: list[Any] = [None]
 
     def current_models() -> list[Model]:
         merged = list(baseline)
@@ -366,9 +368,15 @@ def create_provider(input: dict[str, Any]) -> Provider:
         return merged
 
     api = input["api"]
-    single = api if callable(getattr(api, "get", None) is False) and "stream" in api else None
     if isinstance(api, dict) and callable(api.get("stream")):
         single = api
+        by_api = None
+    elif callable(getattr(api, "stream", None)):
+        single = {
+            "stream": api.stream,
+            "streamSimple": getattr(api, "streamSimple", None),
+            "stream_simple": getattr(api, "stream_simple", None),
+        }
         by_api = None
     else:
         single = None
@@ -410,9 +418,9 @@ def create_provider(input: dict[str, Any]) -> Provider:
             finally:
                 inflight[0] = None
 
-        inflight[0] = work()
+        import asyncio
+        inflight[0] = asyncio.create_task(work())
         await inflight[0]
-
     return Provider(
         id=input["id"],
         name=input.get("name") or input["id"],

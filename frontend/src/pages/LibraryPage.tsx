@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { FileText, Clock, Network, Trash2, Play, RotateCcw, Loader2 } from 'lucide-react'
-import { fetchTasks, resumeTask, deleteTask } from '../lib/api'
+import { fetchTasks, fetchTask, resumeTask, deleteTask } from '../lib/api'
 import type { Task } from '../types'
 import { fadeUp, stagger } from '../lib/motion'
 
@@ -47,12 +47,19 @@ export default function LibraryPage() {
   async function onResume(t: Task) {
     if (resuming) return
     setResuming(t.task_id)
-    const r = await resumeTask(t.task_id)
-    // completed → 不跳(running→409 在 safeJson 走 fallback,这里简化处理)
-    if (r.status === 'pending' || r.status === 'running') {
-      navigate(`/workspace/${t.task_id}`, { state: { query: t.query } })
+    try {
+      const r = await resumeTask(t.task_id)
+      // safeJson uses a pending fallback for failed requests; confirm the task
+      // state before navigating so a rejected resume never opens a workspace.
+      if (r.status === 'pending' || r.status === 'running') {
+        const current = await fetchTask(t.task_id)
+        if (current && (current.status === 'pending' || current.status === 'running')) {
+          navigate(`/workspace/${t.task_id}`, { state: { query: t.query } })
+        }
+      }
+    } finally {
+      setResuming(null)
     }
-    setResuming(null)
   }
 
   async function onDelete(t: Task) {
@@ -61,17 +68,26 @@ export default function LibraryPage() {
     )
     if (!ok) return
     setDeleting(t.task_id)
-    await deleteTask(t.task_id)
-    setDeleting(null)
-    await load()
+    try {
+      if (await deleteTask(t.task_id)) await load()
+    } finally {
+      setDeleting(null)
+    }
   }
 
   function openTask(t: Task) {
-    if (t.status === 'completed') navigate(`/report/${t.task_id}`)
-    else if (t.status === 'running' || t.status === 'awaiting_clarify') {
+    if (t.status === 'completed') {
+      navigate(`/report/${t.task_id}`)
+    } else if (t.status === 'awaiting_clarify') {
+      const clarify = (t.metadata?.clarify as { questions?: unknown } | undefined)?.questions
+      navigate(`/clarify/${t.task_id}`, {
+        state: { query: t.query, clarify: Array.isArray(clarify) ? clarify : [] },
+      })
+    } else if (t.status === 'pending' || t.status === 'running') {
       navigate(`/workspace/${t.task_id}`, { state: { query: t.query } })
     }
   }
+
 
   return (
     <div className="mx-auto max-w-content px-8 py-10">
@@ -114,7 +130,7 @@ export default function LibraryPage() {
               <motion.div
                 key={t.task_id}
                 variants={fadeUp}
-                className={`group flex flex-col rounded-card border border-line/60 bg-card p-5 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-float ${t.status === 'completed' || t.status === 'running' || t.status === 'awaiting_clarify' ? 'cursor-pointer' : ''}`}
+                className={`group flex flex-col rounded-card border border-line/60 bg-card p-5 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-float ${['completed', 'pending', 'running', 'awaiting_clarify'].includes(t.status) ? 'cursor-pointer' : ''}`}
                 onClick={() => openTask(t)}
               >
                 <div className="flex items-start justify-between gap-2">

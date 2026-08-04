@@ -15,7 +15,7 @@ class InMemoryCredentialStore:
 
     async def read(self, provider_id: str) -> Credential | None:
         entry = self._entries.get(provider_id)
-        return copy.deepcopy(entry) if entry else None
+        return copy.deepcopy(entry) if entry is not None else None
 
     async def delete(self, provider_id: str) -> None:
         self._entries.pop(provider_id, None)
@@ -28,10 +28,15 @@ class InMemoryCredentialStore:
         current = await self.read(provider_id)
         next_cred = await mutator(current)
         if next_cred is None:
-            await self.delete(provider_id)
-            return None
+            # ``None`` is the mutator's no-write signal. Use ``delete`` when
+            # callers intentionally need to remove a credential.
+            return copy.deepcopy(current) if current is not None else None
+        if not next_cred:
+            raise ValueError("credential must not be empty")
         self._entries[provider_id] = copy.deepcopy(next_cred)
         return copy.deepcopy(next_cred)
 
     async def write(self, provider_id: str, credential: Credential) -> None:
+        if not credential:
+            raise ValueError("credential must not be empty")
         self._entries[provider_id] = copy.deepcopy(credential)

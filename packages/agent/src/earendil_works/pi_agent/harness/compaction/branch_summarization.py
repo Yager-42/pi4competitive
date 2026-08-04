@@ -39,11 +39,15 @@ def prepare_branch_entries(
     if not from_id:
         return list(path_entries)
     out: list[SessionTreeEntry] = []
-    for e in path_entries:
-        out.append(e)
-        if e.get("id") == from_id:
-            break
-    return out
+    found = False
+    for entry in path_entries:
+        if found:
+            out.append(entry)
+        elif entry.get("id") == from_id:
+            found = True
+    # An unknown anchor cannot identify a branch; retain the complete path
+    # rather than silently dropping history.
+    return out if found else list(path_entries)
 
 
 __all__ = [

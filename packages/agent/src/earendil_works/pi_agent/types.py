@@ -327,7 +327,7 @@ class AgentLoopConfig:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_stream_options(self) -> SimpleStreamOptions:
-        opts: SimpleStreamOptions = {}
+        opts: SimpleStreamOptions = dict(self.extra)  # type: ignore[typeddict-item]
         if self.temperature is not None:
             opts["temperature"] = self.temperature
         if self.maxTokens is not None:
@@ -354,7 +354,6 @@ class AgentLoopConfig:
             opts["reasoning"] = self.reasoning  # type: ignore[typeddict-item]
         if self.thinkingBudgets is not None:
             opts["thinkingBudgets"] = self.thinkingBudgets
-        opts.update(self.extra)  # type: ignore[typeddict-item]
         return opts
 
 

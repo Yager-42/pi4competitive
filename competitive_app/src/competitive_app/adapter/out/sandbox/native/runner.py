@@ -109,8 +109,7 @@ async def spawn_broker(
         "exec_argv": [],
     }
     ipc_parent, ipc_child = socket.socketpair()
-    os.set_inheritable(ipc_child.fileno(), True)
-    env = dict(options.env or os.environ)
+    env = dict(options.env) if options.env is not None else {}
     env["PI_SANDBOX_IPC_FD"] = str(ipc_child.fileno())
     exec_argv = [str(arg) for arg in broker.get("exec_argv", [])]
     proc = await asyncio.create_subprocess_exec(
@@ -181,6 +180,7 @@ async def _ipc_loop(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
     options: SandboxCommandOptions,
+    network_tasks: set[asyncio.Task] | None = None,
 ) -> None:
     while True:
         line = await reader.readline()
@@ -191,8 +191,16 @@ async def _ipc_loop(
         except json.JSONDecodeError:
             continue
         if _is_network_request(message):
-            asyncio.create_task(answer_network_request(writer, message, options))
+            task = asyncio.create_task(answer_network_request(writer, message, options))
+            if network_tasks is not None:
+                network_tasks.add(task)
 
+                def _finish(done: asyncio.Task) -> None:
+                    network_tasks.discard(done)
+                    if not done.cancelled():
+                        done.exception()  # consume late writer failures
+
+                task.add_done_callback(_finish)
 
 async def run_sandboxed_command(
     options: SandboxCommandOptions,
@@ -229,7 +237,11 @@ async def run_sandboxed_command(
         await broker.wait()
         raise
 
-    ipc_task = asyncio.create_task(_ipc_loop(ipc_reader, ipc_writer, options))
+    network_tasks: set[asyncio.Task] = set()
+    stdout_task: asyncio.Task | None = None
+    stderr_task: asyncio.Task | None = None
+    ipc_task = asyncio.create_task(_ipc_loop(ipc_reader, ipc_writer, options, network_tasks))
+    abort_callback = None
 
     async def _send_init() -> None:
         init = {
@@ -247,12 +259,12 @@ async def run_sandboxed_command(
                 await broker.stdin.drain()
                 broker.stdin.close()
             elif options.direct_invocation and options.on_start is not None:
-                # The caller owns EOF (upstream leaves stdin open for onStart).
                 options.on_start(broker.stdin)
             else:
                 broker.stdin.close()
         except (ConnectionError, OSError):
             pass
+
     async def _pump(name: str, callback: Callable[[bytes], None] | None) -> None:
         stream = broker.stdout if name == "stdout" else broker.stderr
         while True:
@@ -273,7 +285,6 @@ async def run_sandboxed_command(
         except (ConnectionError, OSError) as error:
             raise RuntimeError(f"broker failed to start: {error}") from error
 
-        abort_callback = None
         if options.signal is not None:
             abort_callback = options.signal.add_done_callback(_on_abort)
         if options.timeout is not None and options.timeout > 0:
@@ -287,22 +298,21 @@ async def run_sandboxed_command(
 
         stdout_task = asyncio.create_task(_pump("stdout", options.on_stdout))
         stderr_task = asyncio.create_task(_pump("stderr", options.on_stderr))
-
         exit_code = await broker.wait()
         ipc_task.cancel()
-        stdout_task.cancel()
-        stderr_task.cancel()
-        pump_results = await asyncio.gather(
-            ipc_task, stdout_task, stderr_task, return_exceptions=True
+        for task in tuple(network_tasks):
+            task.cancel()
+        network_results = await asyncio.gather(
+            ipc_task, *network_tasks, return_exceptions=True
         )
-        # Callback/parse errors raised inside a pump must surface (the
-        # worker has already exited; the finally clause cleans up).
-        for pump_result in pump_results:
-            if isinstance(pump_result, BaseException) and not isinstance(
-                pump_result, asyncio.CancelledError
+        pump_results = await asyncio.gather(
+            stdout_task, stderr_task, return_exceptions=True
+        )
+        for result in pump_results + network_results:
+            if isinstance(result, BaseException) and not isinstance(
+                result, asyncio.CancelledError
             ):
-                raise pump_result
-
+                raise result
         if options.signal is not None and options.signal.done():
             raise RuntimeError("aborted")
         if timed_out:
@@ -313,6 +323,20 @@ async def run_sandboxed_command(
             timeout_task.cancel()
         if options.signal is not None and abort_callback is not None:
             options.signal.remove_done_callback(abort_callback)
+        if ipc_task is not None and not ipc_task.done():
+            ipc_task.cancel()
+        for task in tuple(network_tasks):
+            task.cancel()
+        for task in (stdout_task, stderr_task):
+            if task is not None and not task.done():
+                task.cancel()
+        pending_tasks = [
+            task
+            for task in (ipc_task, stdout_task, stderr_task, *network_tasks)
+            if task is not None and not task.done()
+        ]
+        if pending_tasks:
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
         if broker.returncode is None:
             kill_process_tree(broker)
         try:

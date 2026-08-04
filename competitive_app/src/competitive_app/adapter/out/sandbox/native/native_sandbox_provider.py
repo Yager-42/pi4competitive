@@ -76,6 +76,38 @@ def _worker_environment(
         )
     return env
 
+def _stage_manifest(source: Path, workspace: Path) -> Path:
+    """Copy the trusted manifest without following a worker-created symlink."""
+    destination = workspace / "approved_tools.json"
+    directory_fd: int | None = None
+    file_fd: int | None = None
+    try:
+        directory_fd = os.open(
+            workspace,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
+        )
+        file_fd = os.open(
+            destination.name,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=directory_fd,
+        )
+        with source.open("rb") as source_file, os.fdopen(file_fd, "wb") as target_file:
+            file_fd = None
+            shutil.copyfileobj(source_file, target_file)
+    except OSError as error:
+        raise SandboxPermissionError(
+            "native manifest destination is unsafe",
+            path=str(destination),
+            operation="workspace",
+        ) from error
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        if directory_fd is not None:
+            os.close(directory_fd)
+    return destination
+
 
 class NativeSandboxProvider(SandboxProvider):
     """Own host workspace scopes for the native broker runtime."""
@@ -123,9 +155,10 @@ class NativeSandboxProvider(SandboxProvider):
             # allow the sandbox root).
             staged_manifest = None
             if self._manifest_path is not None:
-                staged_manifest = workspace / "approved_tools.json"
                 try:
-                    shutil.copyfile(self._manifest_path, staged_manifest)
+                    staged_manifest = _stage_manifest(self._manifest_path, workspace)
+                except SandboxPermissionError:
+                    raise
                 except OSError as error:
                     raise SandboxPermissionError(
                         "native manifest is unavailable",
@@ -159,10 +192,11 @@ class NativeSandboxProvider(SandboxProvider):
             signal = self._signals.pop(scope_id, None)
             if sandbox is None:
                 return
-            await _close_sandbox(sandbox)
+            # Close is only an admission flag on NativeRuntime; signal first
+            # so an already-running command is killed before scope teardown.
             if signal is not None and not signal.done():
                 signal.set_result(None)
-
+            await _close_sandbox(sandbox)
     async def destroy_scope(self, scope_id: str) -> None:
         """Abort any in-flight worker (kills its broker tree) and close the
         scope. The workspace is preserved; task-delete removes it."""
