@@ -1,0 +1,2488 @@
+{
+  "status": "complete",
+  "message": "Review complete: 89 finding(s) across 160 selected item(s).",
+  "summary": {
+    "files_reviewed": 160,
+    "comments": 89,
+    "total_tokens": 11380424,
+    "input_tokens": 11119538,
+    "output_tokens": 260886,
+    "cache_read_tokens": 6876160,
+    "elapsed": "22m44s"
+  },
+  "tool_calls": {
+    "total": 1004,
+    "by_tool": {
+      "code_comment": 71,
+      "code_search": 322,
+      "file_find": 4,
+      "file_read": 526,
+      "file_read_diff": 81
+    }
+  },
+  "comments": [
+    {
+      "path": "capability_packages/pi_auto_review/pi_auto_review/policy.py",
+      "content": "Redaction is applied after `bounded_string`, so a long argument can be truncated in the middle of a credential before the redaction regex sees it. In particular, a private key whose `BEGIN` marker is outside the retained prefix (or whose footer is outside the suffix) will not match and key material can still be sent to the classifier. Redact the full serialized value first, then bound the redacted result, matching `_result_text`'s ordering.",
+      "suggestion_code": "        arguments = bounded_string(_redact_sensitive_result(bounded_string(part.get(\"arguments\") or {})))\n        out.append(f\"{part['name']} {arguments}\")",
+      "existing_code": "        arguments = _redact_sensitive_result(bounded_string(part.get(\"arguments\") or {}))\n        out.append(f\"{part['name']} {arguments}\")",
+      "start_line": 274,
+      "end_line": 275,
+      "category": "security",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/persistence/socm_store.py",
+      "content": "`_cross_process_lock()` performs a blocking `fcntl.flock(LOCK_EX)` while this `async def` holds the event-loop thread. If another process is in a read/modify/write section, `delete()` can block the entire event loop until that process releases the lock, stalling unrelated requests/tasks. Acquire the cross-process lock off the event loop (or use a non-blocking/polling strategy) before entering the async critical section.",
+      "existing_code": "        async with lock:\n            with self._cross_process_lock(session_id):\n                path = self._state_path(session_id)",
+      "start_line": 99,
+      "end_line": 101,
+      "category": "performance",
+      "severity": "medium"
+    },
+    {
+      "path": "capability_packages/pi_auto_review/pi_auto_review/policy.py",
+      "content": "Redaction is applied after `bounded_string`, so a long argument can be truncated in the middle of a credential before the redaction regex sees it. A private key whose BEGIN marker or footer is outside the retained prefix/suffix will not match, allowing key material into classifier input. Serialize/redact the complete value first and only then apply the evidence bound.",
+      "suggestion_code": "        raw_arguments = part.get(\"arguments\") or {}\n        try:\n            serialized_arguments = raw_arguments if isinstance(raw_arguments, str) else json.dumps(raw_arguments)\n        except (TypeError, ValueError):\n            serialized_arguments = \"[unserializable]\"\n        arguments = bounded_string(_redact_sensitive_result(serialized_arguments))\n        out.append(f\"{part['name']} {arguments}\")",
+      "existing_code": "        arguments = _redact_sensitive_result(bounded_string(part.get(\"arguments\") or {}))\n        out.append(f\"{part['name']} {arguments}\")",
+      "start_line": 274,
+      "end_line": 275,
+      "category": "security",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/routes_tasks.py",
+      "content": "The subscriber queue is added to `_subscribers` but there is no corresponding removal when the SSE generator disconnects (including the normal `request.is_disconnected()` path or cancellation). Every reconnect therefore leaves an unbounded queue retained by the fanout; for a long-running task the module-level `_SSE_FANOUTS` also retains the fanout and its pump, and future events continue to be enqueued for abandoned clients. Return a subscription handle/unsubscribe callback and invoke it from an `event_gen` `finally` block, and stop/remove an idle fanout when its subscriber set becomes empty.",
+      "existing_code": "        self._subscribers.add(queue)\n        return queue",
+      "start_line": 151,
+      "end_line": 152,
+      "category": "performance",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/routes_tasks.py",
+      "content": "This turns an infrastructure/read failure while constructing the snapshot into a task-level `failed` SSE event and closes the stream, without changing the task's persisted status. For example, a transient SOCM store/database failure can make the client display a failed task and stop receiving events even though the workflow is still running or later succeeds. The event should use a distinct snapshot/infrastructure error contract (or retry/fall back while retaining the actual task status), rather than reporting `status: failed`.",
+      "existing_code": "            yield _sse(\n                \"error\",\n                {\"task_id\": task_id, \"status\": \"failed\", \"code\": \"snapshot_unavailable\"},\n            )\n            return",
+      "start_line": 222,
+      "end_line": 226,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approved_registry.py",
+      "content": "This default approval path trusts the module-name prefix (and the later parent-name check) rather than verifying the resolved module is under the repository's actual trusted `capability_packages` directory. A shadowed package on `sys.path`, or a module loaded from `/tmp/capability_packages/...`, is therefore approved and can cross the host/worker tool trust boundary. Resolve the configured repository capability root and require `resolved.is_relative_to(trusted_root)` (and apply the same check to `capability_packages.*` names) instead of matching only a directory name/prefix.",
+      "existing_code": "    if module_name.startswith(\"capability_packages.\"):\n        return True",
+      "start_line": 43,
+      "end_line": 44,
+      "category": "security",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/broker.py",
+      "content": "`writer.write()` only appends the request to asyncio's buffer; without `await writer.drain()` the small network-request message may remain buffered while this coroutine waits for the parent's response, so the parent never sees the request and the proxy hangs until the request times out. Keep the drain before awaiting `future`.",
+      "suggestion_code": "        await writer.drain()\n        allowed = bool(await future)",
+      "existing_code": "        allowed = bool(await future)",
+      "start_line": 99,
+      "end_line": 99,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/routes_tasks.py",
+      "content": "`RuntimeRegistry.get_stream()` already creates and registers a new subscriber queue in `_TaskStream`; this queue becomes the fanout's `_source` here, but `_QueueFanout` never unregisters it. Thus every fanout (including ones recreated after cleanup) leaves a queue in the registry's `subscribers` set, and `publish_stream()` continues enqueuing into abandoned source queues. The route-level cleanup must also unsubscribe the source queue (or expose a registry subscription/fanout abstraction with explicit removal).",
+      "existing_code": "        source = registry.get_stream(task_id)\n        if source is None:\n            return None\n        fanout = _QueueFanout(source)\n        _SSE_FANOUTS[key] = fanout",
+      "start_line": 171,
+      "end_line": 175,
+      "category": "performance",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/policy.py",
+      "content": "On Linux this adds `DARWIN_SECRET_DENY_WRITE_GLOBS` (including `**/.env.*` and `**/*.pem`) to every default policy, but the Linux SRT manager explicitly raises `ValueError` for any `denyWrite` glob in `_get_fs_write_config`. Consequently, default sandbox initialization fails before a command can run on Linux rather than merely failing closed. Keep these globs Darwin-only, or implement a Linux-compatible expansion/enforcement mechanism before adding them here.",
+      "existing_code": "                *(DARWIN_SECRET_DENY_WRITE_GLOBS if sys.platform == \"linux\" else []),",
+      "start_line": 284,
+      "end_line": 284,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approved_registry.py",
+      "content": "`importlib.import_module()` executes the target module's top-level initialization, which can raise arbitrary exceptions (for example `ValueError` or a capability-specific configuration error). This helper is used during registry construction/validation, so such an exception escapes instead of treating the target as unavailable/unapproved, allowing a malformed or hostile loader alias to crash startup. Handle the import failure consistently with `_imported_target_callable` (or catch `Exception` and return `False`, preserving the cause only if it is surfaced to the caller).",
+      "existing_code": "    except (OSError, ImportError, RuntimeError):\n        return False",
+      "start_line": 51,
+      "end_line": 52,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "capability_packages/pi_auto_review/extensions/register.py",
+      "content": "This fallback is unsafe when cleanup runs from a different task/context (or after a newer binding): `reset(token)` cannot operate there, so `_RUNTIME.set(None)` clears whatever runtime is currently active in that context rather than the binding owned by this callback. A stale teardown callback can therefore remove another session's dependencies and cause subsequent reviews to fail or use context fallbacks. Do not mutate the current context on `ValueError`; instead make cleanup idempotent/owner-aware, or arrange for cleanup to execute in the context where the token was created.",
+      "existing_code": "        except ValueError:\n            # ContextVar tokens cannot be reset from a different context.\n            _RUNTIME.set(None)",
+      "start_line": 87,
+      "end_line": 89,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approval/sandbox.py",
+      "content": "`requested_path` is copied into the `BoundaryRequest` without validating its type. Although the trap type documents this field as a string, this converter is fed runtime trap data; a truthy non-string value is coerced into the ID/resource f-string but remains (for example) an integer in `path`, violating the `BoundaryRequest` contract and potentially breaking downstream policy matching/serialization. Reject non-string `requested_path` values (or only accept `None`/a non-empty string) before constructing the request.",
+      "suggestion_code": "        requested_path = trap.get(\"requested_path\")\n        if requested_path is not None and (\n            not isinstance(requested_path, str) or not requested_path\n        ):\n            raise ValueError(\"sandbox filesystem requested_path must be a non-empty string\")\n        resource = f\"{requested_path}:{resolved_path}\" if requested_path else resolved_path",
+      "existing_code": "        requested_path = trap.get(\"requested_path\")\n        resource = f\"{requested_path}:{resolved_path}\" if requested_path else resolved_path",
+      "start_line": 35,
+      "end_line": 36,
+      "category": "security",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approval/sandbox.py",
+      "content": "Only checking that `operation` is a non-empty string allows arbitrary operation names through. For filesystem traps every value other than `read` is mapped to the `filesystem-write` surface, so an unknown operation can be presented to policy/approval as a write request rather than being rejected; this is an unsafe and misleading authorization classification. Validate the per-kind allowlists explicitly (`read`/`write` for filesystem and `connect`/`bind` for network).",
+      "suggestion_code": "    operation = trap.get(\"operation\")\n    allowed_operations = {\n        \"filesystem\": {\"read\", \"write\"},\n        \"network\": {\"connect\", \"bind\"},\n    }[kind]\n    if operation not in allowed_operations:\n        raise ValueError(f\"unsupported sandbox {kind} operation: {operation!r}\")",
+      "existing_code": "    operation = trap.get(\"operation\")\n    if not isinstance(operation, str) or not operation:\n        raise ValueError(\"sandbox trap operation must be a non-empty string\")",
+      "start_line": 28,
+      "end_line": 30,
+      "category": "security",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_sandbox_provider.py",
+      "content": "`O_NOFOLLOW` prevents a symlink at this name, but it does not prevent an existing hard link. A worker that can write the workspace can replace `approved_tools.json` with a hard link to another file owned by the same UID; this `O_TRUNC` then truncates that outside file before copying the manifest, creating a host-file destruction primitive. Remove the destination via the directory fd and recreate it with `O_CREAT | O_EXCL` (and handle an existing destination/retry), so an attacker-created link is rejected rather than opened/truncated.",
+      "suggestion_code": "        try:\n            os.unlink(destination.name, dir_fd=directory_fd)\n        except FileNotFoundError:\n            pass\n        file_fd = os.open(\n            destination.name,\n            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,\n            0o600,\n            dir_fd=directory_fd,\n        )",
+      "existing_code": "        file_fd = os.open(\n            destination.name,\n            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,\n            0o600,\n            dir_fd=directory_fd,\n        )",
+      "start_line": 89,
+      "end_line": 94,
+      "category": "security",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/process.py",
+      "content": "If the caller cancels `ripgrep` while it is awaiting `asyncio.wait(...)` (the `abort_signal` path), cancellation does not propagate to either task in the wait set. This `finally` only cleans up `abort_task`, so `wait_task` continues waiting on `process.communicate()` and the subprocess can remain alive, leaking a process/pipes and potentially outliving the request. Cancel and await `wait_task` here as well (after killing the process if needed).",
+      "suggestion_code": "    finally:\n        if abort_task is not None and not abort_task.done():\n            abort_task.cancel()\n        if abort_task is not None:\n            await asyncio.gather(abort_task, return_exceptions=True)\n        if not wait_task.done():\n            _kill_process(process)\n            wait_task.cancel()\n        await asyncio.gather(wait_task, return_exceptions=True)",
+      "existing_code": "    finally:\n        if abort_task is not None and not abort_task.done():\n            abort_task.cancel()\n        if abort_task is not None:\n            await asyncio.gather(abort_task, return_exceptions=True)",
+      "start_line": 197,
+      "end_line": 201,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/protocol.py",
+      "content": "This removes the documented `Mapping[str, Any]` support from `encode_request`: `_validate_request` only accepts an actual `dict`, so callers passing `MappingProxyType`, a read-only mapping, or another custom `Mapping` now receive `invalid_shape` instead of being encoded as before. Keep the `dict(request)` normalization (or make `_require_object` accept `Mapping`) while retaining validation of the copied data.",
+      "existing_code": "    mapping = request.to_mapping() if isinstance(request, RpcRequest) else request",
+      "start_line": 211,
+      "end_line": 211,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/workspace.py",
+      "content": "The `O_NOFOLLOW` checks only protect these opens; both descriptors are closed before the returned `Path` is consumed. `NativeSandboxProvider.acquire()` subsequently stages the manifest into this path and passes it to `NativeRuntime`, which later reopens it by name, so a process able to modify the workspace root can replace the validated `\u003cscope_id\u003e` entry (or a parent component) between validation and use and redirect host-side operations outside the intended workspace. Keep/use a directory descriptor for subsequent operations (including staging and process `cwd`/policy construction), or otherwise make all later access descriptor-relative; a one-time path check cannot provide the claimed race-resistant boundary.",
+      "existing_code": "    return workspace",
+      "start_line": 84,
+      "end_line": 84,
+      "category": "security",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/proxy.py",
+      "content": "A negative `Content-Length` passes this check, so `_read_body` returns an empty body while leaving any following bytes unread and `_handle_request` forwards the original negative header upstream. Reject negative lengths as a malformed request (and similarly avoid silently accepting invalid values), rather than treating them as an empty body; otherwise the proxy can emit an invalid/desynchronized request and obscure request-framing failures.",
+      "suggestion_code": "        if length \u003c 0:\n            raise ValueError(\"invalid negative Content-Length\")\n        if length \u003e MAX_REQUEST_BODY_SIZE:\n            raise RequestBodyTooLarge(\n                f\"request body exceeds {MAX_REQUEST_BODY_SIZE} bytes\"\n            )",
+      "existing_code": "        if length \u003e MAX_REQUEST_BODY_SIZE:\n            raise RequestBodyTooLarge(\n                f\"request body exceeds {MAX_REQUEST_BODY_SIZE} bytes\"\n            )",
+      "start_line": 818,
+      "end_line": 821,
+      "category": "security",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/evolution/evolution_manager.py",
+      "content": "If `create_version` succeeds but `accept_candidate` fails, a failed `rollback` is silently ignored and `run_context` returns `None`; the newly created candidate can therefore remain active in the store despite there being no evolution record (and no error is surfaced). This fail-closed path should not suppress rollback failure—either retry/raise an explicit recovery error or otherwise guarantee the active pointer is restored before returning.",
+      "existing_code": "        if baseline is not None:\n            try:\n                await self._store.rollback(baseline.skill_id)\n            except Exception:\n                pass",
+      "start_line": 54,
+      "end_line": 58,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+      "content": "Writing the manifest before the marker and scope projection reverses the dependency ordering: after `create_version`, `list_active()` already includes this candidate, so `_write_manifest_locked()` publishes a manifest referencing it before either `.skill_id` or scope metadata exists. If the subsequent `write_text()`/`set_scope()` fails or the process stops between these operations, the manifest permanently points at an incomplete skill projection. Write the marker and scope metadata first, then publish the manifest (or make all three projections transactional/recoverable).",
+      "existing_code": "            # Build the manifest while no dependent projection state has been\n            # committed.  A serialization/fsync/replace failure therefore\n            # leaves both the marker and scope metadata untouched.\n            await self._write_manifest_locked()",
+      "start_line": 34,
+      "end_line": 37,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+      "content": "`_repo.create()` allocates the JSONL session (and may eagerly create related workspace state), but both `get_metadata()` and extraction of `meta[\"id\"]` occur before the compensating `try`. If metadata retrieval raises after creation, `_cleanup_created_session()` is never invoked, leaving the newly allocated session and any associated artifacts orphaned. Move metadata acquisition into the guarded transaction or add an outer cleanup path that can clean up using the session object.",
+      "existing_code": "        session = await self._repo.create({\"cwd\": self._sessions_cwd})\n        meta = await session.get_metadata()\n        session_id = meta[\"id\"]",
+      "start_line": 247,
+      "end_line": 249,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+      "content": "Rollback is implemented as an unconditional delete followed by recreation. A concurrent task operation can observe the row missing or update the row between these statements; the recreation then overwrites that update and also loses fields not copied here (for example, the original timestamps). Use an atomic/conditional restore operation, or serialize this transition with the same task-level coordination used by other mutations.",
+      "existing_code": "            await self._store.delete_task(task_id)\n            if existing is not None:\n                await self._store.create_task(",
+      "start_line": 303,
+      "end_line": 305,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+      "content": "This catch preserves the persisted task outcome, but silently discards every evolution-cycle exception. Since `run_cycle()` is the only post-task evolution trigger here, production failures become invisible. Log the exception or emit a non-fatal evolution failure journal/event while continuing to preserve the task status.",
+      "existing_code": "                try:\n                    await self._evolution_cycle_runner.run_cycle()\n                except Exception:  # noqa: BLE001\n                    pass",
+      "start_line": 1007,
+      "end_line": 1010,
+      "category": "maintainability",
+      "severity": "low"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/domain/socm/coverage.py",
+      "content": "When a weak cell is retried and the judge returns the same value with a stronger confidence, this path raises `cell.confidence` via `max(...)` but leaves `cell.source` and `cell.source_excerpt` pointing to the earlier weaker result. The matrix/report will therefore present the stronger confidence alongside stale provenance, misrepresenting which evidence supports the accepted value. When the new confidence exceeds the current one, update the provenance as well (or retain the stronger candidate explicitly).",
+      "existing_code": "            # Support: keep filled, bump confidence and count another weak retry.",
+      "start_line": 213,
+      "end_line": 213,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/coverage_engine.py",
+      "content": "This read/check followed by `save()` is not an atomic read-modify-write. `SocmStore` explicitly documents that `load()` + `save()` is unsafe for RMW, and its cross-process lock only protects each individual operation. If two coverage runs/workers for the same session (including separate processes) enter this method concurrently, both can observe the same remaining allowance and both consume it, exceeding `max_queries` and dispatching searches beyond the configured cap. Use `atomic_update()` for the check and increment as one operation (and base dispatch allowance on its result).",
+      "existing_code": "        latest = await self._socm_store.load(self._session_id)\n        if latest.budget.max_queries \u003e 0 and (\n            latest.budget.consumed_queries \u003e= latest.budget.max_queries\n        ):\n            return False\n        latest.budget.consume_query(1)\n        await self._socm_store.save(self._session_id, latest)",
+      "start_line": 374,
+      "end_line": 380,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/coverage_engine.py",
+      "content": "A completed sub-agent task can fail before producing evidence (for example, ephemeral harness construction or shutdown-related execution), but this handler only logs the exception and the scheduler continues/refills. The coverage loop then evaluates the round as if that subtask had been processed and can terminate successfully based on other cells, yielding a successful search result with silently missing coverage. Record the subtask as failed/incomplete (or propagate the failure so the search stage cannot report success) rather than treating every exception as a recoverable success.",
+      "existing_code": "                except Exception:  # noqa: BLE001\n                    # Retrieve task exceptions so asyncio never reports an\n                    # unobserved failure; one failed sub-agent must not hide\n                    # failures from the event loop.\n                    _log.exception(\"search sub-agent failed (%s)\", lbl)",
+      "start_line": 362,
+      "end_line": 366,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/extraction.py",
+      "content": "This dictionary collapses multiple observations with the same source URL to the last page's text. If the fetch tool submits the same URL more than once (for example, separate result chunks or repeated fetches), a judge citation whose verbatim excerpt occurs in an earlier observation is rejected here even though that observation was included in `pages_blob`, so valid evidence is silently marked UNKNOWN. Preserve all texts per source and accept the excerpt if it occurs in any of them.",
+      "suggestion_code": "        source_pages: dict[str, list[str]] = {}\n        for txt, src in observations:\n            key = str(src).strip()\n            if key:\n                source_pages.setdefault(key, []).append(txt)",
+      "existing_code": "        source_pages = {str(src).strip(): txt for txt, src in observations if str(src).strip()}",
+      "start_line": 170,
+      "end_line": 170,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/domain/socm/frontier.py",
+      "content": "The reverse subset match drops work from the newly added task: when an active task targets `e.a` and a new task targets `e.a` plus `e.b`, `add()` returns the narrow existing task without adding `e.b` anywhere. Consequently `e.b` is never dispatched or covered. Deduplication can safely collapse an incoming subset into an existing superset, but an incoming superset must either be retained/merged into the existing task (including its target cells) or not be treated as a duplicate.",
+      "existing_code": "            if (\n                new_cells.issubset(frozenset(t.target_cells))\n                or frozenset(t.target_cells).issubset(new_cells)\n            ):",
+      "start_line": 169,
+      "end_line": 172,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/session_service.py",
+      "content": "Cancellation can arrive after `lock.acquire()` has acquired the lock but before this task resumes from `wait_for`. In that case the `CancelledError` is converted to `SessionAbortedError` and execution skips the later `finally` that releases the lock, leaving the per-session lock permanently held and causing every subsequent prompt to time out. Track whether acquisition succeeded and release on cancellation (or put acquisition and prompt/release under one cancellation-safe ownership `try/finally`).",
+      "existing_code": "            except asyncio.CancelledError as exc:\n                raise SessionAbortedError(f\"session {session_id} prompt aborted\") from exc\n        finally:\n            self._registry.unregister_queued(session_id, waiter)",
+      "start_line": 151,
+      "end_line": 154,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/session_service.py",
+      "content": "These compensation failures are silently discarded. If shutdown, repository deletion, or index deletion fails, `create_session` still re-raises the original error without any indication that a session file or index row may remain, making partial-create leaks and inconsistent state difficult to diagnose. Log the exception (with the session id/path) while preserving the original exception.",
+      "existing_code": "            try:\n                await harness.shutdown()\n            except Exception:\n                pass\n        try:\n            await self._repo.delete({\"path\": meta[\"path\"], \"cwd\": meta.get(\"cwd\", \"\")})\n        except Exception:\n            pass\n        if session_id:\n            try:\n                await self._store.delete_session(session_id)\n            except Exception:\n                pass",
+      "start_line": 194,
+      "end_line": 206,
+      "category": "maintainability",
+      "severity": "low"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/domain/socm/strategy.py",
+      "content": "`_check_amount` validates the increment but not the result of the addition. Two individually finite wall-clock values near `1e308` can make `consumed_wall_seconds` become `inf`; the model then violates the finite-value invariant and `ratio()` silently returns `inf`, exhausting the budget permanently. Validate the post-addition total (or reject additions that would overflow) before mutating the counter.",
+      "suggestion_code": "    def consume_wall(self, seconds: float) -\u003e None:\n        self._check_amount(seconds, \"wall-clock consumption\")\n        total = self.consumed_wall_seconds + seconds\n        if not isfinite(total):\n            raise ValueError(\"wall-clock consumption exceeds finite range\")\n        self.consumed_wall_seconds = total",
+      "existing_code": "    def consume_wall(self, seconds: float) -\u003e None:\n        self._check_amount(seconds, \"wall-clock consumption\")\n        self.consumed_wall_seconds += seconds",
+      "start_line": 111,
+      "end_line": 113,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+      "content": "Subscriber queues are never removed when an SSE generator disconnects, and `asyncio.Queue()` is unbounded. A slow/disconnected client therefore remains in `subscribers` and continues accumulating every event; because completed streams are also retained in `_streams`, repeated task streams can grow memory indefinitely. Add an unsubscribe/finally path and bound or backpressure subscriber queues (and evict completed streams after the late-subscription window).",
+      "existing_code": "    subscribers: set[asyncio.Queue[dict[str, Any]]] = field(default_factory=set)\n\n    def subscribe(self) -\u003e asyncio.Queue[dict[str, Any]]:\n        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()",
+      "start_line": 27,
+      "end_line": 30,
+      "category": "performance",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+      "content": "This unconditionally replaces the task's stream. Concurrent clarify submissions/resumes can both pass the earlier active check; the later startup then replaces the stream while the first runner/subscribers still use it, and its rollback can unregister that replacement. The first runner's terminal events can consequently be dropped and attached SSE clients can hang. Reuse an existing stream or serialize registration/startup per task, and only remove the stream owned by the corresponding startup.",
+      "existing_code": "        stream = _TaskStream()\n        self._streams[task_id] = stream\n        return stream.subscribe()",
+      "start_line": 135,
+      "end_line": 137,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+      "content": "The previous implementation swallowed ordinary task exceptions here, but this change only catches `CancelledError`. If the runner finishes with an exception after the `done()` check (or cancellation is not honored and the runner fails), awaiting it propagates that exception from the abort API instead of returning the established boolean result. Catch/handle runner exceptions consistently with the prior contract while preserving cancellation diagnostics.",
+      "existing_code": "        try:\n            await active.task\n        except asyncio.CancelledError:\n            pass\n        return True",
+      "start_line": 159,
+      "end_line": 163,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+      "content": "Cleanup failures are silently discarded, so shutdown can report success while a harness subprocess, lock, or other resource remains leaked. Preserve best-effort cleanup, but log the exception (and preferably identify the session/harness) so operational failures are diagnosable.",
+      "existing_code": "            try:\n                harness.agent.abort()\n            except Exception:\n                pass\n            try:\n                await harness.shutdown()\n            except Exception:\n                pass",
+      "start_line": 177,
+      "end_line": 184,
+      "category": "maintainability",
+      "severity": "low"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/wiring.py",
+      "content": "When `config.sandbox.config` is empty (the normal default), this now automatically reads a user-controlled file and turns its absolute paths into sandbox `allowRead` entries. An account/user-controlled `~/.pi/agent/extensions/pi-sandbox/config.json` can therefore grant the worker access to arbitrary host files (for example `/etc/...` or other sensitive paths) without an explicit application configuration/opt-in. This changes the previous fail-closed behavior and is especially risky because the file is outside the workspace policy. Keep the empty-path case returning `[]`, or require an explicit trusted configuration path and validate it against an approved location.",
+      "suggestion_code": "    if not path:\n        return []\n    config_path = Path(path).expanduser()",
+      "existing_code": "    config_path = Path(path or \"~/.pi/agent/extensions/pi-sandbox/config.json\").expanduser()",
+      "start_line": 730,
+      "end_line": 730,
+      "category": "security",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/wiring.py",
+      "content": "This rollback helper is only invoked by the `try` beginning at `TaskService` construction below. Exceptions during the preceding service-composition code (for example fallback-chain construction, `SessionService`, judge resolution, or evolution setup) still exit `build_application_state` with the already initialized stores and sandbox lifecycle open. Startup failure can consequently leak SQLite connections and/or the sandbox provider. The cleanup scope should cover all code after resource acquisition, not just `TaskService`/`ApplicationState` construction.",
+      "suggestion_code": "    async def _rollback_resources() -\u003e None:\n        \"\"\"Close resources opened before service composition fails.\"\"\"\n        if sandbox_lifecycle is not None:\n            try:\n                await sandbox_lifecycle.shutdown()\n            except Exception:\n                pass\n        for resource in (workflow_skill_store, skill_store, store):\n            try:\n                await resource.close()\n            except Exception:\n                pass\n\n    try:\n        # compose all services and return ApplicationState inside this scope\n        ...\n    except BaseException:\n        await _rollback_resources()\n        raise",
+      "existing_code": "    async def _rollback_resources() -\u003e None:\n        \"\"\"Close resources opened before service composition fails.\"\"\"\n        if sandbox_lifecycle is not None:\n            try:\n                await sandbox_lifecycle.shutdown()\n            except Exception:\n                pass\n        for resource in (workflow_skill_store, skill_store, store):\n            try:\n                await resource.close()\n            except Exception:\n                pass",
+      "start_line": 528,
+      "end_line": 539,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/hooks/useTaskStream.ts",
+      "content": "This update can apply an out-of-order HTTP snapshot over newer SSE state. The initial `fetchTask` starts before the EventSource, so a delayed GET response may resolve after `state_snapshot`/progress/terminal events and `applyTask` will blindly replace the store's stages, coverage, and status-derived flags. `isCurrent()` only checks task identity, not response freshness. Track an event/version sequence (or make `applyTask` reject stale snapshots) before applying GET results; otherwise progress can visibly regress or a terminal state can be overwritten.",
+      "existing_code": "        if (isCurrent() \u0026\u0026 t) applyTask(t)",
+      "start_line": 43,
+      "end_line": 43,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/pages/LibraryPage.tsx",
+      "content": "`resumeTask` now propagates HTTP/network errors because its fallback was removed in `api.ts`, but this handler only uses `finally`; a failed resume therefore becomes an unhandled rejection with no user-visible feedback. Catch the error (and ideally show a toast/message) so the user knows the resume failed rather than silently remaining on the library page.",
+      "existing_code": "    try {\n      const r = await resumeTask(t.task_id)\n      // safeJson uses a pending fallback for failed requests; confirm the task\n      // state before navigating so a rejected resume never opens a workspace.",
+      "start_line": 50,
+      "end_line": 53,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/lib/api.ts",
+      "content": "Removing the fallback makes `createTask` reject on network/HTTP/JSON failures. `HomePage.submit` still navigates in its `finally` block, so a failed request sends the user to `/workspace/undefined` and leaves the rejection unhandled. Either handle the error before navigation (and show a user-facing message) or preserve an explicit failure result.",
+      "existing_code": "return safeJson\u003cCreateTaskResp\u003e('/api/v2/tasks', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({ query }),\n  })",
+      "start_line": 32,
+      "end_line": 36,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/lib/api.ts",
+      "content": "This change also makes clarification submission reject, but `ClarifyPage.go` navigates unconditionally from `finally`. A failed POST therefore still opens the workspace even though clarification was not accepted, and the rejected promise is not handled. Navigate only after a successful response and provide an error path.",
+      "existing_code": "return safeJson\u003c{ ok: boolean; status?: string }\u003e(\n    `/api/v2/tasks/${taskId}/clarify`,\n    {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ answers }),\n    },\n  )",
+      "start_line": 44,
+      "end_line": 51,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/pages/TracePage.tsx",
+      "content": "The rejection is converted to an empty span list without any error state, so a network/API failure is rendered as “无 trace span” and is indistinguishable from a valid report with no spans. This can mislead users and makes recovery difficult; preserve an error flag/message (and optionally a retry action) and render it separately from the empty state.",
+      "existing_code": "      .catch(() =\u003e {\n        if (active) setSpans([])\n      })",
+      "start_line": 44,
+      "end_line": 46,
+      "category": "other",
+      "severity": "low"
+    },
+    {
+      "path": "frontend/src/lib/api.ts",
+      "content": "The mutation callers for these newly non-fallback APIs are not uniformly updated: `DashboardPage.addSub`, `delSub`, and `runSub` await them without `try/catch` or `finally`. A failed request can become an unhandled rejection; for `runSub`, `setRunning(null)` is skipped and the button remains stuck. Keep the fallback or make each caller reset state and display an error on rejection.",
+      "existing_code": "return safeJson\u003c{ ok: boolean; status?: string }\u003e(\n    `/api/v2/tasks/${taskId}/clarify`,\n    {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ answers }),\n    },\n  )",
+      "start_line": 44,
+      "end_line": 51,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/lib/api.ts",
+      "content": "`ReportPage.doRefine`, `doFeedback`, and `WorkspacePage.onAbort` also await the now-rejecting helpers without error handling. On a failed refine, `setRefining(null)` and the reload are skipped, leaving the section permanently in a refining state; failed feedback/abort requests likewise produce unhandled rejections and no user-facing error. These callers need `try/catch/finally` around the new rejection behavior.",
+      "existing_code": "return safeJson\u003c{ ok: boolean; message?: string }\u003e(\n    `/api/v2/reports/${reportId}/refine`,\n    {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ section_id: sectionId, annotations }),\n    },\n  )",
+      "start_line": 122,
+      "end_line": 129,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/pages/EvidencesPage.tsx",
+      "content": "`fetchEvidences` can reject (the API helper rethrows network/HTTP errors), but this chain has no rejection handler. That leaves an unhandled promise rejection and provides no error state or user-facing feedback; the page can continue displaying stale evidence while loading simply stops. Add a cancellation-aware `.catch(...)` that records/clears the error (or at least handles the failure) before `finally`.",
+      "suggestion_code": "      .catch(() =\u003e {\n        if (!cancelled) setData(EMPTY)\n      })\n      .finally(() =\u003e {\n        if (!cancelled) setLoading(false)\n      })",
+      "existing_code": "      .finally(() =\u003e {\n        if (!cancelled) setLoading(false)\n      })",
+      "start_line": 51,
+      "end_line": 53,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/agent/src/earendil_works/pi_agent/agent_loop.py",
+      "content": "Catching `BaseException` here swallows `asyncio.CancelledError` (and even `KeyboardInterrupt`/`SystemExit`) instead of allowing the producer task's cancellation/system termination to propagate. A cancelled agent task is therefore reported as a normally completed task whose stream merely raises later, which can break task lifecycle/cancellation handling. Handle cancellation separately (wake stream, then re-raise) and catch only the ordinary exceptions expected from the agent loop.",
+      "suggestion_code": "        except asyncio.CancelledError as error:\n            _end_stream_with_error(stream, error)\n            raise\n        except Exception as error:\n            _end_stream_with_error(stream, error)\n        else:\n            stream.end(messages)",
+      "existing_code": "        except BaseException as error:\n            _end_stream_with_error(stream, error)\n        else:\n            stream.end(messages)",
+      "start_line": 103,
+      "end_line": 106,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/agent/src/earendil_works/pi_agent/agent_loop.py",
+      "content": "The continuation path has the same cancellation bug: catching `BaseException` consumes `asyncio.CancelledError` (and system-exit exceptions), so cancellation of this producer task does not propagate to its caller. Wake the stream but re-raise cancellation, and restrict the ordinary failure handler to `Exception`.",
+      "suggestion_code": "        try:\n            messages = await run_agent_loop_continue(context, config, stream.push, signal, stream_fn)\n        except asyncio.CancelledError as error:\n            _end_stream_with_error(stream, error)\n            raise\n        except Exception as error:\n            _end_stream_with_error(stream, error)\n        else:\n            stream.end(messages)",
+      "existing_code": "        try:\n            messages = await run_agent_loop_continue(context, config, stream.push, signal, stream_fn)\n        except BaseException as error:\n            _end_stream_with_error(stream, error)\n        else:\n            stream.end(messages)",
+      "start_line": 135,
+      "end_line": 140,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/hooks/useTaskStream.ts",
+      "content": "Polling is only scheduled from `onError`. An EventSource can stay open without delivering task events (for example, a stalled proxy/connection), and this API also emits a heartbeat every 15 seconds, so no error is guaranteed while the task state is stale. Add a watchdog/last-event timeout (or an independent polling safety timer) so the UI cannot remain indefinitely at the state set by `reset` when the stream is silently stalled.",
+      "existing_code": "    const close = openTaskStream(taskId, {\n      onEvent: (type, data) =\u003e {\n        if (isCurrent()) ingest(type, data)\n      },",
+      "start_line": 68,
+      "end_line": 71,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/hooks/useTaskStream.ts",
+      "content": "When the initial GET fails, this catch suppresses the only diagnostic, while `reset` has already set the task to `running`. If the SSE connection also fails and every polling request fails, the polling catch below is likewise silent, leaving the workspace indefinitely in a loading/running state with no user-visible error. Preserve/report a terminal stream error after the fallback fails (while still ignoring expected AbortError during cleanup).",
+      "existing_code": "      .catch(() =\u003e {\n        // SSE/polling remains the fallback for transient GET failures.\n      })",
+      "start_line": 45,
+      "end_line": 47,
+      "category": "bug",
+      "severity": "low"
+    },
+    {
+      "path": "packages/agent/src/earendil_works/pi_agent/harness/skills.py",
+      "content": "The opening delimiter is checked without trimming surrounding whitespace, while the closing delimiter accepts it and the previous `startswith(\"---\")` logic also parsed lines such as `---   `. A skill file using `---   ` therefore leaves its front matter in `content` and silently loses `name`, `description`, and `disableModelInvocation`. Normalize the opening delimiter consistently with the closing one (or preserve the prior accepted syntax).",
+      "suggestion_code": "    if lines and lines[0].rstrip(\"\\r\\n\").strip() == \"---\":",
+      "existing_code": "    if lines and lines[0].rstrip(\"\\r\\n\") == \"---\":",
+      "start_line": 49,
+      "end_line": 49,
+      "category": "bug",
+      "severity": "low"
+    },
+    {
+      "path": "packages/agent/src/earendil_works/pi_agent/package_manager/collect.py",
+      "content": "This changes the matching semantics for symlinked files: `target.name` is the resolved destination name, whereas the package-tree entry name (`name`) is what was previously matched. Thus a valid in-boundary link such as `README.md -\u003e docs/readme.txt` (or `prompt.md -\u003e source.txt`) is omitted when the resource pattern matches the link name. Resolve the target for boundary/type checks and returned path, but apply `file_pattern` to `name` to preserve package entry semantics.",
+      "suggestion_code": "elif is_file and file_pattern.search(name):\n                files.append(str(target))",
+      "existing_code": "elif is_file and file_pattern.search(target.name):\n                files.append(str(target))",
+      "start_line": 107,
+      "end_line": 108,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/api/azure_openai_responses_lazy.py",
+      "content": "This changes the public API from an eagerly initialized stream implementation to `lazy_stream`, but `lazy_stream` only defers setup through its patched `__aiter__`; when the stream is created without a running event loop, it stores the runner in `_pending_setup`, while `EventStream.result()` starts only `_pending_runner`. Thus a caller can create `api[\"stream\"](...)` synchronously and later await `stream.result()` in an event loop, leaving the result future unresolved forever. Either make the lazy stream's `result()`/`await_result()` start `_pending_setup`, or retain eager initialization for this API until that lifecycle path is fixed.",
+      "suggestion_code": "    # Use lazy_api only after lazy_stream also starts deferred setup from result()/await_result().\n    return lazy_api(load)",
+      "existing_code": "    return lazy_api(load)",
+      "start_line": 10,
+      "end_line": 10,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/api/_http_stream.py",
+      "content": "This validation stops at `choice`; `choice.get(\"delta\")` can still yield a truthy non-dict, and `delta.get(\"tool_calls\")` can contain non-dict entries (with `tc.get`) or a non-dict `function` value (with `fn.get`). A malformed provider frame will therefore raise `AttributeError`/`TypeError` in the background runner instead of producing the intended structured SSE error event. Validate `delta`, each tool-call item, and `function` (or reject the frame) before dereferencing them.",
+      "existing_code": "                    if not isinstance(choice, dict):\n                        msg = error_message(model, \"Invalid SSE choice frame\")\n                        stream.push({\"type\": \"error\", \"reason\": \"error\", \"error\": msg})\n                        stream.end(msg)\n                        return",
+      "start_line": 224,
+      "end_line": 228,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/agent/src/earendil_works/pi_agent/harness/session/jsonl_storage.py",
+      "content": "`json.loads` accepts `NaN`, `Infinity`, and `-Infinity` by default, and this predicate consequently marks them as safe. Such values are outside JSON and are later emitted by the session writer / API's permissive `json.dumps` as non-standard tokens; browser consumers using `JSON.parse` cannot parse the resulting session/API payload. Reject non-finite floats here (for example with `math.isfinite`) or parse JSON with a `parse_constant` rejection hook.",
+      "existing_code": "def _is_json_safe(value: Any) -\u003e bool:\n    if value is None or isinstance(value, (str, int, float, bool)):\n        return True",
+      "start_line": 87,
+      "end_line": 89,
+      "category": "security",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/agent/src/earendil_works/pi_agent/harness/session/jsonl_storage.py",
+      "content": "The new validation only checks that each content block is a dict, so arbitrary or incomplete blocks (for example `{}` or `{\"type\": \"toolCall\"}` without its required fields) are accepted as `AgentMessage` data. `session_entry_to_context_messages` then exposes them directly and `convert_to_llm` forwards them to provider adapters, where malformed transcripts can be rejected or cause downstream runtime errors. Validate the supported block variants and their required fields (or validate the complete `AgentMessage` shape) before accepting the entry.",
+      "existing_code": "if isinstance(message[\"content\"], list) and not all(\n            isinstance(block, dict) for block in message[\"content\"]\n        ):\n            raise ValueError(\"has invalid message content\")",
+      "start_line": 119,
+      "end_line": 122,
+      "category": "other",
+      "severity": "low"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/api/google_shared.py",
+      "content": "Gemini's `thoughtSignature` is a field on the Part, alongside `functionCall`, not a member of the `functionCall` object. As written, the serialized request uses `functionCall: {name, args, thoughtSignature}`, which does not match the Gemini schema and can cause signed tool-call turns to be rejected or lose the signature required for replay. Add the signature to the part dictionary instead.",
+      "suggestion_code": "                    part: dict[str, Any] = {\"functionCall\": call}\n                    if block.get(\"thoughtSignature\"):\n                        part[\"thoughtSignature\"] = block[\"thoughtSignature\"]\n                    parts.append(part)",
+      "existing_code": "                    if block.get(\"thoughtSignature\"):\n                        call[\"thoughtSignature\"] = block[\"thoughtSignature\"]\n                    parts.append({\"functionCall\": call})",
+      "start_line": 71,
+      "end_line": 73,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "scripts/_run_one_group.py",
+      "content": "This block is indented inside the `except` for the SOCM load, so six-stage evidence is collected only when the preceding SOCM processing raises. On a six-stage run where `SocmStore.load()` happens to succeed (or returns an object without error), `collect_evidence.json` and the evidence summary fields are never produced. Move this `try` block out of the SOCM exception handler, and gate it explicitly on the six-stage mode if appropriate.",
+      "existing_code": "            # Six-stage: count evidence from collect stage_output (no SOCM).\n                try:\n                    from competitive_app.application.workflow.stage_outputs import get_stage_output",
+      "start_line": 135,
+      "end_line": 137,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/utils/json_parse.py",
+      "content": "When the partial JSON ends inside a string whose final character is a comma (for example, `{\"value\":\"a,`), `in_string` is true but this unconditional trimming removes that comma before the string is closed. The repaired JSON then parses successfully with the value changed to `\"a\"`, silently losing streamed data. Only strip a trailing comma when it is outside a string.",
+      "suggestion_code": "        repaired = text\n        if not in_string and repaired.endswith(\",\"):\n            repaired = repaired[:-1]",
+      "existing_code": "        repaired = text\n        if repaired.endswith(\",\"):\n            repaired = repaired[:-1]",
+      "start_line": 39,
+      "end_line": 41,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/providers/mistral.py",
+      "content": "This unconditionally appends `/v1` to every model URL. If a custom/provider-catalog model already supplies a versioned base URL such as `https://api.mistral.ai/v1`, the resulting URL becomes `/v1/v1`; the shared conversations client then appends its endpoint path and requests an invalid endpoint. Normalize only when the URL does not already end in `/v1` (or otherwise centralize this convention).",
+      "suggestion_code": "        {**model, \"baseUrl\": (lambda base: base if base.endswith(\"/v1\") else f\"{base}/v1\")((model.get(\"baseUrl\") or \"https://api.mistral.ai\").rstrip(\"/\"))}",
+      "existing_code": "        {**model, \"baseUrl\": f\"{(model.get('baseUrl') or 'https://api.mistral.ai').rstrip('/')}/v1\"}",
+      "start_line": 11,
+      "end_line": 11,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/providers/faux.py",
+      "content": "This allocation makes `usage[\"input\"]` zero for every non-empty prompt: `cacheWrite` is first set to the entire non-cache-read remainder, then that same remainder is subtracted from `input`. As a result, uncached prompt tokens are reported as cache writes rather than regular input, so consumers that distinguish input and cache-write usage (including cost/observability) receive incorrect classifications. Allocate the uncached remainder to the field intended by the usage contract instead of subtracting the newly assigned `cacheWrite` from it.",
+      "existing_code": "    usage[\"input\"] = max(0, input_tokens - usage[\"cacheRead\"] - usage[\"cacheWrite\"])\n    usage[\"output\"] = output_tokens\n    usage[\"totalTokens\"] = usage[\"input\"] + output_tokens + usage[\"cacheRead\"] + usage[\"cacheWrite\"]",
+      "start_line": 176,
+      "end_line": 178,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "scripts/resume_to_report.py",
+      "content": "These two writes are individually serialized by the store, but the validation/metadata update/status transition is not atomic. A concurrent `/resume` request can pass its own `task_active` check between these calls and start the runner, and any failure after this metadata write leaves a terminal task with its `stop_after_stage` marker removed while still not pending; rerunning this script then rejects it at the marker check. Please expose a single compare-and-set/transactional resume-preparation operation (or otherwise lock and restore metadata on failure) so the terminal row cannot be partially transitioned.",
+      "existing_code": "    await state.store.update_task_metadata(TASK_ID, metadata)",
+      "start_line": 73,
+      "end_line": 73,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "scripts/resume_to_report.py",
+      "content": "The script reaches into two private `TaskService` helpers instead of using the service's public resume operation. This couples an operational/reporting script to implementation details: a refactor can rename or change either underscored method while the public `/resume` contract remains valid, causing this script to fail before it issues the resume request. Please add a public preparation/resume API for this workflow, or move these checks into the existing `resume_task` service path.",
+      "existing_code": "    if state.task_service._first_non_ok_stage(task.get(\"projection\")) is None:",
+      "start_line": 60,
+      "end_line": 60,
+      "category": "maintainability",
+      "severity": "low"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/utils/event_stream.py",
+      "content": "The task created here is neither retained nor given a completion callback. If `runner()` raises before it calls `push()`/`end()` (including a producer supplied by a caller of the public `start()` method), the task reports an unhandled exception while the result future remains pending forever, so consumers awaiting `await_result()` can hang. Retain the task and propagate its exception to `_result_error`/the result future and wake waiting iterators.",
+      "suggestion_code": "        self._started = True\n        runner = self._pending_runner\n        self._pending_runner = None\n        task = loop.create_task(runner())\n        task.add_done_callback(self._runner_done)",
+      "existing_code": "        self._started = True\n        runner = self._pending_runner\n        self._pending_runner = None\n        loop.create_task(runner())",
+      "start_line": 47,
+      "end_line": 50,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/utils/event_stream.py",
+      "content": "This changes `result()` from a method that could return a Future during synchronous setup to one that unconditionally requires a running event loop. Calling `stream.result()` before entering async code now raises `RuntimeError` (even when no producer is pending), so code that obtains/stores the result future during synchronous construction is broken. Defer only producer startup here, or create/bind the result future using the prior loop-availability behavior.",
+      "existing_code": "    def result(self) -\u003e asyncio.Future[R] | asyncio.Task[R]:\n        self._start_pending()\n        return self._ensure_final_future()",
+      "start_line": 114,
+      "end_line": 116,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/evolution/test_eval_known_issues.py",
+      "content": "`json` is imported but never referenced in this test module (the `json` in the test/function names is not a symbol use). Remove the unused import to keep the test file lint-clean.",
+      "existing_code": "import json",
+      "start_line": 3,
+      "end_line": 3,
+      "category": "maintainability",
+      "severity": "low"
+    },
+    {
+      "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_native_known_issues.py",
+      "content": "This polling loop has no timeout or failure propagation. If `_ask_network` raises before writing a request (or its protocol changes so `writer.lines` is never populated), the test yields forever and can hang the entire test suite instead of failing. Await the task with a bounded timeout (and clean it up on timeout), or use an event/queue with a timeout.",
+      "existing_code": "    while not writer.lines:\n        await asyncio.sleep(0)\n    request_id = next(iter(pending))\n    pending[request_id].set_result(True)",
+      "start_line": 151,
+      "end_line": 154,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/capability_packages/pi_auto_review/test_known_issues_capabilities.py",
+      "content": "This fixture does not actually test that a provider-qualified reference requires a matching model: `right/same` is absent, while `right/other` is present. `resolve_reviewer` then takes its provider fallback and synthesizes an entry with id `same`, so the assertions pass even without an exact provider/model registration. Add `{\"provider\": \"right\", \"id\": \"same\", ...}` (and use a distinct wrong-provider id) or assert the missing-model behavior expected by the contract.",
+      "suggestion_code": "                {\"provider\": \"wrong\", \"id\": \"same\", \"name\": \"wrong\"},\n                {\"provider\": \"right\", \"id\": \"same\", \"name\": \"right\"},",
+      "existing_code": "                {\"provider\": \"wrong\", \"id\": \"same\", \"name\": \"wrong\"},\n                {\"provider\": \"right\", \"id\": \"other\", \"name\": \"right\"},",
+      "start_line": 75,
+      "end_line": 76,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/capability_packages/pi_auto_review/test_known_issues_capabilities.py",
+      "content": "The module-level `ContextVar` binding is only cleaned up on the success path. If either assertion (or a future assertion added here) fails after `bind_runtime`, the `",
+      "existing_code": "    cleanup = register.bind_runtime(model_registry=\"first\")\n    assert register._registry() == \"first\"\n    cleanup()\n    with pytest.raises(ValueError, match=\"not bound\"):\n        register._registry()",
+      "start_line": 120,
+      "end_line": 124,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/competitive_app/unit/test_api_wiring_known_issues.py",
+      "content": "`start()` creates a long-lived pump task, and the `stage_start` event is not terminal, so `_pump()` remains blocked on `source.get()` after this test finishes. The test also leaves both subscriber queues registered. Add teardown/cleanup (or send a terminal event and await/cancel the pump) so this async test does not leave pending work behind or retain subscribers.",
+      "existing_code": "    fanout.start()\n    left = await fanout.subscribe()\n    right = await fanout.subscribe()",
+      "start_line": 60,
+      "end_line": 62,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/sandbox/native/test_srt_manager_proxy_known_issues.py",
+      "content": "Despite the test name, this only proves that the proxy returned 200 and that the filter callback saw `127.0.0.1`; it never proves that the origin accepted a connection or that bytes crossed the tunnel. A proxy that returns success before dialing, dials an incorrect endpoint, or closes the tunnel immediately would still pass. Send a payload after the handshake and assert the echoed response (and/or record an origin-side connection).",
+      "existing_code": "        assert await reader.readline() == b\"HTTP/1.1 200 Connection Established\\r\\n\"\n        writer.close()\n        await writer.wait_closed()\n        assert seen == [\"127.0.0.1\"]",
+      "start_line": 132,
+      "end_line": 135,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/sandbox/native/test_srt_manager_proxy_known_issues.py",
+      "content": "These tests mutate module-global manager state and only reset it after assertions. If `wrap_with_sandbox`, an assertion, or the filter call raises, `_config` and related lifecycle state remain installed and can contaminate later tests (the parameterized cases also share this risk). Put the mutation and assertions in a `try/finally` or use an autouse fixture that always calls `manager.reset()`.",
+      "existing_code": "    manager._config = {\"network\": network}  # type: ignore[assignment]\n    manager._manager_context = None\n    manager._initialization_done = None\n    result = await manager.wrap_with_sandbox(\"true\")\n    assert result == [\"wrapped\"]\n    assert captured[\"needs_network_restriction\"] is True\n    assert captured[\"needs_network_proxy\"] is True\n    await manager.reset()",
+      "start_line": 65,
+      "end_line": 72,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/sandbox/native/test_srt_manager_proxy_known_issues.py",
+      "content": "The new body-limit coverage only exercises an oversized declared length/chunk size. It does not cover a body that reaches the limit cumulatively across multiple chunks, or malformed/truncated chunk framing. Those are the paths where streaming implementations commonly bypass the aggregate limit or silently accept incomplete input; add cases that send several legal chunks whose sum exceeds the limit and cases with invalid/truncated framing.",
+      "existing_code": "    with pytest.raises(proxy.RequestBodyTooLarge):\n        await proxy._read_body(\n            _reader(f\"{proxy.MAX_REQUEST_BODY_SIZE + 1:x}\\r\\n\".encode()),\n            {\"transfer-encoding\": \"chunked\"},\n        )",
+      "start_line": 166,
+      "end_line": 170,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_facade_known_issues.py",
+      "content": "This regression test resolves both `root` and `cwd` from the process working directory, unlike the other capability-loader tests which derive the repository root from `__file__`. Running pytest from an IDE, subdirectory, or another working directory makes `root` point at the wrong location (and strict mode raises before testing registry acceptance). Resolve `capability_packages` relative to the test file/repository root instead.",
+      "suggestion_code": "    root = Path(__file__).resolve().parents[4] / \"capability_packages\"\n    report = await load_capability_packages(\n        root,\n        enabled=[\"echo_example\"],\n        cwd=root,\n        strict=True,\n    )",
+      "existing_code": "    report = await load_capability_packages(\n        Path(\"capability_packages\"),\n        enabled=[\"echo_example\"],\n        cwd=Path(\"capability_packages\"),\n        strict=True,\n    )",
+      "start_line": 102,
+      "end_line": 107,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/competitive_app/unit/test_domain_known_issues.py",
+      "content": "This assertion relies on the current insertion order of `Frontier.tasks`, although the preceding assertion only establishes membership. If frontier storage or eviction later reorders tasks, it may inspect the dependency rather than the intended dependent and make this regression test brittle. Select the task by ID before asserting its status.",
+      "suggestion_code": "    assert frontier.dequeue() is not None\n    dependent = next(task for task in frontier.tasks if task.id == \"dependent\")\n    assert dependent.status == FrontierTaskStatus.BLOCKED",
+      "existing_code": "    assert frontier.dequeue() is not None\n    assert frontier.tasks[1].status == FrontierTaskStatus.BLOCKED",
+      "start_line": 119,
+      "end_line": 120,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/competitive_app/unit/test_persistence_observability_known_issues.py",
+      "content": "The store is closed only after the assertions, so any failed assertion or exception before this line leaves the aiosqlite connection open for the remainder of the test. Wrap the test body in `try/finally` (or add a fixture that yields the store and closes it in teardown) so cleanup is guaranteed on failure; apply the same pattern to the other async store tests in this file.",
+      "existing_code": "    rows = await store.query_evidences()\n    assert {row[\"evidence_id\"] for row in rows} == {\"task-a:deadbeef\", \"task-b:deadbeef\"}\n    await store.close()",
+      "start_line": 58,
+      "end_line": 60,
+      "category": "maintainability",
+      "severity": "low"
+    },
+    {
+      "path": "tests/competitive_app/unit/test_api_wiring_known_issues.py",
+      "content": "This only checks that the path is registered in OpenAPI; it does not exercise `stream_task` or assert that its return value is a `StreamingResponse`. A regression replacing the handler with a buffered response would still pass, so the test does not cover the streaming behavior claimed by its name. Invoke the route with a lightweight request/state fixture and assert the response type (and ideally the SSE media type).",
+      "existing_code": "def test_stream_route_uses_streaming_response() -\u003e None:\n    # Keep a lightweight smoke check that the app still registers the stream route.\n    app = app_module.create_app()\n    assert \"/api/v2/tasks/{task_id}/stream\" in app.openapi()[\"paths\"]",
+      "start_line": 97,
+      "end_line": 100,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/competitive_app/unit/test_workflow_runtime_known_issues.py",
+      "content": "This single event-loop yield does not deterministically prove that the second `prompt` has entered `register_queued`/started waiting on the lock. If `abort_session` runs before that task is scheduled, it cancels no waiter; the second prompt can then wait for the first prompt's `release`, while this test awaits it before setting `release`, causing a hang (or allowing the prompt to proceed instead of raising). Synchronize on an explicit event/state transition from the queued prompt before aborting.",
+      "suggestion_code": "    second = asyncio.create_task(service.prompt(\"s\", \"second\"))\n    while not registry._queued.get(\"s\"):\n        await asyncio.sleep(0)\n    await registry.abort_session(\"s\")\n    with pytest.raises(SessionAbortedError):",
+      "existing_code": "    second = asyncio.create_task(service.prompt(\"s\", \"second\"))\n    await asyncio.sleep(0)\n    await registry.abort_session(\"s\")\n    with pytest.raises(SessionAbortedError):",
+      "start_line": 109,
+      "end_line": 112,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/test_workflow_runtime_known_issues.py",
+      "content": "This assertion only checks that the mocked status store received no updates. It does not establish that `_run_research` consumed the runner's `\"completed\"` result or successfully reached post-task evaluation; an early return or unrelated skip would also satisfy it. Assert the expected successful-run behavior (for example, completion status or a post-evaluation invocation) while separately verifying that the evolution exception is isolated.",
+      "existing_code": "    await service._run_research(\"t\", brief, SimpleNamespace(), \"s\")\n    assert statuses == []",
+      "start_line": 280,
+      "end_line": 281,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/competitive_app/unit/test_workflow_known_issues.py",
+      "content": "This assertion cannot exercise the failing sub-agent path: after `state.budget.max_queries = 0`, `_dispatch_parallel` returns before spawning any task when the query dimension is disabled/exhausted. Therefore `failing` is never called and no `search sub-agent failed` record can be emitted, so this test fails regardless of the exception-observation behavior it intends to verify. Run the failure case with a positive remaining budget (or assert the no-dispatch behavior separately).",
+      "existing_code": "    engine._run_subagent_ephemeral = MethodType(failing, engine)\n    state.budget.max_queries = 0\n    await engine._dispatch_parallel(state, [{\"entity_id\": \"x\", \"target_cells\": []}])\n    assert \"search sub-agent failed\" in caplog.text",
+      "start_line": 108,
+      "end_line": 111,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/test_workflow_known_issues.py",
+      "content": "The `Intake` instance is created inside `build_ephemeral` and is not retained by the test, so `flushed` is never asserted. This test passes even if the cancellation cleanup omits `await intake.flush()`, and thus does not verify the stated regression. Store the returned intake in an outer variable and assert its `flushed` flag after the expected `CancelledError`.",
+      "existing_code": "    class Factory:\n        async def build_ephemeral(self, **_kwargs):\n            return Harness(), Intake()",
+      "start_line": 128,
+      "end_line": 130,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/packages/agent/unit/test_agent_core_known_issues.py",
+      "content": "This assertion is too permissive for the tool that actually ran: `_tool(\"first\")` returns a normal result and only sets `signal.aborted` after entering execution, so its result should be asserted as non-error. As written, a regression that incorrectly marks the executed first call as an error still passes, leaving only the synthesized second result verified.",
+      "suggestion_code": "    assert [m[\"isError\"] for m in results] == [False, True]",
+      "existing_code": "    assert all(m[\"isError\"] is True or m[\"toolCallId\"] == \"first\" for m in results)",
+      "start_line": 118,
+      "end_line": 118,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/packages/agent/unit/test_agent_core_known_issues.py",
+      "content": "The single `await asyncio.sleep(0)` does not explicitly synchronize with `_run_with_lifecycle` reaching the active state. If the created task has not yet executed its synchronous setup (`self._active_run = ...` and `isStreaming = True`), `reset()` will run before the intended condition and the `pytest.raises` assertion will fail intermittently (or this test will no longer exercise the active-run guard after lifecycle scheduling changes). Use a synchronization event/callback from the executor after startup, or await a state-specific readiness signal, before mutating the state and calling `reset()`.",
+      "existing_code": "    task = asyncio.create_task(agent._run_with_lifecycle(executor))\n    await asyncio.sleep(0)\n    original = {\"role\": \"user\", \"content\": \"keep\", \"timestamp\": 0}",
+      "start_line": 78,
+      "end_line": 80,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/scripts/test_misc_scripts.py",
+      "content": "`load_script` mutates the process-wide environment and never restores the previous values. After either test imports `_run_one_group.py` or `resume_to_report.py`, all `GROUP_*`/`RESUME_*` variables remain set for the rest of the pytest process, so later tests or imports that read these variables can observe this test's paths and IDs, creating order-dependent failures (and parallel-test interference). Snapshot `os.environ` and restore it in a `finally` block, or use `monkeypatch.setenv` in the tests.",
+      "existing_code": "    os.environ.update(env)\n    path = ROOT / \"scripts\" / name",
+      "start_line": 15,
+      "end_line": 16,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/packages/ai/unit/test_ai_core_known_issues.py",
+      "content": "This test is named as a refresh-race regression test, but both resolution calls are awaited sequentially and the refresh callback is never instrumented with a call count or synchronization barrier. It therefore passes even if concurrent expired requests all refresh independently (or overwrite one another), so it cannot detect the claimed race fix. Run two `_resolve_stored_oauth` calls concurrently against the same store and assert that refresh is coordinated / the resulting credentials are consistent.",
+      "existing_code": "async def test_oauth_refresh_race_and_errors_are_normalized() -\u003e None:\n    store = InMemoryCredentialStore()",
+      "start_line": 55,
+      "end_line": 56,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/packages/ai/unit/test_ai_core_known_issues.py",
+      "content": "The assertion only checks the final event's type. A regression that drops the assistant message, emits an error before `done`, or produces an invalid event sequence would still pass. Since this test is intended to cover starting a faux stream after synchronous construction, also assert the collected events include the expected assistant payload and completion semantics.",
+      "existing_code": "    async def consume():\n        events = [event async for event in stream]\n        return events[-1][\"type\"]\n\n    assert asyncio.run(consume()) == \"done\"",
+      "start_line": 214,
+      "end_line": 218,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/packages/ai/unit/test_ai_core_known_issues.py",
+      "content": "The stream coverage exercises only successful completion and `end()` without a result. It does not verify producer exceptions, cancellation, or cross-loop push/consumption behavior, which are precisely the fragile lifecycle paths introduced by deferred startup and loop-independent result storage. Add at least an exception/cancellation case and a producer/consumer loop-boundary case so failures cannot leave awaiters hanging or lose events.",
+      "existing_code": "@pytest.mark.asyncio\nasync def test_event_stream_end_without_result_fails_result_waiter() -\u003e None:\n    stream = create_assistant_message_event_stream()",
+      "start_line": 196,
+      "end_line": 198,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/packages/agent/unit/test_harness_known_issues.py",
+      "content": "`build_session_context` is imported but never referenced in this test module. With the repository's unused-import checks this can fail linting; remove it (or use it in a test).",
+      "suggestion_code": "from earendil_works.pi_agent.harness.session import InMemorySessionRepo",
+      "existing_code": "from earendil_works.pi_agent.harness.session import InMemorySessionRepo, build_session_context",
+      "start_line": 21,
+      "end_line": 21,
+      "category": "maintainability",
+      "severity": "low"
+    },
+    {
+      "path": "tests/packages/agent/unit/test_harness_known_issues.py",
+      "content": "This assertion accepts an invalid chronological context: the compaction summary is emitted before the pre-compaction `old` message, even though `old` precedes the compaction entry in the session path. A stale anchor should preserve the original path/order (or otherwise append the summary after retained history); otherwise the model receives history out of order and this regression test masks that defect.",
+      "suggestion_code": "    result = default_context_entry_transform(entries)  # type: ignore[arg-type]\n    assert [entry[\"id\"] for entry in result] == [\"old\", \"compact\"]",
+      "existing_code": "    result = default_context_entry_transform(entries)  # type: ignore[arg-type]\n    assert [entry[\"id\"] for entry in result] == [\"compact\", \"old\"]",
+      "start_line": 100,
+      "end_line": 101,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/packages/ai/unit/test_ai_api_known_issues.py",
+      "content": "This test does not identify the public factory explicitly: it selects the first callable in `vars(module)` whose name ends with `_api`. A future helper or alias matching that predicate can be selected instead, so the actual provider wrapper could stop delegating to `lazy_api` while this test still passes (or the test could fail for an unrelated helper signature). Call the expected factory by name for each parameterized module.",
+      "existing_code": "    module_fn = next(value for name, value in vars(module).items() if name.endswith(\"_api\") and callable(value) and name != \"lazy_api\")\n    assert module_fn()[\"stream\"] is not None",
+      "start_line": 185,
+      "end_line": 186,
+      "category": "test",
+      "severity": "medium"
+    }
+  ],
+  "session_id": "acdb1518-7cdf-4a01-8e53-0a57d09efb40",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "run_id": "acdb1518-7cdf-4a01-8e53-0a57d09efb40",
+    "operation": "review",
+    "terminal_state": "complete",
+    "repository": {
+      "identity_sha256": "5c0a10287a8f602b33ef626681198e5cf3dc001181201a27a892f831cac45dc3"
+    },
+    "input": {
+      "mode": "workspace",
+      "resolved_base": "8dfbd245c6628576750a9dcf126fb70d486c47fd",
+      "source_artifact_sha256": "fbc5088c9d3b0379fd14f5cf4d4b003318a0041138b45f1cc36f5f7c92d9781e"
+    },
+    "execution": {
+      "ocr_version": "v1.8.6",
+      "provider": "pro3",
+      "model": "gpt-5.6-luna",
+      "configured_concurrency": 8,
+      "rule_config_sha256": "a194bae770c108896ec2da3585fb0375b66e49f0749b6d3737e31181fb325052",
+      "runtime_config_sha256": "724007894572bb6284b1a764066a97a5e674bb40dd869ccd40b0ee7b3fd6e846"
+    },
+    "coverage": {
+      "selected": [
+        {
+          "item_id": "00cc16958ca5d3029fe0cc8c729b215c07fdb3156bcba91ccee085e31870533e",
+          "path": "competitive_app/src/competitive_app/domain/task.py",
+          "fingerprint": "729acf08b9d1a5a907a3498ebc7ee056b0ed0893db7398356b47f48e9ffa055d"
+        },
+        {
+          "item_id": "0178dde92b3663a0a3928b6795dbd57a7c089724179772cc4a419be32ca45ead",
+          "path": "competitive_app/src/competitive_app/domain/stage.py",
+          "fingerprint": "f87cf4ca1bb5f42dac9038c9f8cddac5b4c68a4779ba969da158f22b68655aa7"
+        },
+        {
+          "item_id": "01dfa38412032ddf960172d99966373de8f96cf33b3acb70e98901c9ea630ef8",
+          "path": "tests/competitive_app/unit/test_api_wiring_known_issues.py",
+          "fingerprint": "6aa1b2650b31b24f587f3ea5680f9a15727a5d2093cfa766a70a12eeb150f1a9"
+        },
+        {
+          "item_id": "0275e03735aadae93baab436148d30f99bee4711c4a3491ffe63aa3972c2c07d",
+          "path": "packages/agent/src/earendil_works/pi_agent/extensions/runner.py",
+          "fingerprint": "4c8121238031860a80df74bc6b95abf3befa7d50944ce3b7193fb969e0e8ef88"
+        },
+        {
+          "item_id": "03a8efe73606942d29c815311b276d76138b92d37c6b778e70c3bd21fcd440a2",
+          "path": "tests/competitive_app/unit/test_workflow_known_issues.py",
+          "fingerprint": "df66327df35a99bc38530c6584c9dfcdea9bfb59da1c4a0701de45a808d487f5"
+        },
+        {
+          "item_id": "047c6b145f4566d3737c1a4350d016064dfbd1b1a479efb49dd369d49db3f16d",
+          "path": "packages/ai/src/earendil_works/pi_ai/models.py",
+          "fingerprint": "d9c3893fa63c751af467f400e8cdd96d102b2aede50d464fe386f57f02861ddd"
+        },
+        {
+          "item_id": "0625589755f7895154fb71dd98425160d9aba491dfca633f601bf8f1035411ea",
+          "path": "frontend/src/pages/GraphPage.tsx",
+          "fingerprint": "ce476b972592dfc4a9b386d795a315e6e087c9a0840c542b0f0ff7771893c833"
+        },
+        {
+          "item_id": "064a0de6d668866f50fd498a11fffff03f838d250ea512b914d6fddd96ad3efd",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/skills.py",
+          "fingerprint": "06068f6a035b438b80316df319a72b6eba942a1457da2dd623892818be8aeb8e"
+        },
+        {
+          "item_id": "0745d702cb54cced08b68f92c2766a31e385954ff7e02d2543d8c44cff24e55c",
+          "path": "competitive_app/src/competitive_app/domain/socm/evidence.py",
+          "fingerprint": "725e4483db148a830cca5cd03db525f4a54b31276efea7c0880ad91e35557819"
+        },
+        {
+          "item_id": "0794adc9a3af2c76087512641a89ed960ae030150c82c850547442b61f0c5ce6",
+          "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/dto.py",
+          "fingerprint": "979fd5fe0d92f2ae20c2287efab675534b45cc7bbfd1f884e2115f85b934488b"
+        },
+        {
+          "item_id": "09815877d66311522dabb1222ea6c254cc0fbf000525e01192d2ee7ff2ab139f",
+          "path": "competitive_app/src/competitive_app/application/evolution/injector.py",
+          "fingerprint": "5c9869adb3a3e9fc5ac25eaf975140ee5ad16670fb64fb81a0cfa95deb062f21"
+        },
+        {
+          "item_id": "0b7bba479235d74649c42c21cf9d5938804cd5b1d4d52c32c539349a516e370f",
+          "path": "packages/ai/src/earendil_works/pi_ai/models_store.py",
+          "fingerprint": "d680e4c77a252aeccec1ecbd16f8b949dd55012350bfcf22f11b073f5fdfdce0"
+        },
+        {
+          "item_id": "0d48e02ae4a0628e72a48023604d7d9d72bba1c686db7c2b3ba381ebbf16e28d",
+          "path": "frontend/src/pages/LibraryPage.tsx",
+          "fingerprint": "80fd424f429c4f0575ba9e6b3d75794d2f4803b853e293e63fabf3f316bf62dc"
+        },
+        {
+          "item_id": "0ed8dfcc6d342d4d64569a02335dbf4448c79bce60790d911dc40c82010f86d7",
+          "path": "competitive_app/src/competitive_app/application/workflow/journal_bridge.py",
+          "fingerprint": "2ba4525ae6ecc1917879748314757611d9d0a74278351558f1cf5ba25b59a1ce"
+        },
+        {
+          "item_id": "1210c7edc82bd6f1b255c1160cd966c261073e461b2193e11572616ed73ce5ea",
+          "path": "frontend/src/index.css",
+          "fingerprint": "c27cdc22e71e109c5c8936ce970e5ac876db59902b9e175adf3642546921a633"
+        },
+        {
+          "item_id": "131f63a31e872ff8f3b6b0fc47dce01b8f75712a541d1479ae224f339bf5a38b",
+          "path": "competitive_app/src/competitive_app/application/model/fallback_stream.py",
+          "fingerprint": "f91bb0a551492cb79e3aa8ad37cb012fcb743d62d6768e6639e8af51a69a1dc6"
+        },
+        {
+          "item_id": "13ca686c3e868c8be0291006b030d43bcaf276edfeadf627756f140915b418db",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/types.py",
+          "fingerprint": "59d283df69ce7945f76d5b977e63c66be722e589d8afc99d3445c2e89063c556"
+        },
+        {
+          "item_id": "164aadfd7517c6fa22c4d23c71b5dee5cd792d20cdfa5a8f3abd3f449acb0f3f",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/compaction/plan.py",
+          "fingerprint": "53ad948f2c21df953b11d16d0639ad42c8772bb8054cfb671f959fc67eb463ec"
+        },
+        {
+          "item_id": "165e70953ed97c83d747d503c63ec6139b60dd5db866b205d500a3a253caeddf",
+          "path": "capability_packages/search_tavily/extensions/tavily_tools.py",
+          "fingerprint": "176420b3b0bc05f24a7ea6cef2e32f0f9261d8eaf4764dbd873fe991263a5fc0"
+        },
+        {
+          "item_id": "166f775b709c06f7dd90e3f1e74609c287baa8c57e385d18dafa07ceaf4dd676",
+          "path": "frontend/src/hooks/useTaskStream.ts",
+          "fingerprint": "595c916abca512847450e4b26bf0497d1e6fa6931f635b5538c4fc817c5e0059"
+        },
+        {
+          "item_id": "1680321414135d33948e23a7984da794bc6a5f3e06edfac6283b3476b9324f35",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/diagnostics.py",
+          "fingerprint": "9381f4e07567a6eab56f229018cb7a9fa625553dec48963f512f6a08821a9379"
+        },
+        {
+          "item_id": "1bbc9947f630a45fd3e69e121524c0606d06f137be3d4c2ae3f60909af0ce2c8",
+          "path": "competitive_app/src/competitive_app/domain/socm/strategy.py",
+          "fingerprint": "3f6bffeec14fac51bae12f71afc79d2e8b8ff905c4177966984c224b174a9e73"
+        },
+        {
+          "item_id": "1d1cfb2bcb632ae631a8b5073a0cb5feb26b16a256c737a581b1da5ad1c66456",
+          "path": "competitive_app/src/competitive_app/application/evolution/focus/ive_focuser.py",
+          "fingerprint": "f58f7337261c6b5514eac91f63ec95260237bcb34519678408b78901ef3a87bc"
+        },
+        {
+          "item_id": "1d64e755ae335716c768d7656ab20e4f37a23943be4b7503480fef8b56ca44d5",
+          "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+          "fingerprint": "bc4fcda4ff0fdc99f92e035ec158d68856b3ec6f8c8399820f97f57f05d16de4"
+        },
+        {
+          "item_id": "1e096af0a87e53683688611c234b2dcdee1d5ea5b07155e8a536e614eeab67a4",
+          "path": "packages/agent/src/earendil_works/pi_agent/agent_loop.py",
+          "fingerprint": "aaa7de9f184005f27df1e8d073191ebde38c9fd8f8d154749037aa531335cf01"
+        },
+        {
+          "item_id": "1fdd83ecccb187a2cd91a3ce9af761364ebf6b34139caf4d9e7dabd12128a6c6",
+          "path": "tests/competitive_app/contract/test_deps.py",
+          "fingerprint": "6d63435e795d9d0363f3c29d19b63f01f6c6dc0d5b304f6356ca5cc7b250c0f6"
+        },
+        {
+          "item_id": "20516267bcc5a0811f5c81bc29e0ac7743621dce49a289d3a0972e258271bb60",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/lifecycle.py",
+          "fingerprint": "fe34f4908ee98b313d81833d69a0179e185bfe647b018f3aef45f3906b7e57e4"
+        },
+        {
+          "item_id": "21f4f68a100a219d0987c1116af60c025fcfc77733f1007b19381cd51793586e",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/env/python_env.py",
+          "fingerprint": "c6434b4f0b62088871b87309c8869954dfe159e9edbe2268ffbfd671dd614ba9"
+        },
+        {
+          "item_id": "2420b88e1066864d8867156fd5d347c7eae4122f89702e5d6a0c7ccb092754e3",
+          "path": "competitive_app/src/competitive_app/application/workflow/extraction.py",
+          "fingerprint": "068ebbca095338de9ae2a13a39f43188e67b4d0060ce0e138f68079718988295"
+        },
+        {
+          "item_id": "2546b3d59b1fe8ce58946cbf48c7082100f6c485752669ba15c02ca892a0fec7",
+          "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/routes_reports.py",
+          "fingerprint": "256ec916c34f07d1020b5463a034600899bab303e3d58317fe9f6be234a36677"
+        },
+        {
+          "item_id": "2578155ced05614f486e44fc5402f674b67341750929829873ae5fd75b1df562",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/process.py",
+          "fingerprint": "474dee764abce56ebf10706433f7e0eefdc4788cd707f714a7a7d9636d4ac12f"
+        },
+        {
+          "item_id": "28676071e496d5d0a6ea32084c28d9e0a2ff59c6588a9904cbcdbc30fb6e8524",
+          "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+          "fingerprint": "bdcd2bb793326c9e4130b576d2cc0391c720fcd0e5ffd3be1f95c1906c77319e"
+        },
+        {
+          "item_id": "28efb24bdad66546ce0dc0d530b2e44af364339558f28801d9ca8f2618646bf0",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/openai_responses_lazy.py",
+          "fingerprint": "baf49f623f2aa883f0a7666e99538016274ee8932612a7786ba4298c3bf7efda"
+        },
+        {
+          "item_id": "2bb7e776febe06cd9a923275dc2246c0a7ecd642a3466400117efa62e2ad044c",
+          "path": "tests/competitive_app/unit/sandbox/native/test_srt_manager_proxy_known_issues.py",
+          "fingerprint": "a203e4087d606a3330816064c53370665cdfa660b6f9d8475b2ba2162763d9e3"
+        },
+        {
+          "item_id": "2c9d9379617bff936d98ae0e9665979df242bd0cde113e7fea5cd451a91febd2",
+          "path": "packages/ai/src/earendil_works/pi_ai/providers/mistral.py",
+          "fingerprint": "fd22ddf23c9e2f8843886ef5175857500e19a9dc65e6ad225eb6a7f870e4eaeb"
+        },
+        {
+          "item_id": "2da5af7ec65ac157dcb78c3a2b86571a8034e78363621def85456360c457d880",
+          "path": "scripts/_run_one_group.py",
+          "fingerprint": "1c949f7073f9b5362d5dc633468a463f913a585cd57ef57bc6b512e24a8e1ccf"
+        },
+        {
+          "item_id": "2e6c7f00313ab32c0490905d9eedee40685fef2f94714dc8d0250a42067d52f5",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/workflow_skill_store.py",
+          "fingerprint": "169a37325a9d59eb3bebfc09f902e5aaffa0ca3083a7c7f7a810323608348819"
+        },
+        {
+          "item_id": "30a9b275f5c621d0fff67ebb69b98916aa6339ffe8fdf2f78db11991b8b8934f",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/session.py",
+          "fingerprint": "594d9fe1b9d9b0f9b69b8052ff538e48d8ca233c6261308379a7c68c6ec2706e"
+        },
+        {
+          "item_id": "30fbeb863e8bf852491de1d8b7158f915d715a0594501cd0823dc58417b6721a",
+          "path": "frontend/src/lib/api.ts",
+          "fingerprint": "0b8c80c2e9ae051745f3871164b15720d11a8423d4b2cf94b4d4fba0fd48a328"
+        },
+        {
+          "item_id": "314e12fe14af4242472c43b701b93838d2389c614e49cd0d4727bbe28de6f533",
+          "path": "scripts/live_three_stage_verify.py",
+          "fingerprint": "23b169cf14784b030d605a3fa913d91e8b08523470423ceff76f7b8826122942"
+        },
+        {
+          "item_id": "32c860427db75f7673a3c4734e11b74a0c549a282aab503186a4b7dbd710c889",
+          "path": "packages/ai/src/earendil_works/pi_ai/providers/faux.py",
+          "fingerprint": "28df38bf30bde199ad7dce2b44f0aa700bc4fbedc18c9243b1e0f523285864b6"
+        },
+        {
+          "item_id": "3908284ba0843c877735c77ff3a280d63ab9fbfc266e5c2b3e54d748dab3ee4b",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/learned_skill_store.py",
+          "fingerprint": "32b791d9fd88bcdfe4715b9c2073223934270ab58c52f4845f9d210720605cfd"
+        },
+        {
+          "item_id": "3b9aa2fb7db9d1c285ff79c28319903b8c5d4365be81dbf597ce2ea620700ba4",
+          "path": "scripts/fetch_upstream.sh",
+          "fingerprint": "4b46b08c4db3254bdcf8699b7bc501b86f0ee736c4bd22d189c79ab74bbde0f0"
+        },
+        {
+          "item_id": "3cfeb7c2dc18cee7b5bcac308570aca5d65bb030662736748d2c1a0d1c4006b4",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/seccomp.py",
+          "fingerprint": "4dde8310ba6b8b37e97616913882253c70da2f727c3d49dd8a91e91f063347dd"
+        },
+        {
+          "item_id": "48b345485d11aefba00e10d1c64edfa90f852d5e78b30eb43c330eec67255f0b",
+          "path": "packages/agent/src/earendil_works/pi_agent/package_manager/collect.py",
+          "fingerprint": "051e13d1c3d5b8d190aac62516778f175134bbe38129211376d7f05dbef1c053"
+        },
+        {
+          "item_id": "49226f835e322853bc01888a7aca88d379741188bbaeb10a3c8bf088fa55bbc2",
+          "path": "packages/agent/src/earendil_works/pi_agent/agent.py",
+          "fingerprint": "30481c836691de577f5e010784382cb2c26df1ee7d2d9886a7df20aae2cb0b23"
+        },
+        {
+          "item_id": "4e3b3067b25a60f1c96ba1e7af2ffcd39307b0b7320a4a635ff998bed023b1a7",
+          "path": "scripts/comparison_postprocess.py",
+          "fingerprint": "50bf37625a08e675b3b714030135d6d1ef3c7dece106e1f5bda14c883ee109ba"
+        },
+        {
+          "item_id": "4e8f4d03fbcf164e978363d7a7a34ab1b0aab70e847d4a78b5c77f2c61119d9c",
+          "path": "packages/agent/src/earendil_works/pi_agent/types.py",
+          "fingerprint": "85ae867b196ebf0b15832fb5d8705821cc78597c33baf4fa672e43f0ee7dfd9e"
+        },
+        {
+          "item_id": "4f8d96c0d3d485050c6e969c665327e1eb51b86524267e61cc9c45b8af86b82d",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/policy.py",
+          "fingerprint": "fbd9779c76e6b7f89d1ed527b9b4065f0cb1d0af8ca672c62b33d0acf3239286"
+        },
+        {
+          "item_id": "51a375f02c531c1f0ef8b018265bdf8fa36df4d5a5fe297fa37e40cc48f1897c",
+          "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+          "fingerprint": "6693c299e0a49d2ad421f38459e843f681dfba353aa8413625ff454493161ace"
+        },
+        {
+          "item_id": "5231a76867ac1f702eb82a783c4d3886b4066faf45551a41989cde9aecb2d8f9",
+          "path": "tests/competitive_app/unit/test_fallback_router.py",
+          "fingerprint": "b126832b6cd6fa804d061a8f423b705e4923fdc26020b9f56a284632addb4f14"
+        },
+        {
+          "item_id": "540558dd92bd6aae0d566d8519674d3cdd2ce79c18814589cf3a31bd3e5681fd",
+          "path": "competitive_app/src/competitive_app/domain/socm/frontier.py",
+          "fingerprint": "bd3790faff14cc815c52650758c652904c0896656e5bac59d82dcb54cc0f7ffc"
+        },
+        {
+          "item_id": "5556af07e271967b63aca2035b40a314e9bba1dc449eabf5404314584db5fcda",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/openai_codex_responses_lazy.py",
+          "fingerprint": "c2f353eb713f439ce0c7067737e5dde7c259aa7e52ecb83569624f3621b9084b"
+        },
+        {
+          "item_id": "566220af036affb716e232a675325ff155a70b906a3c498097508b96f81104b4",
+          "path": "frontend/src/components/ui/index.tsx",
+          "fingerprint": "1fafe02df9c4274fb1d5b1ae7e37726698bec3a51894b3d1c7a26a5cfdc5f14a"
+        },
+        {
+          "item_id": "56e262f8b51eb20440adce49606a55305c4c9a0db61a9c6da8561aecba44925d",
+          "path": "frontend/src/pages/DashboardPage.tsx",
+          "fingerprint": "da75c9efcc739dd5427800156f74f035b5b6ab465743775787c910bde79cece9"
+        },
+        {
+          "item_id": "594b1e6cdce317318c7e537b884768fabe4a4de3ea3c3acc3b0519c24d7ec659",
+          "path": "tests/packages/agent/unit/test_agent_package_known_issues.py",
+          "fingerprint": "27432f33ac9049c504301d825e3850fe782e73096b392f866d2dfebbceea52ae"
+        },
+        {
+          "item_id": "5a8b97b6533bcae16ba4776896f79a6d386a7b937af0d9aee7a9bc9d35d4b649",
+          "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/app.py",
+          "fingerprint": "fe981ec0ba1d4e358b0139683cdbc69f2bfa5a786894e8a49f302e2cdfceacc0"
+        },
+        {
+          "item_id": "5b8c9093416a47b095111f4ed256d751bb72b9d9d8410e60319e0ab6e890163e",
+          "path": "tests/capability_packages/pi_auto_review/test_known_issues_capabilities.py",
+          "fingerprint": "c41399359cac94c768df26c19e2c28eb28abad8f7a4e17bb151cf47f6d34f89b"
+        },
+        {
+          "item_id": "5e75c9d9779fff98b651c515e9b3a1e074cbb016bd2919938951c5a75843ad8b",
+          "path": "tests/competitive_app/unit/sandbox/native/test_traps.py",
+          "fingerprint": "efc407093021909ef4a74f82ee7e4fcecd19d39fd43e7b8c808eed1a4be8af3b"
+        },
+        {
+          "item_id": "5f6a26d1d78b9176633dec068a3f008cb751b3aa4d1c67bbb66ecacad16290de",
+          "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/routes_tasks.py",
+          "fingerprint": "c980927ea6c246c383b072835f09d2d010be32ac8f23aad971a9fa645c570a3a"
+        },
+        {
+          "item_id": "60277799d8b0522717c09ce2e80a35edba64e8d63ddd0ea8ad2741ce513d97e1",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/lazy.py",
+          "fingerprint": "38878bbf575700560e7e7bc81844e4abae825f67318b3494144ba9fd4883f34b"
+        },
+        {
+          "item_id": "6134fbf7251db6325872c68ca2310b6bd3d60da405c55b376b32d483ce03d4f5",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/anthropic_messages.py",
+          "fingerprint": "bbcb7f9ffcb4839257c84d1e0c67d4d4849c12f0e5e0de59529ea835ad7cc1db"
+        },
+        {
+          "item_id": "6647fea3b798246c9610bea84199ad2fe6c0a0d4677c12b5c2127eac9e8e2e6e",
+          "path": "tests/competitive_app/integration/test_native_sandbox_coverage.py",
+          "fingerprint": "1dfa6719c114fd49cddd524cd5f5fa33cca58b2c63b50acfe42f5d6a8ec90c65"
+        },
+        {
+          "item_id": "684f20937f2a4b39889c51ca618f1ca2cd1cad427b3819f7db506ebac4512f5b",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/seccomp-src/apply-seccomp.c",
+          "fingerprint": "79efea3ebabc0e4aa0478d52bc7dbeff826364fbc037c49d7e23a5b5e411f889"
+        },
+        {
+          "item_id": "6864f03ed3dad13a66c09a59d186191c12436092e106a4a4e1833d32b7c18e10",
+          "path": "competitive_app/src/competitive_app/application/evolution/selector.py",
+          "fingerprint": "9f718d044de9c35403ae973f62d1e01d3987b49142f33aa86b45adcde279e9c3"
+        },
+        {
+          "item_id": "6ee1602f9f11bf7f9ed45dd6c165744b7b299671648fd948255e47feb5e15bce",
+          "path": "competitive_app/src/competitive_app/adapter/out/observability/__init__.py",
+          "fingerprint": "825b7b641e3a8ceb3893da1b5bee6fb301ec9d02e35f90573c2557aec3362385"
+        },
+        {
+          "item_id": "6fc09a6d24402a3bc2c6e156a6ce970f66fe0d9a968a8ac23f14872524858209",
+          "path": "tests/competitive_app/unit/test_domain_known_issues.py",
+          "fingerprint": "56c2faf9faaefa15f636193e355dc1097fe452bed46f06ecf2d3340558b9c6ab"
+        },
+        {
+          "item_id": "70c16c8767d181d5454da5ceb115a0ea52dbc901e4b1904806f899801495e5cf",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/messages.py",
+          "fingerprint": "e0ad12483d23e26fae0457ece38c891ba1bdc1be11ab77e274917b087193d583"
+        },
+        {
+          "item_id": "70c50caac244ebe36c27c43c3c7fd8057e8c4e5803f4f8b3a9a8d05c0c4f9f32",
+          "path": "competitive_app/src/competitive_app/adapter/out/observability/run_journal.py",
+          "fingerprint": "842d25a18e857dbfddf8ba4b60a3f0092ef95f2158be8175cff8ed3cdda6fb48"
+        },
+        {
+          "item_id": "711cc105e14b93c1bbc703b3ba11caff783074437226532705f8c753a69ad962",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/runner.py",
+          "fingerprint": "149f9cd6bd144453e444b4446b1e7a498dd2a29d03115e2c68b0c374eaaa952a"
+        },
+        {
+          "item_id": "72359f4b8664bf53dea8d4f69d555f04863d0f5ae15e20d713d4bfce01dcc329",
+          "path": "packages/agent/src/earendil_works/pi_agent/package_manager/apply.py",
+          "fingerprint": "a7c8b45f2f3a057e5d8c86538d09b038e17b6bce5ac5196d7ae5c738519687ee"
+        },
+        {
+          "item_id": "72d1ea64f9936fbde1292dfef13e0a7edb9e3732a053a855c20a7e7f21e29997",
+          "path": "tests/competitive_app/unit/test_extraction_quality.py",
+          "fingerprint": "d82ea5bdf6b53a22f1219a509317c62323a86dd5e171a100bf2d1655b6db3ecf"
+        },
+        {
+          "item_id": "73606104dcc7411f1f9c5124d1795867902f0ae4412d528a030426e4fb654521",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/json_parse.py",
+          "fingerprint": "fd44dd948d22fa3398cc48afcf37a8886dbd6330cf83a426b3ebc019e663798f"
+        },
+        {
+          "item_id": "75ca2b56b9515a3903a2f1e9be32f564b637ef6582b2ca873d2fcb7b659cafc0",
+          "path": "frontend/src/pages/ReportPage.tsx",
+          "fingerprint": "3e0f16992b7b0f5e1da47aeefce5a21a2b2aba43ed015d9528f2529d41e6d4b4"
+        },
+        {
+          "item_id": "75e27fce48670a871be1a67f5db142c5042de8f3a516c9738513caec230ccfe4",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/workspace.py",
+          "fingerprint": "640ab9cf05e10393c668f5bf69da90b5d31a6f53725130650788026c5c4eeb06"
+        },
+        {
+          "item_id": "7734e1fb01c643b1b8cca392d5cc12f02a3b206aae7d05969d189f549d874677",
+          "path": "tests/packages/agent/unit/test_tool_execution.py",
+          "fingerprint": "80f8e41e7c7981681a6bda17e0518fbbd0becf3afacf3ff4525f926993c5e204"
+        },
+        {
+          "item_id": "7747dce17e5a0dad12a0d103326ec8c49cc95137f4d0d8e0e09d49047fe91224",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/proxy.py",
+          "fingerprint": "ae51a0e8c418bf749856472c4d30572119c1f04c6e9c667e3111b1ddc2216ec0"
+        },
+        {
+          "item_id": "78b1c219018ee203976b395483bfcd6eefffa6ca5c776eec5a63c2a283b2fe80",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approved_registry.py",
+          "fingerprint": "37fe8ac1f229e7ab3f71be1a96aa1e94e5fa35693ce95d6d393b5f712c12e78f"
+        },
+        {
+          "item_id": "7a692cde07dff65783d48237351f18369bac30c7c6188329bf8c23d1957683fb",
+          "path": "packages/agent/src/earendil_works/pi_agent/extensions/loader.py",
+          "fingerprint": "9a0617bdc72a4cdd291cebd10a3df64739dc596c0c1b150e5d1ce591871d0412"
+        },
+        {
+          "item_id": "7b5a930f28c7dcee482b746de5fb95f162e98e52862e4bac59faf82d8cd9e8df",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/transform_messages.py",
+          "fingerprint": "13a7f68bcc35fc2614de63d5f37ac223fcd227091fe976a325665bb28bc8e005"
+        },
+        {
+          "item_id": "7c0dc57f94423da69bc0dee1873e4dabf45f14e6709b3ac4b4053154a32bd2a0",
+          "path": "capability_packages/search_anysearch/extensions/anysearch_tools.py",
+          "fingerprint": "45c7cb1e336f6749d9a946e8af793e92814e8ce2bea7c11f7c5be6d7c5fef4b9"
+        },
+        {
+          "item_id": "7c7cd778a1f59f14e37b7002c9e0b4cd37404c14e1114d3ac62069d05814b49d",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/linux.py",
+          "fingerprint": "d29ccdd03f8b993c850f689744f058ab5c4b248a3ea26403653b40634c9a3984"
+        },
+        {
+          "item_id": "7d8494dd2e014bbc0b365a8713967713d5d5039ee76267fc97a26c7fe96f20e5",
+          "path": "frontend/src/types.ts",
+          "fingerprint": "a4e6a2db97bd42905626d43650ca31d0e86fc0db9725249e5e75a80e23913cad"
+        },
+        {
+          "item_id": "7dcd16ea4d05d231a15326f05329e4dd3879de296df82b46223a926ebf7de333",
+          "path": "competitive_app/src/competitive_app/application/evolution/eval/analyzers/contract_compiler.py",
+          "fingerprint": "35389eef0b2389678e3ee742c3f715fc418db888c899792ea73d28c0f707c17d"
+        },
+        {
+          "item_id": "7ef073acc82aa4d33b36a7e2f419474d45b2c1d54a592a4cc13648c1b1fdc174",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/compaction/branch_summarization.py",
+          "fingerprint": "27e44cc310f787ffc700aa88463232ea78b52dbb492c4c7120f8118f6ca12edb"
+        },
+        {
+          "item_id": "7f3fd14e660888c769cb30195347743fc82a507233d5558e755ba1a9b2e3d35b",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/bedrock_converse_stream_lazy.py",
+          "fingerprint": "fccac721e0a2b72e760b6866d810de8f9038098659d69185f38601fa1887827b"
+        },
+        {
+          "item_id": "7f579c845e308940ef75421ce385515799a687f2e5a0dbc4c57ffed3792e429a",
+          "path": "tests/packages/ai/unit/test_ai_api_known_issues.py",
+          "fingerprint": "27bcd96fc6a99b6d8932ce3d43f77449a6cb51aa6d61e6259cd738bab98c5cbe"
+        },
+        {
+          "item_id": "8084c60987661fe0fde322e90ce30c4f605b5172fef33aa4e74b37765852df95",
+          "path": "tests/packages/agent/unit/test_agent_core_known_issues.py",
+          "fingerprint": "610500e2aa5c01c9050f46a92f19632630b4d32d57f6c28629fa0e984ef017c8"
+        },
+        {
+          "item_id": "822cc850418a65e7f747692c62ec6d53f9db97fea9b783a1a3846359b60a3b33",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/memory_repo.py",
+          "fingerprint": "1b703a6d7f1bf7d2c1e463accfe91e61800faa14b0386194ab3f344a965765c1"
+        },
+        {
+          "item_id": "82f4857efe8c87f0e3284bf1474523c1b84c21b6482e0790a033b1762afde112",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/google_shared.py",
+          "fingerprint": "aa5fda6ee549dc069e1e18d8b9bf7baf33e1210ca1c130919f98847e7fddd17d"
+        },
+        {
+          "item_id": "83ff5bd4be299fca6f0f0f58da82f9166facac3cbd886e9f429832bd60dd3bba",
+          "path": "scripts/live_trace_refine_verify.py",
+          "fingerprint": "bf071dbe7c54d7c6757cb5cb0553ee910d5a8fd86aefd8c93b374580d60c87cb"
+        },
+        {
+          "item_id": "842170a0bcaceae99aba61b47345aeb3b3943f0b498e6624f0474561020f4327",
+          "path": "competitive_app/src/competitive_app/domain/socm/coverage.py",
+          "fingerprint": "b129312104f22fa1ef6b358d17e0c48b1e00f39fa053aa707bfdf5a96067adfd"
+        },
+        {
+          "item_id": "85a363b73765ce9de0c3a2fee2e3a8e63fd58f36a00a8d50ce57c144c78d08a2",
+          "path": "tests/competitive_app/unit/test_persistence_observability_known_issues.py",
+          "fingerprint": "2e2dbdcef70c7eb87423504ba8f705e3c14788bdab3198f3c149931aa3800472"
+        },
+        {
+          "item_id": "87ad42c8a6c23185b750fc61647734320c68fd88fffb8cf3a65868362c7270a1",
+          "path": "packages/agent/src/earendil_works/pi_agent/extensions/wrapper.py",
+          "fingerprint": "99f73a808633e1204a9ea9eddf4042538aa94189fe82a40c0dc968839fcadd2c"
+        },
+        {
+          "item_id": "893dfe784fa67826d4befeb301d6f9c38997c6bfe266a60f50b9929a54aa34d2",
+          "path": "tests/competitive_app/unit/evolution/test_evolution_known_issues.py",
+          "fingerprint": "1dcc6d009d797c9b9bf9634e2291680a0ef8db8b5addb55e2b595828fa78d0fd"
+        },
+        {
+          "item_id": "8a2bf637b3ee1d15ed55fa3e40d3219458395aef63a51553ca9c7b327ddb1c61",
+          "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_native_known_issues.py",
+          "fingerprint": "698891905a8baac9e1b672b0cee1df7c8a3d7bacbf2409b5d4223bd965d87ccf"
+        },
+        {
+          "item_id": "8a2d46cc529d9af380220eafbeab051a1ca781f8133d7393144cb94dfcde6c6f",
+          "path": "tests/competitive_app/unit/evolution/test_eval_known_issues.py",
+          "fingerprint": "a0d242f348b10df82d3af292f3263f7193acfb58322845b38d33bd4439d2bed5"
+        },
+        {
+          "item_id": "8c6ed984361d79f87041938269fbbe2d3a80a8ab237542d4818d4daf1a931770",
+          "path": "capability_packages/pi_auto_review/pi_auto_review/policy.py",
+          "fingerprint": "dd60ccbdad8558c0a8d921c49ea10a574a0667ad28e40692e67ecda4053931d5"
+        },
+        {
+          "item_id": "8d1f82750f7ac4e6c27c33f4922e92ee6ea02c41b0d2b839faebd156f982d9f5",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approval/sandbox.py",
+          "fingerprint": "4449a9f72880521e7aaf3ce15ee79e594b6068dbfbe47b0ebbb9d0294faaf6e9"
+        },
+        {
+          "item_id": "8e7df5860552d285f003cf38a818089c4ca87a74828a316c5fbd7cbf9a379e08",
+          "path": "capability_packages/pi_auto_review/extensions/register.py",
+          "fingerprint": "1c403d582ece8d7ff805e4291073f30ee9ef4c76c9e3950a580ea905fc6a90fb"
+        },
+        {
+          "item_id": "8f38caa750b609bd4ac27f29c356f070459c9345f318e07fd039bff66bb9f948",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/protocol.py",
+          "fingerprint": "3e0e1cca55e90cc878175a2b008318b98cce1511fc3cbfa48efff606d1f41b16"
+        },
+        {
+          "item_id": "90f3060522416dae4b0492a836ead8b52bce167f0ffa7233070efcda6f4021ba",
+          "path": "competitive_app/src/competitive_app/application/model/router.py",
+          "fingerprint": "ca1dd2d8e183d10edb958e99c95af3c807e2f6d57c68c1b7289771e85473ce79"
+        },
+        {
+          "item_id": "95f54914b343541991c72f1fe8832eb9b958e94a3ad7f0634594701652e24d52",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/manager.py",
+          "fingerprint": "6311e4262bbbd6bafba7a23fbf9d54cccbf62a5f45b20838dc5096eee2c11112"
+        },
+        {
+          "item_id": "973ec405dff9d63c7c671974aa543f1a44b0824ea276ffb8f75459e77a5852d5",
+          "path": "competitive_app/src/competitive_app/application/evolution/evolution_manager.py",
+          "fingerprint": "347b0bd4ec58f10d13e5156229daa993b8cbbb4d7727afaf1d01a3c04eea3965"
+        },
+        {
+          "item_id": "99d6255d2876945dba5a63c04089399484adabd84c5bb25c22f690656d7125d5",
+          "path": "packages/ai/src/earendil_works/pi_ai/auth/resolve.py",
+          "fingerprint": "04c4b2c79c1f82556ce7adbac56c71f4b57b86f9361b223d0808246a500be99d"
+        },
+        {
+          "item_id": "9da0fab0dd063ab130389a0bb8040b5013010f6bf7e347526b619b01306c3bfc",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/agent_harness.py",
+          "fingerprint": "3c032149d14af849dd99e1e30956a812e445ca91a361f7b56c6e93f653b17fa3"
+        },
+        {
+          "item_id": "a04fef22ad4a10e6d41c051ed4207d7c552346b125337cd07c4a0ca4ff37eaed",
+          "path": "competitive_app/src/competitive_app/adapter/out/observability/events.py",
+          "fingerprint": "9c16f795d549efc7eecb69483b2d5b74975339a3be88e02fc03df546fb4eff61"
+        },
+        {
+          "item_id": "a0e13b9661fc134ead376cef40d1f716ea4b24e444eefa6f5a1a26e0937d82b5",
+          "path": "packages/ai/src/earendil_works/pi_ai/auth/credential_store.py",
+          "fingerprint": "2042ed65529ce5688867cd75a018592851ccd06161e5e94f4eb27e11a57d2c7c"
+        },
+        {
+          "item_id": "a13545607cf26a155bb49d15876cebcd33067ae88ce6e98754745fd2cd256bbe",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/macos.py",
+          "fingerprint": "7044ec8643410c244183a92978fd766500070ed84a3565e06883bd9dc5c72f5e"
+        },
+        {
+          "item_id": "a712f39ef01f1c06684699d9e534bced495ba0b7ce3d36d233a79bede076415d",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/prompt_templates.py",
+          "fingerprint": "7f08bfb51d8c4c72762ad22421a130ebda7eaef37a56d561a0f669f1c4a5058c"
+        },
+        {
+          "item_id": "a8d91bf1ecf2442d34df6964889063d77947a96c3eb8b1048cd2a8479fe7e9b7",
+          "path": "competitive_app/src/competitive_app/wiring.py",
+          "fingerprint": "cc2831ff0854877b4dd58a92cd83b654fa660dba93275940bd11395262767ea4"
+        },
+        {
+          "item_id": "aa2457026c33f1e50e0ce630cf01c0f604726daa0d4f23a942af0f52ef455eea",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/broker.py",
+          "fingerprint": "14dd0b5026745d8602eb208bef223a31728f67279cbb6f41e4142dc9c1136ae0"
+        },
+        {
+          "item_id": "aa79bd6e1597d76a895bb390161bd0aefca518dacc04be716e566d0dd7f239bf",
+          "path": "packages/agent/src/earendil_works/pi_agent/package_manager/resource_loader.py",
+          "fingerprint": "0e56e8cfb68ac6ec02e466b4e4a9179fa91b3cb159a9b9b743a03290e97d6c33"
+        },
+        {
+          "item_id": "ad326c279ca6eddc637290c69f0028d9e23f2fb245ba8078de93778b7cb83d7b",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/config.py",
+          "fingerprint": "de193aef1999b73be6e85456e2b888d24f30d6130efe8aea8464cd290f5b86b9"
+        },
+        {
+          "item_id": "b1828753a12b176dc0ec5595c2401d56dc924117e0ff70a0d8f3929640bf71ac",
+          "path": "frontend/src/pages/TracePage.tsx",
+          "fingerprint": "fed81ee75414c893f03b16bc21c675fb7a08d37de6a8c22650cc2d1df50b8ef8"
+        },
+        {
+          "item_id": "b2005c45b9b7cc0350f7fee16b1b923b2e438e42936209eb826671b408da8ba5",
+          "path": ".dockerignore",
+          "fingerprint": "d4e2c4a721ee5db094bc6975340a11d7126921e77083defa8bba792ead9e0dbf"
+        },
+        {
+          "item_id": "b67725e3ffb6fd56474fe762ab8b198e1f60fe211977673015910d5975b95c40",
+          "path": "competitive_app/src/competitive_app/application/workflow/session_service.py",
+          "fingerprint": "f77cb6ac4c85da4d1f2e929400840051474c5e9c066acd59a99d8ec2692bfbad"
+        },
+        {
+          "item_id": "ba6272bdab2686404ac458106111f80649f6d1d70db1d8ebf845fd96a211b2a7",
+          "path": "packages/agent/src/earendil_works/pi_agent/tool_execution.py",
+          "fingerprint": "3949f3fd9440b5c609da85b1b15811f2a72cfa194da6aacd4da733595f0d4cae"
+        },
+        {
+          "item_id": "badac0dca0b9a5b2bd1d0abdc2fab25dd69afe6fa95ce075f9e781da577e51c5",
+          "path": "competitive_app/src/competitive_app/application/evolution/parser.py",
+          "fingerprint": "7401ac722f9ae62640e4cad1bd045d2d655ae22803c8561f141bc268442a3052"
+        },
+        {
+          "item_id": "bbb95cb19b717905a03fd53125611418ad02e4eb36c8a047ac3a197d5d606284",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/openai_completions.py",
+          "fingerprint": "8506669a9a4f61a99b34d603f2cefa459852ed0a9955e83b11dd78b3cf78b400"
+        },
+        {
+          "item_id": "bcc4f18be8db7fceb928946797e354fa2589a303b78585b3b7246c735d222495",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/azure_openai_responses_lazy.py",
+          "fingerprint": "02bb6d3177eb3a40251073b5c67a04d473f41dfd9961213bacafbfc771272616"
+        },
+        {
+          "item_id": "be4119669e9be98ea11efcc5fd18b0f5d3ea68f1630c40a6eb68cb661c122846",
+          "path": "competitive_app/src/competitive_app/application/evolution/eval/analyzers/response_contract_checker.py",
+          "fingerprint": "f4e19178e4570fa50436909be69a407348a2f76d9b4570b9b7f7a2e3030a9a11"
+        },
+        {
+          "item_id": "bfb3001e32bc9c4e6b1895f473f00d34a87fd01c533b96d5134ded824c5ad4e5",
+          "path": "tests/competitive_app/unit/sandbox/native/test_srt_proxy.py",
+          "fingerprint": "209c2ae00ccf5e7b82c0218c103bf51d5e01f5802ea78d9e44972986b7e42747"
+        },
+        {
+          "item_id": "c2bac5d6fe03207e74dd9b148d67e1a6aff813a04419648d4728252b12151a23",
+          "path": "tests/competitive_app/integration/live/test_live_fallback_observability.py",
+          "fingerprint": "5084393934a67996bce058f67f2787cc4aa173121ae3b44a3186be095010a600"
+        },
+        {
+          "item_id": "c57a1a2ec3619fabcf8162e84eddeaf02aa2679bd64b45174c9ecffa5d4c2613",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/event_stream.py",
+          "fingerprint": "bcad40ff6f79437a488cd0736a7b99ed1d445f5bc79239728b506a9c7455a5ec"
+        },
+        {
+          "item_id": "c5cc2a8cb201e74e8f182d99eea8899529cf30b238cdac751a2e993139d720aa",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/seccomp-src/seccomp-unix-block.c",
+          "fingerprint": "5885174f09eaf95ff6d45e740a7c8b5e14e0996ed6a9bdffbbbcb2edfcb8d961"
+        },
+        {
+          "item_id": "c89d70711ed380545e2bff5a4c67c16052e2158acb77c14c1772659363f713bf",
+          "path": "tests/competitive_app/unit/sandbox/native/test_srt_platform_known_issues.py",
+          "fingerprint": "422d2a9fc33c8d111266afb422218969b7c86610131b10356543c8a0ce37ef17"
+        },
+        {
+          "item_id": "cc7faa8cc0c1c282ed4a92d6e6f7b3b8eef40aaddea1ac64040068320bdd6d65",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/socm_store.py",
+          "fingerprint": "ddd87d2083d000be553a68de66c75c7df886b3b2d2ef661d4637e5382aa5a3fc"
+        },
+        {
+          "item_id": "cddc0c0caab6f9c1c0c62c838e243de828f6d3885be27177dffd7c4a9e3a5bec",
+          "path": "competitive_app/src/competitive_app/application/workflow/memory_inject.py",
+          "fingerprint": "a6b91dec688f0e5594622747e55c8ac8186393b36b8ded38237e9ca241169cd0"
+        },
+        {
+          "item_id": "d1aa533464c01344f40698c86d5393a1d0c05e3f496c584da4578b19def7c721",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/_http_stream.py",
+          "fingerprint": "3881e2a4f5d83f372a7a3ccba8085d1263608db4751b67f3afe6d08f0360ded7"
+        },
+        {
+          "item_id": "d3da793b01720b6229b7c282abde75789dad5c6bac4e35151af55a18dc8f1cb7",
+          "path": "packages/agent/src/earendil_works/pi_agent/package_manager/package_manager.py",
+          "fingerprint": "a7389a4616d955c2c5a98ef230d858d3c5957ebb49ffee2d8e353be6e77cfc4c"
+        },
+        {
+          "item_id": "d48c451b3152ae143b3f8941214a0edf31e2ecbfeb7c772cd46c95722a6a6874",
+          "path": "competitive_app/src/competitive_app/application/workflow/research_runner.py",
+          "fingerprint": "2d7774d3106518efb7e976b50d8d74cac04985d30d23dcdc82a7ff98746009bf"
+        },
+        {
+          "item_id": "d4b8f45f6ecb0beaaf9534fb33be7b5630de2e3b1146e7cdb330fd9a275a13b7",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_sandbox_provider.py",
+          "fingerprint": "87eb025e80c638ab553a9cb3e7bc4c54f759372e4f28b628fbb58c2d7044fd3d"
+        },
+        {
+          "item_id": "d50ba163084efe7a49b28547ad885b9b039818d6f497c593c132680c461b1d97",
+          "path": "capability_packages/pi_auto_review/pi_auto_review/reviewer.py",
+          "fingerprint": "d91a24449fb39f4bc15657ddac11a138fb856a46968528187a55c9e26090c23d"
+        },
+        {
+          "item_id": "d667fe0c2c10d41bf60d571890c4bb8208a123daeb9cbf818fb91228b14b1a35",
+          "path": "competitive_app/src/competitive_app/application/evolution/triggers/metric_monitor.py",
+          "fingerprint": "413898a00ba0c921095ee5ebebf07dc8cb870310325d617c78917685036ea387"
+        },
+        {
+          "item_id": "d77eae4f1c5d5782c15ac04c38bc8210f0cbf807da1b8a25ae1bd6ed87e1e62d",
+          "path": "frontend/src/store/taskStore.ts",
+          "fingerprint": "8061f1a7119ee23235fc0231416407569883f89f749c9349746213a1dd71652a"
+        },
+        {
+          "item_id": "d86bc81eec8a0229c8959ed411016e449eb278db536e3ee9ed53bea2689b29a4",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/network_policy.py",
+          "fingerprint": "84e282326f854ea201011c30b46880fb4613797d058e8e2fb6ee19b612ffdf23"
+        },
+        {
+          "item_id": "db677fb8f6020bfdb07c3130d1216be99435f1c9b5709cec57847dcf2963f02f",
+          "path": "tests/packages/agent/unit/test_harness_known_issues.py",
+          "fingerprint": "03730c40ef78f1509c2511cb9a7327693ff1182aab0852972cc66c9586dcd90d"
+        },
+        {
+          "item_id": "dd7c743d68019b915a9093a34ef8e93e8340b2594eee2274068f2e118ad685ae",
+          "path": "tests/competitive_app/unit/sandbox/test_composition.py",
+          "fingerprint": "c3c0afef3473945cc47b40d676b5b29b03d3c5b4731d7a7fcbdd69ad30d8dfb1"
+        },
+        {
+          "item_id": "de659581b3d657f91ee603c9b91a00f5bb3b19d7c088cbd3082256901339d4f2",
+          "path": "competitive_app/src/competitive_app/application/workflow/coverage_engine.py",
+          "fingerprint": "cbd39f2302417247f7cae994d9cada8935f080c219732884b2f6f69a214624f2"
+        },
+        {
+          "item_id": "de93112acbe14992420cf426c22790775d2f168b701bc62cd23752c27f5cdbc4",
+          "path": "tests/competitive_app/integration/test_workflow.py",
+          "fingerprint": "d8a417eb33f835a4dc2f4b5ea35d40caa598b902bfe63867f7b092e162e39a9e"
+        },
+        {
+          "item_id": "df0a5d8ef5539d779e857ee802efd8c4fc4240a380c570cc3022ba39c12b7335",
+          "path": "competitive_app/src/competitive_app/application/evolution/adapters/pi_llm.py",
+          "fingerprint": "3ec28123ef146322a81a36eeba9d08334a706bd674b2e588274cd6d82a035d42"
+        },
+        {
+          "item_id": "e42549afb90996476e0a8fec6ac337cda4b673c0264f2fe0eea130678da32239",
+          "path": "tests/competitive_app/unit/test_workflow_runtime_known_issues.py",
+          "fingerprint": "1419c40a7ba1711e9e9539e4d5e9e5eb7e0e374845421ee13d19234a400fdefe"
+        },
+        {
+          "item_id": "e50fc122d383b9134c8fd2f0ed7dd03e1ec96e94ceecce317f64737b0de1b86c",
+          "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_facade_known_issues.py",
+          "fingerprint": "4274be0196bcf1d2853368776390b00d2450b400cd0c888e6bd37b97db64f062"
+        },
+        {
+          "item_id": "e774bd7488377ff8e1d7ddb6cd83bb6111f19a454ae50dba480e42d997863bf4",
+          "path": "competitive_app/src/competitive_app/application/evolution/eval/analyzers/checks.py",
+          "fingerprint": "3dc769e64756ac2caceb1466dde808db6904c3d106232424641bca4467a63069"
+        },
+        {
+          "item_id": "e87596c14246c1da17ca7333f8d1398df15e0e55347593c69a1b048cc6d07768",
+          "path": "tests/competitive_app/integration/test_llm_fallback_observability.py",
+          "fingerprint": "89f00d30ace8c4e5b74b22bb86f8a427397b6ba4fa6c852613d77a54b45e7b84"
+        },
+        {
+          "item_id": "ecf589e411da4e018bae293012d332f5f0bf0b8f8561ff36b95fe535dff7f3a2",
+          "path": "frontend/src/layout/VSidebar.tsx",
+          "fingerprint": "a3992e66c2ee80fd01a28c161ad93cef2554020cc7dc6c5661bcdf837caea908"
+        },
+        {
+          "item_id": "efb82ac9f0d83a563fb4f3d7b90c7cde4f396970722f40f4ffc6a955a22b477d",
+          "path": "packages/ai/src/earendil_works/pi_ai/model_catalog.py",
+          "fingerprint": "c013c80cbc447a689bb59b9938c680bf84b46d3c72086c199a7f6d5376dcbfaa"
+        },
+        {
+          "item_id": "f13635862ed395f52b918d879e359a5f48c7257bb1e678840d8a2ca97ac5b7fa",
+          "path": "frontend/src/pages/EvidencesPage.tsx",
+          "fingerprint": "70344ede0c23342c43f5adc8b95b8fd3be7ccba975b9fa927d843a6ae0060bc4"
+        },
+        {
+          "item_id": "f13685ebe0ad17ab7153d8295b5426000abcfbe7312a2b0cb0c936c4940dfbad",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/compaction/compaction.py",
+          "fingerprint": "c0fdff18d7594490fc61cbb536f467ffed844493fadb0e5d310a6b13d9b35a60"
+        },
+        {
+          "item_id": "f22b6f4e7179f6fafec207e1af358ac20cb92916d0c32d4e1288925c1212dbe7",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/sandbox_tool_executor.py",
+          "fingerprint": "a2c04cd600ba12990c84dbacf50aa4be78d069371544f77c14add86c2cb4aaef"
+        },
+        {
+          "item_id": "f2361ac231f3929846fe04648fae58c3b7120750548991d1b2f5790e0be61b19",
+          "path": "tests/packages/ai/unit/test_ai_core_known_issues.py",
+          "fingerprint": "fdfa5e387c1518ab72a54115fe641633d6c505ccace1bcb527a3d67050ee1f72"
+        },
+        {
+          "item_id": "f26d904e4839a80c3b5026dfbb0a66384012281eaa29f0d13941477180a73046",
+          "path": "scripts/resume_to_report.py",
+          "fingerprint": "e6b2301e2962136e89f1cf3a4aaf40aef6c6485236ca0e4a4d8164853723e4a9"
+        },
+        {
+          "item_id": "f2ae0c8cb2702a9efec8fd44c311943c45172ea9e38fbb1716585900ac3a05b6",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/sandbox.py",
+          "fingerprint": "6bc8651714a80007241b9ba1e2f8622a219f007d003fba7fa951114175617fcf"
+        },
+        {
+          "item_id": "f2e5ca432582f3cdb41d1c223ece1fb9a0b182acf201def80a66f21ee8303a5f",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/policy.py",
+          "fingerprint": "943e98de1da4beb8fcdda799be635bec733559c2497901d5d3aa63a1ea2aaa5d"
+        },
+        {
+          "item_id": "f6a52cbc7b04700f3b610f820b0646c62ea266c51303a1b3cd6aa7f2b5d70b09",
+          "path": "tests/scripts/test_misc_scripts.py",
+          "fingerprint": "2ad670fb075bed84d0a4cab4840fffafd4613812d0152e7b693883dea69619dd"
+        },
+        {
+          "item_id": "f901cc19be84a02254b48852873ee1b26f953cb0a090aff3db3282d86233f546",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/jsonl_storage.py",
+          "fingerprint": "cfabfb68978fc777bf6d93eda2ea97a872ab431e4fbd09d7e93db103af522455"
+        },
+        {
+          "item_id": "fa48ad81c003a7f63c6e6b5be6733d60b56b0bedddcf285d2f42d11643a00cbd",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/task_projection_store.py",
+          "fingerprint": "17db2634585886c22d85e6d2aab9bbedfd1e572f356f6091debd93ba5282bf9e"
+        },
+        {
+          "item_id": "faf1d4774311b1d9c6ac62a7ff663b031d782f3f05995d8718743cd236afc02a",
+          "path": "competitive_app/src/competitive_app/application/evolution/post_task_observer.py",
+          "fingerprint": "81ba049f671dde5902d70c4781fc625a3693697922beaf645f49540dc0c13fbb"
+        },
+        {
+          "item_id": "fb1b135227f005deb4baac3c5556d6c3d938784382b7b0ca4ed1bc036f35c4c4",
+          "path": "tests/capability_loader/unit/test_agent_packages_known_issues.py",
+          "fingerprint": "53fd15f50ec7011985430ade357be9b776a37eb0a089068520cfb13614d38f26"
+        }
+      ],
+      "completed": [
+        {
+          "item_id": "00cc16958ca5d3029fe0cc8c729b215c07fdb3156bcba91ccee085e31870533e",
+          "path": "competitive_app/src/competitive_app/domain/task.py",
+          "fingerprint": "729acf08b9d1a5a907a3498ebc7ee056b0ed0893db7398356b47f48e9ffa055d"
+        },
+        {
+          "item_id": "0178dde92b3663a0a3928b6795dbd57a7c089724179772cc4a419be32ca45ead",
+          "path": "competitive_app/src/competitive_app/domain/stage.py",
+          "fingerprint": "f87cf4ca1bb5f42dac9038c9f8cddac5b4c68a4779ba969da158f22b68655aa7"
+        },
+        {
+          "item_id": "01dfa38412032ddf960172d99966373de8f96cf33b3acb70e98901c9ea630ef8",
+          "path": "tests/competitive_app/unit/test_api_wiring_known_issues.py",
+          "fingerprint": "6aa1b2650b31b24f587f3ea5680f9a15727a5d2093cfa766a70a12eeb150f1a9"
+        },
+        {
+          "item_id": "0275e03735aadae93baab436148d30f99bee4711c4a3491ffe63aa3972c2c07d",
+          "path": "packages/agent/src/earendil_works/pi_agent/extensions/runner.py",
+          "fingerprint": "4c8121238031860a80df74bc6b95abf3befa7d50944ce3b7193fb969e0e8ef88"
+        },
+        {
+          "item_id": "03a8efe73606942d29c815311b276d76138b92d37c6b778e70c3bd21fcd440a2",
+          "path": "tests/competitive_app/unit/test_workflow_known_issues.py",
+          "fingerprint": "df66327df35a99bc38530c6584c9dfcdea9bfb59da1c4a0701de45a808d487f5"
+        },
+        {
+          "item_id": "047c6b145f4566d3737c1a4350d016064dfbd1b1a479efb49dd369d49db3f16d",
+          "path": "packages/ai/src/earendil_works/pi_ai/models.py",
+          "fingerprint": "d9c3893fa63c751af467f400e8cdd96d102b2aede50d464fe386f57f02861ddd"
+        },
+        {
+          "item_id": "0625589755f7895154fb71dd98425160d9aba491dfca633f601bf8f1035411ea",
+          "path": "frontend/src/pages/GraphPage.tsx",
+          "fingerprint": "ce476b972592dfc4a9b386d795a315e6e087c9a0840c542b0f0ff7771893c833"
+        },
+        {
+          "item_id": "064a0de6d668866f50fd498a11fffff03f838d250ea512b914d6fddd96ad3efd",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/skills.py",
+          "fingerprint": "06068f6a035b438b80316df319a72b6eba942a1457da2dd623892818be8aeb8e"
+        },
+        {
+          "item_id": "0745d702cb54cced08b68f92c2766a31e385954ff7e02d2543d8c44cff24e55c",
+          "path": "competitive_app/src/competitive_app/domain/socm/evidence.py",
+          "fingerprint": "725e4483db148a830cca5cd03db525f4a54b31276efea7c0880ad91e35557819"
+        },
+        {
+          "item_id": "0794adc9a3af2c76087512641a89ed960ae030150c82c850547442b61f0c5ce6",
+          "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/dto.py",
+          "fingerprint": "979fd5fe0d92f2ae20c2287efab675534b45cc7bbfd1f884e2115f85b934488b"
+        },
+        {
+          "item_id": "09815877d66311522dabb1222ea6c254cc0fbf000525e01192d2ee7ff2ab139f",
+          "path": "competitive_app/src/competitive_app/application/evolution/injector.py",
+          "fingerprint": "5c9869adb3a3e9fc5ac25eaf975140ee5ad16670fb64fb81a0cfa95deb062f21"
+        },
+        {
+          "item_id": "0b7bba479235d74649c42c21cf9d5938804cd5b1d4d52c32c539349a516e370f",
+          "path": "packages/ai/src/earendil_works/pi_ai/models_store.py",
+          "fingerprint": "d680e4c77a252aeccec1ecbd16f8b949dd55012350bfcf22f11b073f5fdfdce0"
+        },
+        {
+          "item_id": "0d48e02ae4a0628e72a48023604d7d9d72bba1c686db7c2b3ba381ebbf16e28d",
+          "path": "frontend/src/pages/LibraryPage.tsx",
+          "fingerprint": "80fd424f429c4f0575ba9e6b3d75794d2f4803b853e293e63fabf3f316bf62dc"
+        },
+        {
+          "item_id": "0ed8dfcc6d342d4d64569a02335dbf4448c79bce60790d911dc40c82010f86d7",
+          "path": "competitive_app/src/competitive_app/application/workflow/journal_bridge.py",
+          "fingerprint": "2ba4525ae6ecc1917879748314757611d9d0a74278351558f1cf5ba25b59a1ce"
+        },
+        {
+          "item_id": "1210c7edc82bd6f1b255c1160cd966c261073e461b2193e11572616ed73ce5ea",
+          "path": "frontend/src/index.css",
+          "fingerprint": "c27cdc22e71e109c5c8936ce970e5ac876db59902b9e175adf3642546921a633"
+        },
+        {
+          "item_id": "131f63a31e872ff8f3b6b0fc47dce01b8f75712a541d1479ae224f339bf5a38b",
+          "path": "competitive_app/src/competitive_app/application/model/fallback_stream.py",
+          "fingerprint": "f91bb0a551492cb79e3aa8ad37cb012fcb743d62d6768e6639e8af51a69a1dc6"
+        },
+        {
+          "item_id": "13ca686c3e868c8be0291006b030d43bcaf276edfeadf627756f140915b418db",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/types.py",
+          "fingerprint": "59d283df69ce7945f76d5b977e63c66be722e589d8afc99d3445c2e89063c556"
+        },
+        {
+          "item_id": "164aadfd7517c6fa22c4d23c71b5dee5cd792d20cdfa5a8f3abd3f449acb0f3f",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/compaction/plan.py",
+          "fingerprint": "53ad948f2c21df953b11d16d0639ad42c8772bb8054cfb671f959fc67eb463ec"
+        },
+        {
+          "item_id": "165e70953ed97c83d747d503c63ec6139b60dd5db866b205d500a3a253caeddf",
+          "path": "capability_packages/search_tavily/extensions/tavily_tools.py",
+          "fingerprint": "176420b3b0bc05f24a7ea6cef2e32f0f9261d8eaf4764dbd873fe991263a5fc0"
+        },
+        {
+          "item_id": "166f775b709c06f7dd90e3f1e74609c287baa8c57e385d18dafa07ceaf4dd676",
+          "path": "frontend/src/hooks/useTaskStream.ts",
+          "fingerprint": "595c916abca512847450e4b26bf0497d1e6fa6931f635b5538c4fc817c5e0059"
+        },
+        {
+          "item_id": "1680321414135d33948e23a7984da794bc6a5f3e06edfac6283b3476b9324f35",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/diagnostics.py",
+          "fingerprint": "9381f4e07567a6eab56f229018cb7a9fa625553dec48963f512f6a08821a9379"
+        },
+        {
+          "item_id": "1bbc9947f630a45fd3e69e121524c0606d06f137be3d4c2ae3f60909af0ce2c8",
+          "path": "competitive_app/src/competitive_app/domain/socm/strategy.py",
+          "fingerprint": "3f6bffeec14fac51bae12f71afc79d2e8b8ff905c4177966984c224b174a9e73"
+        },
+        {
+          "item_id": "1d1cfb2bcb632ae631a8b5073a0cb5feb26b16a256c737a581b1da5ad1c66456",
+          "path": "competitive_app/src/competitive_app/application/evolution/focus/ive_focuser.py",
+          "fingerprint": "f58f7337261c6b5514eac91f63ec95260237bcb34519678408b78901ef3a87bc"
+        },
+        {
+          "item_id": "1d64e755ae335716c768d7656ab20e4f37a23943be4b7503480fef8b56ca44d5",
+          "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+          "fingerprint": "bc4fcda4ff0fdc99f92e035ec158d68856b3ec6f8c8399820f97f57f05d16de4"
+        },
+        {
+          "item_id": "1e096af0a87e53683688611c234b2dcdee1d5ea5b07155e8a536e614eeab67a4",
+          "path": "packages/agent/src/earendil_works/pi_agent/agent_loop.py",
+          "fingerprint": "aaa7de9f184005f27df1e8d073191ebde38c9fd8f8d154749037aa531335cf01"
+        },
+        {
+          "item_id": "1fdd83ecccb187a2cd91a3ce9af761364ebf6b34139caf4d9e7dabd12128a6c6",
+          "path": "tests/competitive_app/contract/test_deps.py",
+          "fingerprint": "6d63435e795d9d0363f3c29d19b63f01f6c6dc0d5b304f6356ca5cc7b250c0f6"
+        },
+        {
+          "item_id": "20516267bcc5a0811f5c81bc29e0ac7743621dce49a289d3a0972e258271bb60",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/lifecycle.py",
+          "fingerprint": "fe34f4908ee98b313d81833d69a0179e185bfe647b018f3aef45f3906b7e57e4"
+        },
+        {
+          "item_id": "21f4f68a100a219d0987c1116af60c025fcfc77733f1007b19381cd51793586e",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/env/python_env.py",
+          "fingerprint": "c6434b4f0b62088871b87309c8869954dfe159e9edbe2268ffbfd671dd614ba9"
+        },
+        {
+          "item_id": "2420b88e1066864d8867156fd5d347c7eae4122f89702e5d6a0c7ccb092754e3",
+          "path": "competitive_app/src/competitive_app/application/workflow/extraction.py",
+          "fingerprint": "068ebbca095338de9ae2a13a39f43188e67b4d0060ce0e138f68079718988295"
+        },
+        {
+          "item_id": "2546b3d59b1fe8ce58946cbf48c7082100f6c485752669ba15c02ca892a0fec7",
+          "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/routes_reports.py",
+          "fingerprint": "256ec916c34f07d1020b5463a034600899bab303e3d58317fe9f6be234a36677"
+        },
+        {
+          "item_id": "2578155ced05614f486e44fc5402f674b67341750929829873ae5fd75b1df562",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/process.py",
+          "fingerprint": "474dee764abce56ebf10706433f7e0eefdc4788cd707f714a7a7d9636d4ac12f"
+        },
+        {
+          "item_id": "28676071e496d5d0a6ea32084c28d9e0a2ff59c6588a9904cbcdbc30fb6e8524",
+          "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+          "fingerprint": "bdcd2bb793326c9e4130b576d2cc0391c720fcd0e5ffd3be1f95c1906c77319e"
+        },
+        {
+          "item_id": "28efb24bdad66546ce0dc0d530b2e44af364339558f28801d9ca8f2618646bf0",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/openai_responses_lazy.py",
+          "fingerprint": "baf49f623f2aa883f0a7666e99538016274ee8932612a7786ba4298c3bf7efda"
+        },
+        {
+          "item_id": "2bb7e776febe06cd9a923275dc2246c0a7ecd642a3466400117efa62e2ad044c",
+          "path": "tests/competitive_app/unit/sandbox/native/test_srt_manager_proxy_known_issues.py",
+          "fingerprint": "a203e4087d606a3330816064c53370665cdfa660b6f9d8475b2ba2162763d9e3"
+        },
+        {
+          "item_id": "2c9d9379617bff936d98ae0e9665979df242bd0cde113e7fea5cd451a91febd2",
+          "path": "packages/ai/src/earendil_works/pi_ai/providers/mistral.py",
+          "fingerprint": "fd22ddf23c9e2f8843886ef5175857500e19a9dc65e6ad225eb6a7f870e4eaeb"
+        },
+        {
+          "item_id": "2da5af7ec65ac157dcb78c3a2b86571a8034e78363621def85456360c457d880",
+          "path": "scripts/_run_one_group.py",
+          "fingerprint": "1c949f7073f9b5362d5dc633468a463f913a585cd57ef57bc6b512e24a8e1ccf"
+        },
+        {
+          "item_id": "2e6c7f00313ab32c0490905d9eedee40685fef2f94714dc8d0250a42067d52f5",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/workflow_skill_store.py",
+          "fingerprint": "169a37325a9d59eb3bebfc09f902e5aaffa0ca3083a7c7f7a810323608348819"
+        },
+        {
+          "item_id": "30a9b275f5c621d0fff67ebb69b98916aa6339ffe8fdf2f78db11991b8b8934f",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/session.py",
+          "fingerprint": "594d9fe1b9d9b0f9b69b8052ff538e48d8ca233c6261308379a7c68c6ec2706e"
+        },
+        {
+          "item_id": "30fbeb863e8bf852491de1d8b7158f915d715a0594501cd0823dc58417b6721a",
+          "path": "frontend/src/lib/api.ts",
+          "fingerprint": "0b8c80c2e9ae051745f3871164b15720d11a8423d4b2cf94b4d4fba0fd48a328"
+        },
+        {
+          "item_id": "314e12fe14af4242472c43b701b93838d2389c614e49cd0d4727bbe28de6f533",
+          "path": "scripts/live_three_stage_verify.py",
+          "fingerprint": "23b169cf14784b030d605a3fa913d91e8b08523470423ceff76f7b8826122942"
+        },
+        {
+          "item_id": "32c860427db75f7673a3c4734e11b74a0c549a282aab503186a4b7dbd710c889",
+          "path": "packages/ai/src/earendil_works/pi_ai/providers/faux.py",
+          "fingerprint": "28df38bf30bde199ad7dce2b44f0aa700bc4fbedc18c9243b1e0f523285864b6"
+        },
+        {
+          "item_id": "3908284ba0843c877735c77ff3a280d63ab9fbfc266e5c2b3e54d748dab3ee4b",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/learned_skill_store.py",
+          "fingerprint": "32b791d9fd88bcdfe4715b9c2073223934270ab58c52f4845f9d210720605cfd"
+        },
+        {
+          "item_id": "3b9aa2fb7db9d1c285ff79c28319903b8c5d4365be81dbf597ce2ea620700ba4",
+          "path": "scripts/fetch_upstream.sh",
+          "fingerprint": "4b46b08c4db3254bdcf8699b7bc501b86f0ee736c4bd22d189c79ab74bbde0f0"
+        },
+        {
+          "item_id": "3cfeb7c2dc18cee7b5bcac308570aca5d65bb030662736748d2c1a0d1c4006b4",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/seccomp.py",
+          "fingerprint": "4dde8310ba6b8b37e97616913882253c70da2f727c3d49dd8a91e91f063347dd"
+        },
+        {
+          "item_id": "48b345485d11aefba00e10d1c64edfa90f852d5e78b30eb43c330eec67255f0b",
+          "path": "packages/agent/src/earendil_works/pi_agent/package_manager/collect.py",
+          "fingerprint": "051e13d1c3d5b8d190aac62516778f175134bbe38129211376d7f05dbef1c053"
+        },
+        {
+          "item_id": "49226f835e322853bc01888a7aca88d379741188bbaeb10a3c8bf088fa55bbc2",
+          "path": "packages/agent/src/earendil_works/pi_agent/agent.py",
+          "fingerprint": "30481c836691de577f5e010784382cb2c26df1ee7d2d9886a7df20aae2cb0b23"
+        },
+        {
+          "item_id": "4e3b3067b25a60f1c96ba1e7af2ffcd39307b0b7320a4a635ff998bed023b1a7",
+          "path": "scripts/comparison_postprocess.py",
+          "fingerprint": "50bf37625a08e675b3b714030135d6d1ef3c7dece106e1f5bda14c883ee109ba"
+        },
+        {
+          "item_id": "4e8f4d03fbcf164e978363d7a7a34ab1b0aab70e847d4a78b5c77f2c61119d9c",
+          "path": "packages/agent/src/earendil_works/pi_agent/types.py",
+          "fingerprint": "85ae867b196ebf0b15832fb5d8705821cc78597c33baf4fa672e43f0ee7dfd9e"
+        },
+        {
+          "item_id": "4f8d96c0d3d485050c6e969c665327e1eb51b86524267e61cc9c45b8af86b82d",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/policy.py",
+          "fingerprint": "fbd9779c76e6b7f89d1ed527b9b4065f0cb1d0af8ca672c62b33d0acf3239286"
+        },
+        {
+          "item_id": "51a375f02c531c1f0ef8b018265bdf8fa36df4d5a5fe297fa37e40cc48f1897c",
+          "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+          "fingerprint": "6693c299e0a49d2ad421f38459e843f681dfba353aa8413625ff454493161ace"
+        },
+        {
+          "item_id": "5231a76867ac1f702eb82a783c4d3886b4066faf45551a41989cde9aecb2d8f9",
+          "path": "tests/competitive_app/unit/test_fallback_router.py",
+          "fingerprint": "b126832b6cd6fa804d061a8f423b705e4923fdc26020b9f56a284632addb4f14"
+        },
+        {
+          "item_id": "540558dd92bd6aae0d566d8519674d3cdd2ce79c18814589cf3a31bd3e5681fd",
+          "path": "competitive_app/src/competitive_app/domain/socm/frontier.py",
+          "fingerprint": "bd3790faff14cc815c52650758c652904c0896656e5bac59d82dcb54cc0f7ffc"
+        },
+        {
+          "item_id": "5556af07e271967b63aca2035b40a314e9bba1dc449eabf5404314584db5fcda",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/openai_codex_responses_lazy.py",
+          "fingerprint": "c2f353eb713f439ce0c7067737e5dde7c259aa7e52ecb83569624f3621b9084b"
+        },
+        {
+          "item_id": "566220af036affb716e232a675325ff155a70b906a3c498097508b96f81104b4",
+          "path": "frontend/src/components/ui/index.tsx",
+          "fingerprint": "1fafe02df9c4274fb1d5b1ae7e37726698bec3a51894b3d1c7a26a5cfdc5f14a"
+        },
+        {
+          "item_id": "56e262f8b51eb20440adce49606a55305c4c9a0db61a9c6da8561aecba44925d",
+          "path": "frontend/src/pages/DashboardPage.tsx",
+          "fingerprint": "da75c9efcc739dd5427800156f74f035b5b6ab465743775787c910bde79cece9"
+        },
+        {
+          "item_id": "594b1e6cdce317318c7e537b884768fabe4a4de3ea3c3acc3b0519c24d7ec659",
+          "path": "tests/packages/agent/unit/test_agent_package_known_issues.py",
+          "fingerprint": "27432f33ac9049c504301d825e3850fe782e73096b392f866d2dfebbceea52ae"
+        },
+        {
+          "item_id": "5a8b97b6533bcae16ba4776896f79a6d386a7b937af0d9aee7a9bc9d35d4b649",
+          "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/app.py",
+          "fingerprint": "fe981ec0ba1d4e358b0139683cdbc69f2bfa5a786894e8a49f302e2cdfceacc0"
+        },
+        {
+          "item_id": "5b8c9093416a47b095111f4ed256d751bb72b9d9d8410e60319e0ab6e890163e",
+          "path": "tests/capability_packages/pi_auto_review/test_known_issues_capabilities.py",
+          "fingerprint": "c41399359cac94c768df26c19e2c28eb28abad8f7a4e17bb151cf47f6d34f89b"
+        },
+        {
+          "item_id": "5e75c9d9779fff98b651c515e9b3a1e074cbb016bd2919938951c5a75843ad8b",
+          "path": "tests/competitive_app/unit/sandbox/native/test_traps.py",
+          "fingerprint": "efc407093021909ef4a74f82ee7e4fcecd19d39fd43e7b8c808eed1a4be8af3b"
+        },
+        {
+          "item_id": "5f6a26d1d78b9176633dec068a3f008cb751b3aa4d1c67bbb66ecacad16290de",
+          "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/routes_tasks.py",
+          "fingerprint": "c980927ea6c246c383b072835f09d2d010be32ac8f23aad971a9fa645c570a3a"
+        },
+        {
+          "item_id": "60277799d8b0522717c09ce2e80a35edba64e8d63ddd0ea8ad2741ce513d97e1",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/lazy.py",
+          "fingerprint": "38878bbf575700560e7e7bc81844e4abae825f67318b3494144ba9fd4883f34b"
+        },
+        {
+          "item_id": "6134fbf7251db6325872c68ca2310b6bd3d60da405c55b376b32d483ce03d4f5",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/anthropic_messages.py",
+          "fingerprint": "bbcb7f9ffcb4839257c84d1e0c67d4d4849c12f0e5e0de59529ea835ad7cc1db"
+        },
+        {
+          "item_id": "6647fea3b798246c9610bea84199ad2fe6c0a0d4677c12b5c2127eac9e8e2e6e",
+          "path": "tests/competitive_app/integration/test_native_sandbox_coverage.py",
+          "fingerprint": "1dfa6719c114fd49cddd524cd5f5fa33cca58b2c63b50acfe42f5d6a8ec90c65"
+        },
+        {
+          "item_id": "684f20937f2a4b39889c51ca618f1ca2cd1cad427b3819f7db506ebac4512f5b",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/seccomp-src/apply-seccomp.c",
+          "fingerprint": "79efea3ebabc0e4aa0478d52bc7dbeff826364fbc037c49d7e23a5b5e411f889"
+        },
+        {
+          "item_id": "6864f03ed3dad13a66c09a59d186191c12436092e106a4a4e1833d32b7c18e10",
+          "path": "competitive_app/src/competitive_app/application/evolution/selector.py",
+          "fingerprint": "9f718d044de9c35403ae973f62d1e01d3987b49142f33aa86b45adcde279e9c3"
+        },
+        {
+          "item_id": "6ee1602f9f11bf7f9ed45dd6c165744b7b299671648fd948255e47feb5e15bce",
+          "path": "competitive_app/src/competitive_app/adapter/out/observability/__init__.py",
+          "fingerprint": "825b7b641e3a8ceb3893da1b5bee6fb301ec9d02e35f90573c2557aec3362385"
+        },
+        {
+          "item_id": "6fc09a6d24402a3bc2c6e156a6ce970f66fe0d9a968a8ac23f14872524858209",
+          "path": "tests/competitive_app/unit/test_domain_known_issues.py",
+          "fingerprint": "56c2faf9faaefa15f636193e355dc1097fe452bed46f06ecf2d3340558b9c6ab"
+        },
+        {
+          "item_id": "70c16c8767d181d5454da5ceb115a0ea52dbc901e4b1904806f899801495e5cf",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/messages.py",
+          "fingerprint": "e0ad12483d23e26fae0457ece38c891ba1bdc1be11ab77e274917b087193d583"
+        },
+        {
+          "item_id": "70c50caac244ebe36c27c43c3c7fd8057e8c4e5803f4f8b3a9a8d05c0c4f9f32",
+          "path": "competitive_app/src/competitive_app/adapter/out/observability/run_journal.py",
+          "fingerprint": "842d25a18e857dbfddf8ba4b60a3f0092ef95f2158be8175cff8ed3cdda6fb48"
+        },
+        {
+          "item_id": "711cc105e14b93c1bbc703b3ba11caff783074437226532705f8c753a69ad962",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/runner.py",
+          "fingerprint": "149f9cd6bd144453e444b4446b1e7a498dd2a29d03115e2c68b0c374eaaa952a"
+        },
+        {
+          "item_id": "72359f4b8664bf53dea8d4f69d555f04863d0f5ae15e20d713d4bfce01dcc329",
+          "path": "packages/agent/src/earendil_works/pi_agent/package_manager/apply.py",
+          "fingerprint": "a7c8b45f2f3a057e5d8c86538d09b038e17b6bce5ac5196d7ae5c738519687ee"
+        },
+        {
+          "item_id": "72d1ea64f9936fbde1292dfef13e0a7edb9e3732a053a855c20a7e7f21e29997",
+          "path": "tests/competitive_app/unit/test_extraction_quality.py",
+          "fingerprint": "d82ea5bdf6b53a22f1219a509317c62323a86dd5e171a100bf2d1655b6db3ecf"
+        },
+        {
+          "item_id": "73606104dcc7411f1f9c5124d1795867902f0ae4412d528a030426e4fb654521",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/json_parse.py",
+          "fingerprint": "fd44dd948d22fa3398cc48afcf37a8886dbd6330cf83a426b3ebc019e663798f"
+        },
+        {
+          "item_id": "75ca2b56b9515a3903a2f1e9be32f564b637ef6582b2ca873d2fcb7b659cafc0",
+          "path": "frontend/src/pages/ReportPage.tsx",
+          "fingerprint": "3e0f16992b7b0f5e1da47aeefce5a21a2b2aba43ed015d9528f2529d41e6d4b4"
+        },
+        {
+          "item_id": "75e27fce48670a871be1a67f5db142c5042de8f3a516c9738513caec230ccfe4",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/workspace.py",
+          "fingerprint": "640ab9cf05e10393c668f5bf69da90b5d31a6f53725130650788026c5c4eeb06"
+        },
+        {
+          "item_id": "7734e1fb01c643b1b8cca392d5cc12f02a3b206aae7d05969d189f549d874677",
+          "path": "tests/packages/agent/unit/test_tool_execution.py",
+          "fingerprint": "80f8e41e7c7981681a6bda17e0518fbbd0becf3afacf3ff4525f926993c5e204"
+        },
+        {
+          "item_id": "7747dce17e5a0dad12a0d103326ec8c49cc95137f4d0d8e0e09d49047fe91224",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/proxy.py",
+          "fingerprint": "ae51a0e8c418bf749856472c4d30572119c1f04c6e9c667e3111b1ddc2216ec0"
+        },
+        {
+          "item_id": "78b1c219018ee203976b395483bfcd6eefffa6ca5c776eec5a63c2a283b2fe80",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approved_registry.py",
+          "fingerprint": "37fe8ac1f229e7ab3f71be1a96aa1e94e5fa35693ce95d6d393b5f712c12e78f"
+        },
+        {
+          "item_id": "7a692cde07dff65783d48237351f18369bac30c7c6188329bf8c23d1957683fb",
+          "path": "packages/agent/src/earendil_works/pi_agent/extensions/loader.py",
+          "fingerprint": "9a0617bdc72a4cdd291cebd10a3df64739dc596c0c1b150e5d1ce591871d0412"
+        },
+        {
+          "item_id": "7b5a930f28c7dcee482b746de5fb95f162e98e52862e4bac59faf82d8cd9e8df",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/transform_messages.py",
+          "fingerprint": "13a7f68bcc35fc2614de63d5f37ac223fcd227091fe976a325665bb28bc8e005"
+        },
+        {
+          "item_id": "7c0dc57f94423da69bc0dee1873e4dabf45f14e6709b3ac4b4053154a32bd2a0",
+          "path": "capability_packages/search_anysearch/extensions/anysearch_tools.py",
+          "fingerprint": "45c7cb1e336f6749d9a946e8af793e92814e8ce2bea7c11f7c5be6d7c5fef4b9"
+        },
+        {
+          "item_id": "7c7cd778a1f59f14e37b7002c9e0b4cd37404c14e1114d3ac62069d05814b49d",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/linux.py",
+          "fingerprint": "d29ccdd03f8b993c850f689744f058ab5c4b248a3ea26403653b40634c9a3984"
+        },
+        {
+          "item_id": "7d8494dd2e014bbc0b365a8713967713d5d5039ee76267fc97a26c7fe96f20e5",
+          "path": "frontend/src/types.ts",
+          "fingerprint": "a4e6a2db97bd42905626d43650ca31d0e86fc0db9725249e5e75a80e23913cad"
+        },
+        {
+          "item_id": "7dcd16ea4d05d231a15326f05329e4dd3879de296df82b46223a926ebf7de333",
+          "path": "competitive_app/src/competitive_app/application/evolution/eval/analyzers/contract_compiler.py",
+          "fingerprint": "35389eef0b2389678e3ee742c3f715fc418db888c899792ea73d28c0f707c17d"
+        },
+        {
+          "item_id": "7ef073acc82aa4d33b36a7e2f419474d45b2c1d54a592a4cc13648c1b1fdc174",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/compaction/branch_summarization.py",
+          "fingerprint": "27e44cc310f787ffc700aa88463232ea78b52dbb492c4c7120f8118f6ca12edb"
+        },
+        {
+          "item_id": "7f3fd14e660888c769cb30195347743fc82a507233d5558e755ba1a9b2e3d35b",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/bedrock_converse_stream_lazy.py",
+          "fingerprint": "fccac721e0a2b72e760b6866d810de8f9038098659d69185f38601fa1887827b"
+        },
+        {
+          "item_id": "7f579c845e308940ef75421ce385515799a687f2e5a0dbc4c57ffed3792e429a",
+          "path": "tests/packages/ai/unit/test_ai_api_known_issues.py",
+          "fingerprint": "27bcd96fc6a99b6d8932ce3d43f77449a6cb51aa6d61e6259cd738bab98c5cbe"
+        },
+        {
+          "item_id": "8084c60987661fe0fde322e90ce30c4f605b5172fef33aa4e74b37765852df95",
+          "path": "tests/packages/agent/unit/test_agent_core_known_issues.py",
+          "fingerprint": "610500e2aa5c01c9050f46a92f19632630b4d32d57f6c28629fa0e984ef017c8"
+        },
+        {
+          "item_id": "822cc850418a65e7f747692c62ec6d53f9db97fea9b783a1a3846359b60a3b33",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/memory_repo.py",
+          "fingerprint": "1b703a6d7f1bf7d2c1e463accfe91e61800faa14b0386194ab3f344a965765c1"
+        },
+        {
+          "item_id": "82f4857efe8c87f0e3284bf1474523c1b84c21b6482e0790a033b1762afde112",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/google_shared.py",
+          "fingerprint": "aa5fda6ee549dc069e1e18d8b9bf7baf33e1210ca1c130919f98847e7fddd17d"
+        },
+        {
+          "item_id": "83ff5bd4be299fca6f0f0f58da82f9166facac3cbd886e9f429832bd60dd3bba",
+          "path": "scripts/live_trace_refine_verify.py",
+          "fingerprint": "bf071dbe7c54d7c6757cb5cb0553ee910d5a8fd86aefd8c93b374580d60c87cb"
+        },
+        {
+          "item_id": "842170a0bcaceae99aba61b47345aeb3b3943f0b498e6624f0474561020f4327",
+          "path": "competitive_app/src/competitive_app/domain/socm/coverage.py",
+          "fingerprint": "b129312104f22fa1ef6b358d17e0c48b1e00f39fa053aa707bfdf5a96067adfd"
+        },
+        {
+          "item_id": "85a363b73765ce9de0c3a2fee2e3a8e63fd58f36a00a8d50ce57c144c78d08a2",
+          "path": "tests/competitive_app/unit/test_persistence_observability_known_issues.py",
+          "fingerprint": "2e2dbdcef70c7eb87423504ba8f705e3c14788bdab3198f3c149931aa3800472"
+        },
+        {
+          "item_id": "87ad42c8a6c23185b750fc61647734320c68fd88fffb8cf3a65868362c7270a1",
+          "path": "packages/agent/src/earendil_works/pi_agent/extensions/wrapper.py",
+          "fingerprint": "99f73a808633e1204a9ea9eddf4042538aa94189fe82a40c0dc968839fcadd2c"
+        },
+        {
+          "item_id": "893dfe784fa67826d4befeb301d6f9c38997c6bfe266a60f50b9929a54aa34d2",
+          "path": "tests/competitive_app/unit/evolution/test_evolution_known_issues.py",
+          "fingerprint": "1dcc6d009d797c9b9bf9634e2291680a0ef8db8b5addb55e2b595828fa78d0fd"
+        },
+        {
+          "item_id": "8a2bf637b3ee1d15ed55fa3e40d3219458395aef63a51553ca9c7b327ddb1c61",
+          "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_native_known_issues.py",
+          "fingerprint": "698891905a8baac9e1b672b0cee1df7c8a3d7bacbf2409b5d4223bd965d87ccf"
+        },
+        {
+          "item_id": "8a2d46cc529d9af380220eafbeab051a1ca781f8133d7393144cb94dfcde6c6f",
+          "path": "tests/competitive_app/unit/evolution/test_eval_known_issues.py",
+          "fingerprint": "a0d242f348b10df82d3af292f3263f7193acfb58322845b38d33bd4439d2bed5"
+        },
+        {
+          "item_id": "8c6ed984361d79f87041938269fbbe2d3a80a8ab237542d4818d4daf1a931770",
+          "path": "capability_packages/pi_auto_review/pi_auto_review/policy.py",
+          "fingerprint": "dd60ccbdad8558c0a8d921c49ea10a574a0667ad28e40692e67ecda4053931d5"
+        },
+        {
+          "item_id": "8d1f82750f7ac4e6c27c33f4922e92ee6ea02c41b0d2b839faebd156f982d9f5",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approval/sandbox.py",
+          "fingerprint": "4449a9f72880521e7aaf3ce15ee79e594b6068dbfbe47b0ebbb9d0294faaf6e9"
+        },
+        {
+          "item_id": "8e7df5860552d285f003cf38a818089c4ca87a74828a316c5fbd7cbf9a379e08",
+          "path": "capability_packages/pi_auto_review/extensions/register.py",
+          "fingerprint": "1c403d582ece8d7ff805e4291073f30ee9ef4c76c9e3950a580ea905fc6a90fb"
+        },
+        {
+          "item_id": "8f38caa750b609bd4ac27f29c356f070459c9345f318e07fd039bff66bb9f948",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/protocol.py",
+          "fingerprint": "3e0e1cca55e90cc878175a2b008318b98cce1511fc3cbfa48efff606d1f41b16"
+        },
+        {
+          "item_id": "90f3060522416dae4b0492a836ead8b52bce167f0ffa7233070efcda6f4021ba",
+          "path": "competitive_app/src/competitive_app/application/model/router.py",
+          "fingerprint": "ca1dd2d8e183d10edb958e99c95af3c807e2f6d57c68c1b7289771e85473ce79"
+        },
+        {
+          "item_id": "95f54914b343541991c72f1fe8832eb9b958e94a3ad7f0634594701652e24d52",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/manager.py",
+          "fingerprint": "6311e4262bbbd6bafba7a23fbf9d54cccbf62a5f45b20838dc5096eee2c11112"
+        },
+        {
+          "item_id": "973ec405dff9d63c7c671974aa543f1a44b0824ea276ffb8f75459e77a5852d5",
+          "path": "competitive_app/src/competitive_app/application/evolution/evolution_manager.py",
+          "fingerprint": "347b0bd4ec58f10d13e5156229daa993b8cbbb4d7727afaf1d01a3c04eea3965"
+        },
+        {
+          "item_id": "99d6255d2876945dba5a63c04089399484adabd84c5bb25c22f690656d7125d5",
+          "path": "packages/ai/src/earendil_works/pi_ai/auth/resolve.py",
+          "fingerprint": "04c4b2c79c1f82556ce7adbac56c71f4b57b86f9361b223d0808246a500be99d"
+        },
+        {
+          "item_id": "9da0fab0dd063ab130389a0bb8040b5013010f6bf7e347526b619b01306c3bfc",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/agent_harness.py",
+          "fingerprint": "3c032149d14af849dd99e1e30956a812e445ca91a361f7b56c6e93f653b17fa3"
+        },
+        {
+          "item_id": "a04fef22ad4a10e6d41c051ed4207d7c552346b125337cd07c4a0ca4ff37eaed",
+          "path": "competitive_app/src/competitive_app/adapter/out/observability/events.py",
+          "fingerprint": "9c16f795d549efc7eecb69483b2d5b74975339a3be88e02fc03df546fb4eff61"
+        },
+        {
+          "item_id": "a0e13b9661fc134ead376cef40d1f716ea4b24e444eefa6f5a1a26e0937d82b5",
+          "path": "packages/ai/src/earendil_works/pi_ai/auth/credential_store.py",
+          "fingerprint": "2042ed65529ce5688867cd75a018592851ccd06161e5e94f4eb27e11a57d2c7c"
+        },
+        {
+          "item_id": "a13545607cf26a155bb49d15876cebcd33067ae88ce6e98754745fd2cd256bbe",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/macos.py",
+          "fingerprint": "7044ec8643410c244183a92978fd766500070ed84a3565e06883bd9dc5c72f5e"
+        },
+        {
+          "item_id": "a712f39ef01f1c06684699d9e534bced495ba0b7ce3d36d233a79bede076415d",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/prompt_templates.py",
+          "fingerprint": "7f08bfb51d8c4c72762ad22421a130ebda7eaef37a56d561a0f669f1c4a5058c"
+        },
+        {
+          "item_id": "a8d91bf1ecf2442d34df6964889063d77947a96c3eb8b1048cd2a8479fe7e9b7",
+          "path": "competitive_app/src/competitive_app/wiring.py",
+          "fingerprint": "cc2831ff0854877b4dd58a92cd83b654fa660dba93275940bd11395262767ea4"
+        },
+        {
+          "item_id": "aa2457026c33f1e50e0ce630cf01c0f604726daa0d4f23a942af0f52ef455eea",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/broker.py",
+          "fingerprint": "14dd0b5026745d8602eb208bef223a31728f67279cbb6f41e4142dc9c1136ae0"
+        },
+        {
+          "item_id": "aa79bd6e1597d76a895bb390161bd0aefca518dacc04be716e566d0dd7f239bf",
+          "path": "packages/agent/src/earendil_works/pi_agent/package_manager/resource_loader.py",
+          "fingerprint": "0e56e8cfb68ac6ec02e466b4e4a9179fa91b3cb159a9b9b743a03290e97d6c33"
+        },
+        {
+          "item_id": "ad326c279ca6eddc637290c69f0028d9e23f2fb245ba8078de93778b7cb83d7b",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/config.py",
+          "fingerprint": "de193aef1999b73be6e85456e2b888d24f30d6130efe8aea8464cd290f5b86b9"
+        },
+        {
+          "item_id": "b1828753a12b176dc0ec5595c2401d56dc924117e0ff70a0d8f3929640bf71ac",
+          "path": "frontend/src/pages/TracePage.tsx",
+          "fingerprint": "fed81ee75414c893f03b16bc21c675fb7a08d37de6a8c22650cc2d1df50b8ef8"
+        },
+        {
+          "item_id": "b2005c45b9b7cc0350f7fee16b1b923b2e438e42936209eb826671b408da8ba5",
+          "path": ".dockerignore",
+          "fingerprint": "d4e2c4a721ee5db094bc6975340a11d7126921e77083defa8bba792ead9e0dbf"
+        },
+        {
+          "item_id": "b67725e3ffb6fd56474fe762ab8b198e1f60fe211977673015910d5975b95c40",
+          "path": "competitive_app/src/competitive_app/application/workflow/session_service.py",
+          "fingerprint": "f77cb6ac4c85da4d1f2e929400840051474c5e9c066acd59a99d8ec2692bfbad"
+        },
+        {
+          "item_id": "ba6272bdab2686404ac458106111f80649f6d1d70db1d8ebf845fd96a211b2a7",
+          "path": "packages/agent/src/earendil_works/pi_agent/tool_execution.py",
+          "fingerprint": "3949f3fd9440b5c609da85b1b15811f2a72cfa194da6aacd4da733595f0d4cae"
+        },
+        {
+          "item_id": "badac0dca0b9a5b2bd1d0abdc2fab25dd69afe6fa95ce075f9e781da577e51c5",
+          "path": "competitive_app/src/competitive_app/application/evolution/parser.py",
+          "fingerprint": "7401ac722f9ae62640e4cad1bd045d2d655ae22803c8561f141bc268442a3052"
+        },
+        {
+          "item_id": "bbb95cb19b717905a03fd53125611418ad02e4eb36c8a047ac3a197d5d606284",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/openai_completions.py",
+          "fingerprint": "8506669a9a4f61a99b34d603f2cefa459852ed0a9955e83b11dd78b3cf78b400"
+        },
+        {
+          "item_id": "bcc4f18be8db7fceb928946797e354fa2589a303b78585b3b7246c735d222495",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/azure_openai_responses_lazy.py",
+          "fingerprint": "02bb6d3177eb3a40251073b5c67a04d473f41dfd9961213bacafbfc771272616"
+        },
+        {
+          "item_id": "be4119669e9be98ea11efcc5fd18b0f5d3ea68f1630c40a6eb68cb661c122846",
+          "path": "competitive_app/src/competitive_app/application/evolution/eval/analyzers/response_contract_checker.py",
+          "fingerprint": "f4e19178e4570fa50436909be69a407348a2f76d9b4570b9b7f7a2e3030a9a11"
+        },
+        {
+          "item_id": "bfb3001e32bc9c4e6b1895f473f00d34a87fd01c533b96d5134ded824c5ad4e5",
+          "path": "tests/competitive_app/unit/sandbox/native/test_srt_proxy.py",
+          "fingerprint": "209c2ae00ccf5e7b82c0218c103bf51d5e01f5802ea78d9e44972986b7e42747"
+        },
+        {
+          "item_id": "c2bac5d6fe03207e74dd9b148d67e1a6aff813a04419648d4728252b12151a23",
+          "path": "tests/competitive_app/integration/live/test_live_fallback_observability.py",
+          "fingerprint": "5084393934a67996bce058f67f2787cc4aa173121ae3b44a3186be095010a600"
+        },
+        {
+          "item_id": "c57a1a2ec3619fabcf8162e84eddeaf02aa2679bd64b45174c9ecffa5d4c2613",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/event_stream.py",
+          "fingerprint": "bcad40ff6f79437a488cd0736a7b99ed1d445f5bc79239728b506a9c7455a5ec"
+        },
+        {
+          "item_id": "c5cc2a8cb201e74e8f182d99eea8899529cf30b238cdac751a2e993139d720aa",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/seccomp-src/seccomp-unix-block.c",
+          "fingerprint": "5885174f09eaf95ff6d45e740a7c8b5e14e0996ed6a9bdffbbbcb2edfcb8d961"
+        },
+        {
+          "item_id": "c89d70711ed380545e2bff5a4c67c16052e2158acb77c14c1772659363f713bf",
+          "path": "tests/competitive_app/unit/sandbox/native/test_srt_platform_known_issues.py",
+          "fingerprint": "422d2a9fc33c8d111266afb422218969b7c86610131b10356543c8a0ce37ef17"
+        },
+        {
+          "item_id": "cc7faa8cc0c1c282ed4a92d6e6f7b3b8eef40aaddea1ac64040068320bdd6d65",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/socm_store.py",
+          "fingerprint": "ddd87d2083d000be553a68de66c75c7df886b3b2d2ef661d4637e5382aa5a3fc"
+        },
+        {
+          "item_id": "cddc0c0caab6f9c1c0c62c838e243de828f6d3885be27177dffd7c4a9e3a5bec",
+          "path": "competitive_app/src/competitive_app/application/workflow/memory_inject.py",
+          "fingerprint": "a6b91dec688f0e5594622747e55c8ac8186393b36b8ded38237e9ca241169cd0"
+        },
+        {
+          "item_id": "d1aa533464c01344f40698c86d5393a1d0c05e3f496c584da4578b19def7c721",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/_http_stream.py",
+          "fingerprint": "3881e2a4f5d83f372a7a3ccba8085d1263608db4751b67f3afe6d08f0360ded7"
+        },
+        {
+          "item_id": "d3da793b01720b6229b7c282abde75789dad5c6bac4e35151af55a18dc8f1cb7",
+          "path": "packages/agent/src/earendil_works/pi_agent/package_manager/package_manager.py",
+          "fingerprint": "a7389a4616d955c2c5a98ef230d858d3c5957ebb49ffee2d8e353be6e77cfc4c"
+        },
+        {
+          "item_id": "d48c451b3152ae143b3f8941214a0edf31e2ecbfeb7c772cd46c95722a6a6874",
+          "path": "competitive_app/src/competitive_app/application/workflow/research_runner.py",
+          "fingerprint": "2d7774d3106518efb7e976b50d8d74cac04985d30d23dcdc82a7ff98746009bf"
+        },
+        {
+          "item_id": "d4b8f45f6ecb0beaaf9534fb33be7b5630de2e3b1146e7cdb330fd9a275a13b7",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_sandbox_provider.py",
+          "fingerprint": "87eb025e80c638ab553a9cb3e7bc4c54f759372e4f28b628fbb58c2d7044fd3d"
+        },
+        {
+          "item_id": "d50ba163084efe7a49b28547ad885b9b039818d6f497c593c132680c461b1d97",
+          "path": "capability_packages/pi_auto_review/pi_auto_review/reviewer.py",
+          "fingerprint": "d91a24449fb39f4bc15657ddac11a138fb856a46968528187a55c9e26090c23d"
+        },
+        {
+          "item_id": "d667fe0c2c10d41bf60d571890c4bb8208a123daeb9cbf818fb91228b14b1a35",
+          "path": "competitive_app/src/competitive_app/application/evolution/triggers/metric_monitor.py",
+          "fingerprint": "413898a00ba0c921095ee5ebebf07dc8cb870310325d617c78917685036ea387"
+        },
+        {
+          "item_id": "d77eae4f1c5d5782c15ac04c38bc8210f0cbf807da1b8a25ae1bd6ed87e1e62d",
+          "path": "frontend/src/store/taskStore.ts",
+          "fingerprint": "8061f1a7119ee23235fc0231416407569883f89f749c9349746213a1dd71652a"
+        },
+        {
+          "item_id": "d86bc81eec8a0229c8959ed411016e449eb278db536e3ee9ed53bea2689b29a4",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/network_policy.py",
+          "fingerprint": "84e282326f854ea201011c30b46880fb4613797d058e8e2fb6ee19b612ffdf23"
+        },
+        {
+          "item_id": "db677fb8f6020bfdb07c3130d1216be99435f1c9b5709cec57847dcf2963f02f",
+          "path": "tests/packages/agent/unit/test_harness_known_issues.py",
+          "fingerprint": "03730c40ef78f1509c2511cb9a7327693ff1182aab0852972cc66c9586dcd90d"
+        },
+        {
+          "item_id": "dd7c743d68019b915a9093a34ef8e93e8340b2594eee2274068f2e118ad685ae",
+          "path": "tests/competitive_app/unit/sandbox/test_composition.py",
+          "fingerprint": "c3c0afef3473945cc47b40d676b5b29b03d3c5b4731d7a7fcbdd69ad30d8dfb1"
+        },
+        {
+          "item_id": "de659581b3d657f91ee603c9b91a00f5bb3b19d7c088cbd3082256901339d4f2",
+          "path": "competitive_app/src/competitive_app/application/workflow/coverage_engine.py",
+          "fingerprint": "cbd39f2302417247f7cae994d9cada8935f080c219732884b2f6f69a214624f2"
+        },
+        {
+          "item_id": "de93112acbe14992420cf426c22790775d2f168b701bc62cd23752c27f5cdbc4",
+          "path": "tests/competitive_app/integration/test_workflow.py",
+          "fingerprint": "d8a417eb33f835a4dc2f4b5ea35d40caa598b902bfe63867f7b092e162e39a9e"
+        },
+        {
+          "item_id": "df0a5d8ef5539d779e857ee802efd8c4fc4240a380c570cc3022ba39c12b7335",
+          "path": "competitive_app/src/competitive_app/application/evolution/adapters/pi_llm.py",
+          "fingerprint": "3ec28123ef146322a81a36eeba9d08334a706bd674b2e588274cd6d82a035d42"
+        },
+        {
+          "item_id": "e42549afb90996476e0a8fec6ac337cda4b673c0264f2fe0eea130678da32239",
+          "path": "tests/competitive_app/unit/test_workflow_runtime_known_issues.py",
+          "fingerprint": "1419c40a7ba1711e9e9539e4d5e9e5eb7e0e374845421ee13d19234a400fdefe"
+        },
+        {
+          "item_id": "e50fc122d383b9134c8fd2f0ed7dd03e1ec96e94ceecce317f64737b0de1b86c",
+          "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_facade_known_issues.py",
+          "fingerprint": "4274be0196bcf1d2853368776390b00d2450b400cd0c888e6bd37b97db64f062"
+        },
+        {
+          "item_id": "e774bd7488377ff8e1d7ddb6cd83bb6111f19a454ae50dba480e42d997863bf4",
+          "path": "competitive_app/src/competitive_app/application/evolution/eval/analyzers/checks.py",
+          "fingerprint": "3dc769e64756ac2caceb1466dde808db6904c3d106232424641bca4467a63069"
+        },
+        {
+          "item_id": "e87596c14246c1da17ca7333f8d1398df15e0e55347593c69a1b048cc6d07768",
+          "path": "tests/competitive_app/integration/test_llm_fallback_observability.py",
+          "fingerprint": "89f00d30ace8c4e5b74b22bb86f8a427397b6ba4fa6c852613d77a54b45e7b84"
+        },
+        {
+          "item_id": "ecf589e411da4e018bae293012d332f5f0bf0b8f8561ff36b95fe535dff7f3a2",
+          "path": "frontend/src/layout/VSidebar.tsx",
+          "fingerprint": "a3992e66c2ee80fd01a28c161ad93cef2554020cc7dc6c5661bcdf837caea908"
+        },
+        {
+          "item_id": "efb82ac9f0d83a563fb4f3d7b90c7cde4f396970722f40f4ffc6a955a22b477d",
+          "path": "packages/ai/src/earendil_works/pi_ai/model_catalog.py",
+          "fingerprint": "c013c80cbc447a689bb59b9938c680bf84b46d3c72086c199a7f6d5376dcbfaa"
+        },
+        {
+          "item_id": "f13635862ed395f52b918d879e359a5f48c7257bb1e678840d8a2ca97ac5b7fa",
+          "path": "frontend/src/pages/EvidencesPage.tsx",
+          "fingerprint": "70344ede0c23342c43f5adc8b95b8fd3be7ccba975b9fa927d843a6ae0060bc4"
+        },
+        {
+          "item_id": "f13685ebe0ad17ab7153d8295b5426000abcfbe7312a2b0cb0c936c4940dfbad",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/compaction/compaction.py",
+          "fingerprint": "c0fdff18d7594490fc61cbb536f467ffed844493fadb0e5d310a6b13d9b35a60"
+        },
+        {
+          "item_id": "f22b6f4e7179f6fafec207e1af358ac20cb92916d0c32d4e1288925c1212dbe7",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/sandbox_tool_executor.py",
+          "fingerprint": "a2c04cd600ba12990c84dbacf50aa4be78d069371544f77c14add86c2cb4aaef"
+        },
+        {
+          "item_id": "f2361ac231f3929846fe04648fae58c3b7120750548991d1b2f5790e0be61b19",
+          "path": "tests/packages/ai/unit/test_ai_core_known_issues.py",
+          "fingerprint": "fdfa5e387c1518ab72a54115fe641633d6c505ccace1bcb527a3d67050ee1f72"
+        },
+        {
+          "item_id": "f26d904e4839a80c3b5026dfbb0a66384012281eaa29f0d13941477180a73046",
+          "path": "scripts/resume_to_report.py",
+          "fingerprint": "e6b2301e2962136e89f1cf3a4aaf40aef6c6485236ca0e4a4d8164853723e4a9"
+        },
+        {
+          "item_id": "f2ae0c8cb2702a9efec8fd44c311943c45172ea9e38fbb1716585900ac3a05b6",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/sandbox.py",
+          "fingerprint": "6bc8651714a80007241b9ba1e2f8622a219f007d003fba7fa951114175617fcf"
+        },
+        {
+          "item_id": "f2e5ca432582f3cdb41d1c223ece1fb9a0b182acf201def80a66f21ee8303a5f",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/policy.py",
+          "fingerprint": "943e98de1da4beb8fcdda799be635bec733559c2497901d5d3aa63a1ea2aaa5d"
+        },
+        {
+          "item_id": "f6a52cbc7b04700f3b610f820b0646c62ea266c51303a1b3cd6aa7f2b5d70b09",
+          "path": "tests/scripts/test_misc_scripts.py",
+          "fingerprint": "2ad670fb075bed84d0a4cab4840fffafd4613812d0152e7b693883dea69619dd"
+        },
+        {
+          "item_id": "f901cc19be84a02254b48852873ee1b26f953cb0a090aff3db3282d86233f546",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/jsonl_storage.py",
+          "fingerprint": "cfabfb68978fc777bf6d93eda2ea97a872ab431e4fbd09d7e93db103af522455"
+        },
+        {
+          "item_id": "fa48ad81c003a7f63c6e6b5be6733d60b56b0bedddcf285d2f42d11643a00cbd",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/task_projection_store.py",
+          "fingerprint": "17db2634585886c22d85e6d2aab9bbedfd1e572f356f6091debd93ba5282bf9e"
+        },
+        {
+          "item_id": "faf1d4774311b1d9c6ac62a7ff663b031d782f3f05995d8718743cd236afc02a",
+          "path": "competitive_app/src/competitive_app/application/evolution/post_task_observer.py",
+          "fingerprint": "81ba049f671dde5902d70c4781fc625a3693697922beaf645f49540dc0c13fbb"
+        },
+        {
+          "item_id": "fb1b135227f005deb4baac3c5556d6c3d938784382b7b0ca4ed1bc036f35c4c4",
+          "path": "tests/capability_loader/unit/test_agent_packages_known_issues.py",
+          "fingerprint": "53fd15f50ec7011985430ade357be9b776a37eb0a089068520cfb13614d38f26"
+        }
+      ],
+      "reused": [],
+      "failed": [],
+      "waived": []
+    },
+    "elapsed_ms": 1364024
+  }
+}
