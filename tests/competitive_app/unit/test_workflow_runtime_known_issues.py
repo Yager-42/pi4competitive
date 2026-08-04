@@ -26,7 +26,7 @@ async def test_stream_events_are_fanned_out_to_each_subscriber() -> None:
 
 
 @pytest.mark.asyncio
-async def test_abort_task_propagates_runner_cleanup_failure() -> None:
+async def test_abort_task_handles_runner_exception_and_returns_boolean() -> None:
     registry = RuntimeRegistry()
     started = asyncio.Event()
 
@@ -39,9 +39,36 @@ async def test_abort_task_propagates_runner_cleanup_failure() -> None:
 
     registry.start_task("task", None, operation())
     await started.wait()
-    with pytest.raises(RuntimeError, match="cleanup failed"):
-        await registry.abort_task("task", "test")
+    assert await registry.abort_task("task", "test") is True
 
+
+@pytest.mark.asyncio
+async def test_stream_unsubscribe_bounds_abandoned_subscribers() -> None:
+    registry = RuntimeRegistry()
+    registry.register_stream("task")
+    queue = registry.get_stream("task")
+    assert queue is not None
+    assert len(registry._streams["task"].subscribers) == 2
+    assert registry.unsubscribe_stream("task", queue) is True
+    assert len(registry._streams["task"].subscribers) == 1
+    for index in range(300):
+        registry.publish_stream("task", {"type": "stage", "data": {"i": index}})
+    assert queue.qsize() == 0
+    assert queue.maxsize == 256
+    assert registry._streams["task"].subscribers
+
+
+@pytest.mark.asyncio
+async def test_concurrent_stream_registration_does_not_replace_live_owner() -> None:
+    registry = RuntimeRegistry()
+    first = registry.register_stream("task")
+    second = registry.register_stream("task")
+    assert registry._streams["task"].subscribers == {first, second}
+    registry.start_task("task", None, asyncio.sleep(0))
+    registry.unregister_stream("task")
+    assert registry._streams["task"].subscribers == set()
+    assert registry.task_active("task")
+    await registry.abort_task("task")
 
 @pytest.mark.asyncio
 async def test_shutdown_closes_all_harnesses_after_one_failure() -> None:
@@ -94,6 +121,18 @@ async def test_queued_prompt_is_cancelled_by_session_abort() -> None:
             return {}
 
     registry = RuntimeRegistry()
+    queued = asyncio.Event()
+    queue_calls = 0
+    original_register_queued = registry.register_queued
+
+    def register_queued(session_id: str, waiter: asyncio.Task) -> None:
+        nonlocal queue_calls
+        original_register_queued(session_id, waiter)
+        queue_calls += 1
+        if queue_calls >= 2:
+            queued.set()
+
+    registry.register_queued = register_queued  # type: ignore[method-assign]
     harness = Harness()
     registry.register_harness("s", harness)
     service = SessionService(
@@ -107,7 +146,7 @@ async def test_queued_prompt_is_cancelled_by_session_abort() -> None:
     first = asyncio.create_task(service.prompt("s", "first"))
     await lock_started.wait()
     second = asyncio.create_task(service.prompt("s", "second"))
-    await asyncio.sleep(0)
+    await queued.wait()
     await registry.abort_session("s")
     with pytest.raises(SessionAbortedError):
         await second
@@ -231,6 +270,8 @@ async def test_post_task_evolution_failure_does_not_fail_run(tmp_path, monkeypat
     from competitive_app.domain.research_brief import ResearchBrief
 
     statuses: list[str] = []
+    evaluations: list[tuple[str, str, object]] = []
+    evolution_calls: list[str] = []
 
     class Agent:
         def abort(self) -> None:
@@ -256,10 +297,11 @@ async def test_post_task_evolution_failure_does_not_fail_run(tmp_path, monkeypat
 
     class Evolution:
         async def run_cycle(self) -> None:
+            evolution_calls.append("run")
             raise RuntimeError("evolution unavailable")
 
-    async def no_eval(_task_id: str, _status: str, _runner: object) -> None:
-        return None
+    async def post_eval(task_id: str, status: str, runner: object) -> None:
+        evaluations.append((task_id, status, runner))
 
     monkeypatch.setattr(task_module, "ResearchRunner", Runner)
     service = TaskService(
@@ -270,7 +312,7 @@ async def test_post_task_evolution_failure_does_not_fail_run(tmp_path, monkeypat
         evolution_cycle_runner=Evolution(),
         runs_root=str(tmp_path / "runs"),
     )
-    service._post_task_eval = no_eval  # type: ignore[method-assign]
+    service._post_task_eval = post_eval  # type: ignore[method-assign]
     brief = ResearchBrief(
         target={"name": "A", "category": "SaaS"},
         goal="compare",
@@ -278,4 +320,26 @@ async def test_post_task_evolution_failure_does_not_fail_run(tmp_path, monkeypat
         dimensions=["pricing"],
     )
     await service._run_research("t", brief, SimpleNamespace(), "s")
+    assert len(evaluations) == 1
+    task_id, status, runner = evaluations[0]
+    assert (task_id, status) == ("t", "completed")
+    assert isinstance(runner, Runner)
+    assert evolution_calls == ["run"]
     assert statuses == []
+
+@pytest.mark.asyncio
+async def test_shutdown_logs_harness_cleanup_failures(caplog: pytest.LogCaptureFixture) -> None:
+    registry = RuntimeRegistry()
+
+    class Harness:
+        agent = SimpleNamespace(abort=lambda: (_ for _ in ()).throw(RuntimeError("abort boom")))
+
+        async def shutdown(self) -> None:
+            raise RuntimeError("shutdown boom")
+
+    registry.register_harness("session-1", Harness())
+    with caplog.at_level("WARNING"):
+        await registry.shutdown()
+    assert "session-1" in caplog.text
+    assert "abort failed" in caplog.text
+    assert "shutdown failed" in caplog.text

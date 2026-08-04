@@ -262,6 +262,14 @@ class SQLiteSkillStore:
             row = await cur.fetchone()
         return row[0] if row else None
 
+    async def clear_scope(self, skill_id: str) -> None:
+        db = await self._ready()
+        async with self._write_lock:
+            await db.execute(
+                "DELETE FROM workflow_skill_metadata WHERE skill_id=?", (skill_id,)
+            )
+            await db.commit()
+
     async def set_enabled(self, skill_id: str, enabled: bool) -> bool:
         db = await self._ready()
         async with self._write_lock:

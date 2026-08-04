@@ -172,8 +172,8 @@ def _with_usage_estimate(
     output_tokens = _estimate_tokens(_assistant_content_to_text(message.get("content") or []))
     usage: Usage = empty_usage()
     usage["cacheRead"] = cache_read
-    usage["cacheWrite"] = max(0, input_tokens - cache_read)
-    usage["input"] = max(0, input_tokens - usage["cacheRead"] - usage["cacheWrite"])
+    usage["cacheWrite"] = 0
+    usage["input"] = max(0, input_tokens - usage["cacheRead"])
     usage["output"] = output_tokens
     usage["totalTokens"] = usage["input"] + output_tokens + usage["cacheRead"] + usage["cacheWrite"]
     message = {**message, "usage": usage}  # type: ignore[assignment]

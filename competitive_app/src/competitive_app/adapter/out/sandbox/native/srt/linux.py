@@ -1007,6 +1007,7 @@ async def wrap_command_with_sandbox_linux(
     observe_socket_path: str | None = None,
     abort_signal: asyncio.Future | None = None,
     cwd: str | None = None,
+    preserve_fds: list[int] | None = None,
 ) -> list[str]:
     """Build the bwrap argv for one sandboxed command.
 
@@ -1046,6 +1047,10 @@ async def wrap_command_with_sandbox_linux(
     _active_sandbox_count += 1
 
     bwrap_args: list[str] = ["--new-session", "--die-with-parent"]
+    for descriptor in preserve_fds or []:
+        if descriptor <= 2:
+            raise ValueError("preserved sandbox descriptor must be greater than stderr")
+        bwrap_args.extend(["--preserve-fds", str(descriptor)])
     apply_seccomp_prefix: str | None = None
 
     try:

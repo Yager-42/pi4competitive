@@ -23,6 +23,7 @@ export default function ClarifyPage() {
   const questions = state?.clarify ?? []
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
   const [customInputs, setCustomInputs] = useState<Record<string, string>>({})
 
   // 无澄清问题(如直接刷新进入):直接进工作台
@@ -59,11 +60,19 @@ export default function ClarifyPage() {
   async function go() {
     if (submitting || !taskId) return
     setSubmitting(true)
+    setSubmitError('')
     try {
       const answersArr = Object.entries(answers).map(([id, value]) => ({ id, value }))
-      await submitClarify(taskId, answersArr)
-    } finally {
+      const response = await submitClarify(taskId, answersArr)
+      if (!response.ok) {
+        setSubmitError('提交澄清失败，请稍后重试')
+        return
+      }
       navigate(`/workspace/${taskId}`, { state: { query } })
+    } catch {
+      setSubmitError('提交澄清失败，请稍后重试')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -163,6 +172,7 @@ export default function ClarifyPage() {
         </motion.div>
 
         <div className="mt-7 flex items-center justify-between">
+          {submitError && <p className="text-aux text-risk">{submitError}</p>}
           <button
             onClick={go}
             className="inline-flex items-center gap-1.5 text-aux text-ink-3 transition-colors hover:text-ink-2"

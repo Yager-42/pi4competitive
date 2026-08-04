@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 import types
 from pathlib import Path
@@ -126,6 +127,35 @@ def test_worker_reads_one_request_and_emits_jsonl(tmp_path: Path) -> None:
     assert len(frames) == 2
 
 
+def test_worker_reads_manifest_from_inherited_fd(tmp_path: Path) -> None:
+    module = _install_fixture_module()
+    manifest_path = tmp_path / "approved-tools-fd.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "protocol": "agent-tool-rpc.v1",
+                "protocolVersion": 1,
+                "buildIdentity": "build-1",
+                "tools": {"echo": {"module": module, "qualname": "_worker_tool"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    request = encode_request(_request(module))
+    output = io.BytesIO()
+    fd = os.open(manifest_path, os.O_RDONLY)
+    try:
+        code = run_worker(
+            manifest_fd=fd,
+            stdin=io.BytesIO(request + b"\n"),
+            stdout=output,
+        )
+    finally:
+        os.close(fd)
+    frames = [decode_frame(line) for line in output.getvalue().splitlines()]
+    assert code == 0
+    assert len(frames) == 2
+
 def test_worker_main_resolves_manifest_path_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """P3.3 D: the native runtime passes the trusted manifest via env."""
     module = _install_fixture_module()
@@ -164,3 +194,21 @@ def worker_main_with_streams(request: bytes, output: io.BytesIO) -> int:
     finally:
         sys.stdin, sys.stdout = original_stdin, original_stdout
         stdout_wrapper.detach()  # do not let the wrapper close the BytesIO
+
+
+def test_worker_main_fails_closed_on_malformed_manifest_fd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicitly requested inherited manifest descriptor that is unusable
+    must abort the worker, never silently fall back to the path."""
+    monkeypatch.setenv("PI4COMPETITIVE_MANIFEST_FD", "not-an-int")
+    assert worker_main_with_streams(b"", io.BytesIO()) == 1
+
+
+def test_worker_main_fails_closed_on_closed_manifest_fd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    descriptor = os.open("/dev/null", os.O_RDONLY)
+    os.close(descriptor)
+    monkeypatch.setenv("PI4COMPETITIVE_MANIFEST_FD", str(descriptor))
+    assert worker_main_with_streams(b"", io.BytesIO()) == 1

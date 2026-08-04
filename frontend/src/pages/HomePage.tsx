@@ -41,11 +41,13 @@ export default function HomePage() {
   const navigate = useNavigate()
   const [text, setText] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   async function submit(q: string) {
     const query = q.trim()
     if (!query || submitting) return
     setSubmitting(true)
+    setSubmitError('')
     try {
       const resp = await createTask(query)
       if (resp.status === 'awaiting_clarify' && resp.questions?.length) {
@@ -53,6 +55,8 @@ export default function HomePage() {
       } else {
         navigate(`/workspace/${resp.task_id}`, { state: { query } })
       }
+    } catch {
+      setSubmitError('创建调研失败，请稍后重试')
     } finally {
       setSubmitting(false)
     }
@@ -118,6 +122,7 @@ export default function HomePage() {
             </button>
           </div>
         </motion.div>
+        {submitError && <p className="mt-3 text-aux text-risk">{submitError}</p>}
 
         <p className="mt-9 text-aux text-ink-3">试试这些示例</p>
         <motion.div

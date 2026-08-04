@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -23,6 +24,7 @@ from competitive_app.adapter.out.sandbox.protocol import (
     decode_frame,
     decode_request,
     encode_frame,
+    encode_request,
 )
 from competitive_app.adapter.out.sandbox.sandbox import Sandbox
 from competitive_app.adapter.out.sandbox.sandbox_tool_executor import SandboxToolExecutor
@@ -52,6 +54,17 @@ def test_sandbox_trap_fallback_ids_include_resource_and_kind_is_discriminated() 
     assert first["id"] != second["id"]
     assert network["id"] != first["id"]
     assert network["destination"] == "one.example:443"
+
+
+def test_sandbox_trap_rejects_invalid_operation_and_requested_path() -> None:
+    with pytest.raises(ValueError, match="operation"):
+        sandbox_trap_to_boundary_request({**_filesystem("/one"), "operation": "delete"}, CONTEXT)
+    with pytest.raises(ValueError, match="requested_path"):
+        sandbox_trap_to_boundary_request({**_filesystem("/one"), "requested_path": 7}, CONTEXT)
+    with pytest.raises(ValueError, match="operation"):
+        sandbox_trap_to_boundary_request(
+            {"kind": "network", "operation": "read", "target": "one.example:443"}, CONTEXT
+        )
     with pytest.raises(ValueError, match="unsupported sandbox trap kind"):
         sandbox_trap_to_boundary_request({"kind": "other", "operation": "read"}, CONTEXT)
 
@@ -99,10 +112,11 @@ def test_baked_manifest_build_identity_is_checked() -> None:
 
 @pytest.mark.asyncio
 async def test_registry_accepts_loader_capability_modules() -> None:
+    capability_root = Path(__file__).resolve().parents[5] / "capability_packages"
     report = await load_capability_packages(
-        Path("capability_packages"),
+        capability_root,
         enabled=["echo_example"],
-        cwd=Path("capability_packages"),
+        cwd=capability_root,
         strict=True,
     )
     registry = ApprovedToolRegistry.from_tools(report.tools)
@@ -112,12 +126,19 @@ async def test_registry_accepts_loader_capability_modules() -> None:
 def _request_mapping() -> dict[str, Any]:
     return {
         "protocolVersion": 1,
+
+
         "scopeId": "scope",
         "toolCallId": "call",
         "toolName": "echo",
         "target": {"module": "m", "qualname": "q"},
         "arguments": {},
     }
+
+
+def test_encode_request_accepts_read_only_mapping() -> None:
+    payload = encode_request(MappingProxyType(_request_mapping()))
+    assert decode_request(payload).tool_name == "echo"
 
 
 def test_decode_request_rejects_non_object_json_as_protocol_error() -> None:

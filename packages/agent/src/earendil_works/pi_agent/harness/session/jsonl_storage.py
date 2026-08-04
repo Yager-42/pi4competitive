@@ -5,6 +5,7 @@ upstream: packages/agent/src/harness/session/jsonl-storage.ts
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Protocol
 
 from ..types import (
@@ -49,9 +50,13 @@ def _invalid_entry(
     )
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant is forbidden: {value}")
+
+
 def parse_header_line(line: str, file_path: str) -> dict[str, Any]:
     try:
-        parsed = json.loads(line)
+        parsed = json.loads(line, parse_constant=_reject_json_constant)
     except Exception as error:
         raise _invalid_session(file_path, "first line is not a valid session header", to_error(error)) from error
     if not isinstance(parsed, dict):
@@ -85,8 +90,10 @@ def parse_header_line(line: str, file_path: str) -> dict[str, Any]:
 
 
 def _is_json_safe(value: Any) -> bool:
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, (str, int, bool)):
         return True
+    if isinstance(value, float):
+        return math.isfinite(value)
     if isinstance(value, list):
         return all(_is_json_safe(item) for item in value)
     if isinstance(value, dict):
@@ -112,14 +119,39 @@ def _validate_entry_fields(parsed: dict[str, Any]) -> None:
 
     if entry_type == "message":
         message = require("message", dict)
-        if not isinstance(message.get("role"), str):
+        role = message.get("role")
+        if role not in {"user", "assistant", "toolResult"}:
             raise ValueError("has invalid message role")
-        if "content" not in message or not isinstance(message["content"], (str, list)):
+        content = message.get("content")
+        if isinstance(content, str):
+            if role == "user":
+                return
             raise ValueError("has invalid message content")
-        if isinstance(message["content"], list) and not all(
-            isinstance(block, dict) for block in message["content"]
-        ):
+        if not isinstance(content, list):
             raise ValueError("has invalid message content")
+        allowed = {"text", "image"} if role in {"user", "toolResult"} else {"text", "thinking", "toolCall"}
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") not in allowed:
+                raise ValueError("has invalid message content block")
+            block_type = block["type"]
+            if block_type == "text":
+                if not isinstance(block.get("text"), str):
+                    raise ValueError("has invalid text content block")
+            elif block_type == "thinking":
+                if not isinstance(block.get("thinking"), str):
+                    raise ValueError("has invalid thinking content block")
+                if "redacted" in block and not isinstance(block["redacted"], bool):
+                    raise ValueError("has invalid thinking content block")
+            elif block_type == "image":
+                if not isinstance(block.get("data"), str) or not isinstance(block.get("mimeType"), str):
+                    raise ValueError("has invalid image content block")
+            elif block_type == "toolCall":
+                if not isinstance(block.get("id"), str) or not block["id"]:
+                    raise ValueError("has invalid tool call content block")
+                if not isinstance(block.get("name"), str) or not block["name"]:
+                    raise ValueError("has invalid tool call content block")
+                if not isinstance(block.get("arguments"), dict) or not _is_json_safe(block["arguments"]):
+                    raise ValueError("has invalid tool call content block")
     elif entry_type == "thinking_level_change":
         require("thinkingLevel", str)
     elif entry_type == "model_change":
@@ -173,7 +205,7 @@ def _validate_entry_fields(parsed: dict[str, Any]) -> None:
 
 def parse_entry_line(line: str, file_path: str, line_number: int) -> SessionTreeEntry:
     try:
-        parsed = json.loads(line)
+        parsed = json.loads(line, parse_constant=_reject_json_constant)
     except Exception as error:
         raise _invalid_entry(file_path, line_number, "is not valid JSON", to_error(error)) from error
     if not isinstance(parsed, dict):

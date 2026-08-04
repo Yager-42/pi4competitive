@@ -349,7 +349,6 @@ class CoverageEngine:
                 await asyncio.gather(*pool.values(), return_exceptions=True)
                 pool.clear()
                 break
-            # Reap every completed task (SearchOS whole-pool reap pattern).
             finished_labels = [lbl for lbl, t in pool.items() if t.done()]
             for lbl in finished_labels:
                 task = pool.pop(lbl, None)
@@ -358,27 +357,45 @@ class CoverageEngine:
                 try:
                     task.result()
                 except asyncio.CancelledError:
-                    pass
-                except Exception:  # noqa: BLE001
-                    # Retrieve task exceptions so asyncio never reports an
-                    # unobserved failure; one failed sub-agent must not hide
-                    # failures from the event loop.
+                    # Propagate the cancellation but never leave the other
+                    # sub-agents running: they share this engine's SOCM store.
+                    for pending in pool.values():
+                        if not pending.done():
+                            pending.cancel()
+                    await asyncio.gather(*pool.values(), return_exceptions=True)
+                    pool.clear()
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    # A completed sub-agent that failed before evidence is an
+                    # incomplete search round, not a successful no-op.
                     _log.exception("search sub-agent failed (%s)", lbl)
+                    for pending in pool.values():
+                        if not pending.done():
+                            pending.cancel()
+                    await asyncio.gather(*pool.values(), return_exceptions=True)
+                    pool.clear()
+                    raise RuntimeError(f"search sub-agent incomplete ({lbl})") from exc
             # Refill from queue.
             while queue and len(pool) < self._max_parallel:
                 await _spawn_one(queue.pop(0))
 
 
     async def _consume_query_budget(self) -> bool:
-        """Consume one query if the configured query budget permits it."""
-        latest = await self._socm_store.load(self._session_id)
-        if latest.budget.max_queries > 0 and (
-            latest.budget.consumed_queries >= latest.budget.max_queries
-        ):
-            return False
-        latest.budget.consume_query(1)
-        await self._socm_store.save(self._session_id, latest)
-        return True
+        """Atomically consume one query if the configured budget permits it."""
+        allowed = False
+
+        def _consume(state: SOCMState) -> SOCMState:
+            nonlocal allowed
+            if state.budget.max_queries > 0 and (
+                state.budget.consumed_queries >= state.budget.max_queries
+            ):
+                return state
+            state.budget.consume_query(1)
+            allowed = True
+            return state
+
+        await self._socm_store.atomic_update(self._session_id, _consume)
+        return allowed
 
 
     async def _run_subagent_ephemeral(self, subtask: dict[str, Any]) -> None:
@@ -470,13 +487,12 @@ class CoverageEngine:
             "span",
             {
                 "kind": "subagent", "stage": "search", "task_id": self._task_id,
-                "entity": entity_id, "model": model_name(agent.state.model),
+                "entity": entity_id, "model": model_name(getattr(agent.state, "model", {})),
                 "prompt_tokens": int(usage.get("input", 0) or 0),
                 "completion_tokens": int(usage.get("output", 0) or 0),
                 "latency_ms": int((time.monotonic() - t0) * 1000),
             },
         )
-
     async def _update_projection(self) -> None:
         state = await self._socm_store.load(self._session_id)
         task = await self._store.get_task(self._task_id)

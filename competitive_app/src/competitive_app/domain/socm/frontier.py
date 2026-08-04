@@ -68,9 +68,20 @@ class Frontier(BaseModel):
         None if rejected (depth > MAX or cap exceeded and not evictable)."""
         if task.depth > MAX_FRONTIER_DEPTH:
             return None
-        # Dedup: same kind + same target_cells subset within active tasks.
+        # Deduplicate subset requests and merge any newly requested cells into
+        # an active task when the incoming request is a superset.
         dup = self._find_duplicate(task)
         if dup is not None:
+            existing_cells = frozenset(dup.target_cells)
+            for cell in task.target_cells:
+                if cell not in existing_cells:
+                    dup.target_cells.append(cell)
+                    existing_cells = existing_cells | {cell}
+            for dependency in task.blocked_by:
+                if dependency not in dup.blocked_by:
+                    dup.blocked_by.append(dependency)
+            if dup.blocked_by and not self._deps_terminal(dup):
+                dup.status = FrontierTaskStatus.BLOCKED
             if task.priority > dup.priority:
                 dup.priority = task.priority
             return dup
@@ -151,7 +162,7 @@ class Frontier(BaseModel):
     # ------------------------------------------------------------------ helpers
 
     def _find_duplicate(self, task: FrontierTask) -> FrontierTask | None:
-        """Subset-match by target_cells within active tasks of same kind/table."""
+        """Match overlapping subset target_cells in active tasks of same kind/table."""
         if not task.target_cells:
             return None
         new_cells = frozenset(task.target_cells)

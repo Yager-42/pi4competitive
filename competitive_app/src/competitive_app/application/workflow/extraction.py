@@ -167,7 +167,11 @@ class EvidenceIntake:
         findings = await self._call_judge(entity_id, empty_attrs, pages_blob)
         if not findings:
             return 0
-        source_pages = {str(src).strip(): txt for txt, src in observations if str(src).strip()}
+        source_pages: dict[str, list[str]] = {}
+        for txt, src in observations:
+            key = str(src).strip()
+            if key:
+                source_pages.setdefault(key, []).append(txt)
 
         added = 0
         emitted: list[dict[str, Any]] = []  # v0.3.1 SSE: collect evidence to emit after RMW
@@ -187,8 +191,8 @@ class EvidenceIntake:
                     continue
                 source = str(item.get("source") or "").strip()
                 excerpt = str(item.get("source_excerpt") or "").strip()[:200]
-                page_text = source_pages.get(source)
-                if page_text is None or not excerpt or excerpt not in page_text:
+                page_texts = source_pages.get(source, [])
+                if not page_texts or not excerpt or not any(excerpt in page for page in page_texts):
                     # The judge may only cite pages actually fetched for this
                     # entity, and the quote must be verbatim evidence.
                     s.coverage_map.mark_unknown(entity_id, attr)

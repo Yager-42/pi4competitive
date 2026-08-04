@@ -220,15 +220,26 @@ async def stream_openai_chat_completions(
                         stream.push({"type": "error", "reason": "error", "error": msg})
                         stream.end(msg)
                         return
-                    choice = (chunk.get("choices") or [{}])[0]
+                    choices = chunk.get("choices")
+                    if choices is None:
+                        choices = []
+                    if not isinstance(choices, list):
+                        raise ValueError("Invalid SSE choices frame")
+                    choice = choices[0] if choices else {}
                     if not isinstance(choice, dict):
-                        msg = error_message(model, "Invalid SSE choice frame")
-                        stream.push({"type": "error", "reason": "error", "error": msg})
-                        stream.end(msg)
-                        return
-                    delta = choice.get("delta") or {}
-                    if choice.get("finish_reason"):
-                        finish_reason = choice["finish_reason"]
+                        raise ValueError("Invalid SSE choice frame")
+                    delta = choice.get("delta")
+                    if delta is None:
+                        delta = {}
+                    if not isinstance(delta, dict):
+                        raise ValueError("Invalid SSE delta frame")
+                    finish_value = choice.get("finish_reason")
+                    if finish_value is not None and not isinstance(finish_value, str):
+                        raise ValueError("Invalid SSE finish_reason")
+                    if finish_value:
+                        finish_reason = finish_value
+                    if "content" in delta and delta["content"] is not None and not isinstance(delta["content"], str):
+                        raise ValueError("Invalid SSE content frame")
                     if "content" in delta and delta["content"]:
                         if text_index is None:
                             text_index = len(partial["content"])
@@ -252,15 +263,35 @@ async def stream_openai_chat_completions(
                                 "partial": _clone(partial),
                             }
                         )
-                    for tc in delta.get("tool_calls") or []:
-                        idx = int(tc.get("index") or 0)
+                    tool_calls = delta.get("tool_calls")
+                    if tool_calls is None:
+                        tool_calls = []
+                    if not isinstance(tool_calls, list):
+                        raise ValueError("Invalid SSE tool_calls frame")
+                    for tc in tool_calls:
+                        if not isinstance(tc, dict):
+                            raise ValueError("Invalid SSE tool call frame")
+                        raw_index = tc.get("index", 0)
+                        if not isinstance(raw_index, int) or isinstance(raw_index, bool) or raw_index < 0:
+                            raise ValueError("Invalid SSE tool call index")
+                        idx = raw_index
                         buf = tool_buffers.setdefault(
                             idx,
                             {"id": tc.get("id") or f"call_{idx}", "name": "", "arguments": ""},
                         )
                         if tc.get("id"):
+                            if not isinstance(tc["id"], str):
+                                raise ValueError("Invalid SSE tool call id")
                             buf["id"] = tc["id"]
-                        fn = tc.get("function") or {}
+                        fn = tc.get("function")
+                        if fn is None:
+                            fn = {}
+                        if not isinstance(fn, dict):
+                            raise ValueError("Invalid SSE function frame")
+                        if fn.get("name") is not None and not isinstance(fn.get("name"), str):
+                            raise ValueError("Invalid SSE function name")
+                        if fn.get("arguments") is not None and not isinstance(fn.get("arguments"), str):
+                            raise ValueError("Invalid SSE function arguments")
                         if fn.get("name"):
                             buf["name"] = fn["name"]
                         if fn.get("arguments"):
@@ -305,6 +336,8 @@ async def stream_openai_chat_completions(
                                 }
                             )
                     usage = chunk.get("usage")
+                    if usage is not None and not isinstance(usage, dict):
+                        raise ValueError("Invalid SSE usage frame")
                     if usage:
                         partial["usage"].update(_openai_usage(usage))
 

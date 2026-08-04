@@ -485,12 +485,15 @@ async def build_application_state(
             sandbox_tools = (
                 list(getattr(capability_report, "tools", []) or []) if capability_report else []
             )
-            sandbox_registry = ApprovedToolRegistry.from_tools(sandbox_tools)
+            capability_root = getattr(capability_report, "root", None)
+            sandbox_registry = ApprovedToolRegistry.from_tools(
+                sandbox_tools,
+                capability_root=capability_root,
+            )
             sandbox_root = Path(config.sandbox.root)
             manifest_path = Path(config.sandbox.manifest) if config.sandbox.manifest else sandbox_root / "approved_tools.json"
             manifest = _write_native_manifest(sandbox_registry, manifest_path)
             environment = {name: os.environ.get(name) for name in NATIVE_WORKER_ENVIRONMENT}
-            capability_root = getattr(capability_report, "root", None)
             if capability_root is not None:
                 capability_root_entry = str(Path(capability_root).resolve())
                 existing_pythonpath = environment.get("PYTHONPATH") or ""
@@ -557,71 +560,90 @@ async def build_application_state(
             guarded_append(journal, event_type, payload)
 
     if not config.llm_fallback_disabled and config.llm_fallback_providers:
-        from .application.model.fallback_stream import FallbackStream
-        from .application.model.router import (
-            build_fallback_chain,
-            chain_model_from_config,
-            parse_provider_env,
-            resolve_provider_config,
-        )
-
-        def _emit_fallback_event(event_type: str, payload: dict[str, Any]) -> None:
-            _journal_append_for_run(event_type, payload)
-
-        names = parse_provider_env(config.llm_fallback_providers)
-        configs = [
-            cfg
-            for priority, name in enumerate(names)
-            if (cfg := resolve_provider_config(name, priority=priority)) is not None
-        ]
-        chain = [chain_model_from_config(c) for c in build_fallback_chain(names, configs)]
-        if len(chain) > 1:
-            stream_fn = FallbackStream(
-                models,
-                chain=chain,
-                first_packet_timeout_ms=config.llm_fallback_first_packet_ms,
-                emit_fallback_event=_emit_fallback_event,
+        try:
+            from .application.model.fallback_stream import FallbackStream
+            from .application.model.router import (
+                build_fallback_chain,
+                chain_model_from_config,
+                parse_provider_env,
+                resolve_provider_config,
             )
+
+            def _emit_fallback_event(event_type: str, payload: dict[str, Any]) -> None:
+                _journal_append_for_run(event_type, payload)
+
+            names = parse_provider_env(config.llm_fallback_providers)
+            configs = [
+                cfg
+                for priority, name in enumerate(names)
+                if (cfg := resolve_provider_config(name, priority=priority)) is not None
+            ]
+            chain = [chain_model_from_config(c) for c in build_fallback_chain(names, configs)]
+            if len(chain) > 1:
+                stream_fn = FallbackStream(
+                    models,
+                    chain=chain,
+                    first_packet_timeout_ms=config.llm_fallback_first_packet_ms,
+                    emit_fallback_event=_emit_fallback_event,
+                )
+        except BaseException:
+            await _rollback_resources()
+            raise
     # llm.request/llm.response：本 port 的 agent loop 不触发
     # before_provider_request/after_provider_response extension 事件
     # （agent_loop.py 无 onPayload/onResponse 钩子），llm.* 改由 stream_fn
     # 单点产出（JournalStream；packages/agent 零 diff）。
-    from .application.model.journal_stream import JournalStream
+    try:
+        from .application.model.journal_stream import JournalStream
+        stream_fn = JournalStream(stream_fn, _journal_append_for_run)
+    except BaseException:
+        await _rollback_resources()
+        raise
 
-    stream_fn = JournalStream(stream_fn, _journal_append_for_run)
 
-
-    harness_factory = _HarnessFactory(
-        models,
-        capability_report,
-        model_resolver,
-        tool_executor,
-        stream_fn=stream_fn,
-    )
-    session_service = SessionService(
-        repo=repo,
-        store=store,
-        registry=registry,
-        harness_factory=harness_factory,
-        model_resolver=model_resolver,
-        prompt_lock_timeout=config.prompt_lock_timeout,
-        sandbox_lifecycle=sandbox_lifecycle,
-    )
+    try:
+        harness_factory = _HarnessFactory(
+            models,
+            capability_report,
+            model_resolver,
+            tool_executor,
+            stream_fn=stream_fn,
+        )
+    except BaseException:
+        await _rollback_resources()
+        raise
+    try:
+        session_service = SessionService(
+            repo=repo,
+            store=store,
+            registry=registry,
+            harness_factory=harness_factory,
+            model_resolver=model_resolver,
+            prompt_lock_timeout=config.prompt_lock_timeout,
+            sandbox_lifecycle=sandbox_lifecycle,
+        )
+    except BaseException:
+        await _rollback_resources()
+        raise
     capability_tools = (
         list(getattr(capability_report, "tools", []) or []) if capability_report else []
     )
     # F-R29: judge model for Extraction. JUDGE_MODEL env if set; else fall back
     # to the main model (judge is a stateless extractor — local F-R7 exemption).
-    judge_model_id = os.environ.get("JUDGE_MODEL") or ""
-    judge_model: dict[str, Any]
     try:
-        judge_model = (
-            model_resolver.resolve(judge_model_id)
-            if judge_model_id
-            else model_resolver.resolve(None)
-        )
-    except KeyError:
-        judge_model = model_resolver.resolve(None)
+        judge_model_id = os.environ.get("JUDGE_MODEL") or ""
+        judge_model: dict[str, Any]
+        try:
+            judge_model = (
+                model_resolver.resolve(judge_model_id)
+                if judge_model_id
+                else model_resolver.resolve(None)
+            )
+        except KeyError:
+            judge_model = model_resolver.resolve(None)
+    except BaseException:
+        await _rollback_resources()
+        raise
     # The built-in OpenAI provider always uses api.openai.com/v1 when no
     # gateway override is supplied, so a base URL is not a prerequisite.
     # A key is the actual readiness signal for the configured provider.
@@ -635,41 +657,45 @@ async def build_application_state(
             judgment_analyzer = None
             quality_judge = None
     if config.workflow_skill.evolve_enabled:
-        llm_adapter = PiLlmAdapter(models, judge_model)
-        trigger = MetricMonitorTrigger(
-            threshold=config.workflow_skill.evolve_threshold,
-            min_selections=config.workflow_skill.evolve_min_selections,
-            cooldown_turns=config.workflow_skill.evolve_cooldown_turns,
-            llm=None,
-        )
-        from .application.evolution.mutators.llm_mutator import LLMMutator
+        try:
+            llm_adapter = PiLlmAdapter(models, judge_model)
+            trigger = MetricMonitorTrigger(
+                threshold=config.workflow_skill.evolve_threshold,
+                min_selections=config.workflow_skill.evolve_min_selections,
+                cooldown_turns=config.workflow_skill.evolve_cooldown_turns,
+                llm=None,
+            )
+            from .application.evolution.mutators.llm_mutator import LLMMutator
 
-        focuser = IVEFocuser(llm_adapter)
-        mutator = LLMMutator(
-            config.workflow_skill.root_dir,
-            max_changed_lines=config.workflow_skill.evolve_mutate_budget,
-            max_steps=config.workflow_skill.evolve_max_steps,
-            llm=llm_adapter,
-        )
-        bridge = (
-            RegistryEvalBridge(build_default_registry())
-            if config.workflow_skill.eval_config.enabled
-            else ProgrammaticEvalBridge()
-        )
-        evolution_manager = EvolutionManager(
-            skill_store,
-            [trigger],
-            focuser,
-            mutator,
-            bridge,
-            ScoreDeltaGate(0.0),
-            llm=llm_adapter,
-            skill_files=skill_files,
-            scope_store=workflow_skill_store,
-        )
-        evolution_cycle_runner = EvolutionCycleRunner(
-            evolution_manager, GitRatchet(), skill_store, skill_files
-        )
+            focuser = IVEFocuser(llm_adapter)
+            mutator = LLMMutator(
+                config.workflow_skill.root_dir,
+                max_changed_lines=config.workflow_skill.evolve_mutate_budget,
+                max_steps=config.workflow_skill.evolve_max_steps,
+                llm=llm_adapter,
+            )
+            bridge = (
+                RegistryEvalBridge(build_default_registry())
+                if config.workflow_skill.eval_config.enabled
+                else ProgrammaticEvalBridge()
+            )
+            evolution_manager = EvolutionManager(
+                skill_store,
+                [trigger],
+                focuser,
+                mutator,
+                bridge,
+                ScoreDeltaGate(0.0),
+                llm=llm_adapter,
+                skill_files=skill_files,
+                scope_store=workflow_skill_store,
+            )
+            evolution_cycle_runner = EvolutionCycleRunner(
+                evolution_manager, GitRatchet(), skill_store, skill_files
+            )
+        except BaseException:
+            await _rollback_resources()
+            raise
     try:
         task_service = TaskService(
             store=store,
@@ -721,19 +747,20 @@ async def build_application_state(
 
 
 def _native_sandbox_additional_allow_read(path: str) -> list[str]:
-    """Trusted pi-sandbox config overlays (upstream ``getPiSandboxConfigPath``
-    at ``~/.pi/agent/extensions/pi-sandbox/config.json``). Absent or empty
-    configs yield no extra allow-read paths; anything present is parsed by
-    the strict native schema (unsupported fields fail startup, never
-    silently weaken)."
+    """Load explicitly configured trusted pi-sandbox allow-read paths.
+
+    An empty path is fail-closed: the host's home-directory default is never
+    implicitly trusted by native sandbox composition.
     """
-    config_path = Path(path or "~/.pi/agent/extensions/pi-sandbox/config.json").expanduser()
+    if not path:
+        return []
+    config_path = Path(path).expanduser()
     if not config_path.is_file():
         return []
     from .adapter.out.sandbox.native.config import parse_pi_sandbox_config
 
     parsed = parse_pi_sandbox_config(json.loads(config_path.read_text(encoding="utf-8")))
-    return list(parsed["filesystem"]["additionalAllowRead"])
+    return list(dict.fromkeys(parsed["filesystem"]["additionalAllowRead"]))
 
 
 def _write_native_manifest(

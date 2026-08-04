@@ -229,18 +229,21 @@ def deterministic_hard_deny(details: PermissionDetailsLike) -> HardDeny | None:
     return None
 
 
-def bounded_string(value: Any) -> str:
+def _stringify(value: Any) -> str:
     if isinstance(value, str):
-        rendered = value
-    else:
-        try:
-            rendered = json.dumps(value)
-        except (TypeError, ValueError):
-            rendered = "[unserializable]"
+        return value
+    try:
+        return json.dumps(value)
+    except (TypeError, ValueError):
+        return "[unserializable]"
+
+
+def bounded_string(value: Any) -> str:
+    rendered = _stringify(value)
     if len(rendered) <= MAX_EVIDENCE_ITEM_CHARACTERS:
         return rendered
     half = (MAX_EVIDENCE_ITEM_CHARACTERS - 32) // 2
-    return f"{rendered[:half]}\n…[middle truncated]…\n{rendered[-half:]}"
+    return f"{rendered[:half]}\n…[middle truncated]\n{rendered[-half:]}"
 
 
 def _user_text(message: dict[str, Any]) -> str:
@@ -271,7 +274,8 @@ def _tool_texts(message: dict[str, Any]) -> list[str]:
             continue
         # Tool arguments are model/user-controlled and may contain credentials
         # just like a tool result. Redact before adding them to classifier input.
-        arguments = _redact_sensitive_result(bounded_string(part.get("arguments") or {}))
+        serialized = _stringify(part.get("arguments") or {})
+        arguments = bounded_string(_redact_sensitive_result(serialized))
         out.append(f"{part['name']} {arguments}")
     return out
 

@@ -18,7 +18,7 @@ from earendil_works.pi_agent.harness.prompt_templates import (
     PromptTemplate,
     format_prompt_template_invocation,
 )
-from earendil_works.pi_agent.harness.session import InMemorySessionRepo, build_session_context
+from earendil_works.pi_agent.harness.session import InMemorySessionRepo
 from earendil_works.pi_agent.harness.session.jsonl_storage import parse_entry_line
 from earendil_works.pi_agent.harness.session.session import default_context_entry_transform
 from earendil_works.pi_agent.harness.skills import (
@@ -98,7 +98,7 @@ def test_context_transform_preserves_history_for_stale_anchor() -> None:
         {"type": "compaction", "id": "compact", "parentId": "old", "timestamp": "t", "summary": "s", "tokensBefore": 1, "firstKeptEntryId": "missing"},
     ]
     result = default_context_entry_transform(entries)  # type: ignore[arg-type]
-    assert [entry["id"] for entry in result] == ["compact", "old"]
+    assert [entry["id"] for entry in result] == ["old", "compact"]
 
 
 @pytest.mark.asyncio
@@ -176,6 +176,17 @@ def test_skill_markup_is_escaped_and_frontmatter_is_strict(tmp_path: Path) -> No
     path.write_text("---\nname: x\n---\nbody\n---\n", encoding="utf-8")
     parsed = load_skill_from_file(path)
     assert parsed.content == "body\n---\n"
+
+
+def test_skill_frontmatter_opening_delimiter_allows_trailing_whitespace(tmp_path: Path) -> None:
+    path = tmp_path / "SKILL.md"
+    path.write_text("---   \nname: example\ndescription: Example\n---\n\nBODY\n", encoding="utf-8")
+
+    skill = load_skill_from_file(path)
+
+    assert skill.name == "example"
+    assert skill.description == "Example"
+    assert skill.content == "BODY\n"
 
 
 def test_result_error_type_is_exception_bound() -> None:

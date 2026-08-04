@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
-from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from .types import Credential
 
@@ -12,31 +12,35 @@ from .types import Credential
 class InMemoryCredentialStore:
     def __init__(self) -> None:
         self._entries: dict[str, Credential] = {}
+        self._modify_lock = asyncio.Lock()
 
     async def read(self, provider_id: str) -> Credential | None:
         entry = self._entries.get(provider_id)
         return copy.deepcopy(entry) if entry is not None else None
 
     async def delete(self, provider_id: str) -> None:
-        self._entries.pop(provider_id, None)
+        async with self._modify_lock:
+            self._entries.pop(provider_id, None)
 
     async def modify(
         self,
         provider_id: str,
         mutator: Callable[[Credential | None], Awaitable[Credential | None]],
     ) -> Credential | None:
-        current = await self.read(provider_id)
-        next_cred = await mutator(current)
-        if next_cred is None:
-            # ``None`` is the mutator's no-write signal. Use ``delete`` when
-            # callers intentionally need to remove a credential.
-            return copy.deepcopy(current) if current is not None else None
-        if not next_cred:
-            raise ValueError("credential must not be empty")
-        self._entries[provider_id] = copy.deepcopy(next_cred)
-        return copy.deepcopy(next_cred)
+        async with self._modify_lock:
+            current = await self.read(provider_id)
+            next_cred = await mutator(current)
+            if next_cred is None:
+                # ``None`` is the mutator's no-write signal. Use ``delete`` when
+                # callers intentionally need to remove a credential.
+                return copy.deepcopy(current) if current is not None else None
+            if not next_cred:
+                raise ValueError("credential must not be empty")
+            self._entries[provider_id] = copy.deepcopy(next_cred)
+            return copy.deepcopy(next_cred)
 
     async def write(self, provider_id: str, credential: Credential) -> None:
         if not credential:
             raise ValueError("credential must not be empty")
-        self._entries[provider_id] = copy.deepcopy(credential)
+        async with self._modify_lock:
+            self._entries[provider_id] = copy.deepcopy(credential)

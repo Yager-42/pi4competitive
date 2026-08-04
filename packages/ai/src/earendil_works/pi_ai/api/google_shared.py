@@ -68,9 +68,10 @@ def context_to_google_contents(context: Context) -> list[dict[str, Any]]:
                         "name": block.get("name") or "",
                         "args": block.get("arguments") or {},
                     }
+                    part: dict[str, Any] = {"functionCall": call}
                     if block.get("thoughtSignature"):
-                        call["thoughtSignature"] = block["thoughtSignature"]
-                    parts.append({"functionCall": call})
+                        part["thoughtSignature"] = block["thoughtSignature"]
+                    parts.append(part)
         if not parts:
             parts = [{"text": ""}]
         contents.append({"role": role_name, "parts": parts})

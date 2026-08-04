@@ -133,6 +133,7 @@ async def main() -> None:
                 summary["socm_error"] = f"{type(e).__name__}: {e}"
 
             # Six-stage: count evidence from collect stage_output (no SOCM).
+            if STOP_AFTER != "search":
                 try:
                     from competitive_app.application.workflow.stage_outputs import get_stage_output
 
@@ -152,7 +153,6 @@ async def main() -> None:
                     )
                 except Exception as e:  # noqa: BLE001
                     summary["collect_evidence_error"] = f"{type(e).__name__}: {e}"
-
             (OUT / "summary.json").write_text(
                 json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
             )

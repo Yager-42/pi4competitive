@@ -126,9 +126,9 @@ def _decode_json(payload: bytes | str, *, limit: int) -> Any:
 
 
 def _require_object(value: Any, *, label: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         raise RpcProtocolError(f"{label} must be a JSON object", code="invalid_shape")
-    return value
+    return dict(value)
 
 
 def _require_exact_fields(value: Mapping[str, Any], expected: frozenset[str], *, label: str) -> None:

@@ -32,12 +32,19 @@ export default function LibraryPage() {
   const [loading, setLoading] = useState(true)
   const [resuming, setResuming] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [actionError, setActionError] = useState('')
 
   async function load() {
     setLoading(true)
-    const t = await fetchTasks()
-    setTasks(t)
-    setLoading(false)
+    try {
+      const t = await fetchTasks()
+      setTasks(t)
+      setActionError('')
+    } catch {
+      setActionError('任务列表加载失败，请稍后重试')
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -47,16 +54,22 @@ export default function LibraryPage() {
   async function onResume(t: Task) {
     if (resuming) return
     setResuming(t.task_id)
+    setActionError('')
     try {
       const r = await resumeTask(t.task_id)
-      // safeJson uses a pending fallback for failed requests; confirm the task
-      // state before navigating so a rejected resume never opens a workspace.
+      // Only enter the workspace after the server confirms the resumed state.
       if (r.status === 'pending' || r.status === 'running') {
         const current = await fetchTask(t.task_id)
         if (current && (current.status === 'pending' || current.status === 'running')) {
           navigate(`/workspace/${t.task_id}`, { state: { query: t.query } })
+        } else {
+          setActionError('恢复任务失败，请刷新列表后重试')
         }
+      } else {
+        setActionError('恢复任务失败，请稍后重试')
       }
+    } catch {
+      setActionError('恢复任务失败，请稍后重试')
     } finally {
       setResuming(null)
     }
@@ -103,6 +116,7 @@ export default function LibraryPage() {
           <Play size={15} /> 新建调研
         </button>
       </div>
+      {actionError && <p className="mt-4 text-aux text-risk">{actionError}</p>}
 
       {loading ? (
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

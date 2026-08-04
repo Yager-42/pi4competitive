@@ -37,7 +37,7 @@ def parse_partial_json(text: str) -> Any:
                     stack.pop()
 
         repaired = text
-        if repaired.endswith(","):
+        if repaired.endswith(",") and not in_string:
             repaired = repaired[:-1]
         if in_string:
             if escaped:

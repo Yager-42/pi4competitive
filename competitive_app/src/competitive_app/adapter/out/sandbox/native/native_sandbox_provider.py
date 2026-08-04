@@ -26,7 +26,7 @@ from ..sandbox import Sandbox
 from ..types import require_scope_id
 from .native_runtime import NativeRuntime
 from .paths import NativePathTranslator, NativeSecurityGuard
-from .workspace import ensure_workspace
+from .workspace import open_workspace_descriptor
 
 #: The only host environment that crosses into the sandboxed worker: the
 #: seven provider secrets/endpoints plus the system plumbing the worker
@@ -76,25 +76,66 @@ def _worker_environment(
         )
     return env
 
-def _stage_manifest(source: Path, workspace: Path) -> Path:
-    """Copy the trusted manifest without following a worker-created symlink."""
+def _stage_manifest_descriptor(
+    source: Path,
+    workspace: Path,
+    *,
+    directory_fd: int | None = None,
+) -> tuple[Path, int]:
+    """Stage and retain the manifest descriptor opened relative to workspace."""
     destination = workspace / "approved_tools.json"
-    directory_fd: int | None = None
+    owned_directory_fd = directory_fd is None
+    opened_fd: int | None = None
     file_fd: int | None = None
     try:
-        directory_fd = os.open(
-            workspace,
-            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
-        )
-        file_fd = os.open(
-            destination.name,
-            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=directory_fd,
-        )
-        with source.open("rb") as source_file, os.fdopen(file_fd, "wb") as target_file:
-            file_fd = None
+        if directory_fd is None:
+            opened_fd = os.open(
+                workspace,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
+            )
+            directory_fd = opened_fd
+        for _attempt in range(3):
+            try:
+                try:
+                    os.unlink(destination.name, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+                file_fd = os.open(
+                    destination.name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=directory_fd,
+                )
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise FileExistsError(destination.name)
+        with source.open("rb") as source_file, os.fdopen(
+            file_fd, "wb", closefd=False
+        ) as target_file:
             shutil.copyfileobj(source_file, target_file)
+            target_file.flush()
+            os.fsync(file_fd)
+        assert file_fd is not None
+        write_stat = os.fstat(file_fd)
+        read_fd: int | None = None
+        try:
+            read_fd = os.open(
+                destination.name,
+                os.O_RDONLY | os.O_NOFOLLOW,
+                dir_fd=directory_fd,
+            )
+            read_stat = os.fstat(read_fd)
+            if (write_stat.st_dev, write_stat.st_ino) != (read_stat.st_dev, read_stat.st_ino):
+                raise OSError("manifest destination changed during staging")
+            os.close(file_fd)
+            file_fd = None
+            return destination, read_fd
+        except Exception:
+            if read_fd is not None:
+                os.close(read_fd)
+            raise
     except OSError as error:
         raise SandboxPermissionError(
             "native manifest destination is unsafe",
@@ -104,8 +145,21 @@ def _stage_manifest(source: Path, workspace: Path) -> Path:
     finally:
         if file_fd is not None:
             os.close(file_fd)
-        if directory_fd is not None:
-            os.close(directory_fd)
+        if owned_directory_fd and opened_fd is not None:
+            os.close(opened_fd)
+
+
+def _stage_manifest(
+    source: Path,
+    workspace: Path,
+    *,
+    directory_fd: int | None = None,
+) -> Path:
+    """Copy a trusted manifest without following worker-created links."""
+    destination, manifest_fd = _stage_manifest_descriptor(
+        source, workspace, directory_fd=directory_fd
+    )
+    os.close(manifest_fd)
     return destination
 
 
@@ -129,6 +183,8 @@ class NativeSandboxProvider(SandboxProvider):
         self._active: dict[str, Sandbox] = {}
         self._signals: dict[str, asyncio.Future] = {}
         self._scope_locks: dict[str, asyncio.Lock] = {}
+        self._workspace_fds: dict[str, int] = {}
+        self._manifest_fds: dict[str, int] = {}
         self._shutdown_called = False
 
     async def start(self) -> None:
@@ -146,42 +202,53 @@ class NativeSandboxProvider(SandboxProvider):
             sandbox = self._active.get(scope_id)
             if sandbox is not None:
                 return sandbox
+            workspace_fd: int | None = None
+            manifest_fd: int | None = None
             try:
-                workspace = ensure_workspace(self._sandbox_root, scope_id)
-            except SandboxPermissionError:
-                raise
-            # The worker may only read inside its workspace, so the trusted
-            # manifest is staged there on acquire (the SRT policy does not
-            # allow the sandbox root).
-            staged_manifest = None
-            if self._manifest_path is not None:
+                workspace, workspace_fd = open_workspace_descriptor(
+                    self._sandbox_root, scope_id
+                )
+                staged_manifest = None
+                if self._manifest_path is not None:
+                    staged_manifest, manifest_fd = _stage_manifest_descriptor(
+                        self._manifest_path,
+                        workspace,
+                        directory_fd=workspace_fd,
+                    )
+                loop = asyncio.get_running_loop()
+                signal = loop.create_future()
+                runtime: Any = None
                 try:
-                    staged_manifest = _stage_manifest(self._manifest_path, workspace)
-                except SandboxPermissionError:
+                    runtime = self._runtime_factory(
+                        workspace,
+                        workspace_fd=workspace_fd,
+                        env=self._environment,
+                        manifest_path=staged_manifest,
+                        manifest_fd=manifest_fd,
+                        scope_signal=signal,
+                        additional_allow_read=self._additional_allow_read,
+                    )
+                    sandbox = Sandbox(
+                        scope_id,
+                        runtime,
+                        NativePathTranslator(),
+                        NativeSecurityGuard(),
+                    )
+                except Exception:
+                    if runtime is not None:
+                        await runtime.close()
                     raise
-                except OSError as error:
-                    raise SandboxPermissionError(
-                        "native manifest is unavailable",
-                        path=str(self._manifest_path),
-                        operation="workspace",
-                    ) from error
-            loop = asyncio.get_running_loop()
-            signal = loop.create_future()
-            runtime = self._runtime_factory(
-                workspace,
-                env=self._environment,
-                manifest_path=staged_manifest,
-                scope_signal=signal,
-                additional_allow_read=self._additional_allow_read,
-            )
-            sandbox = Sandbox(
-                scope_id,
-                runtime,
-                NativePathTranslator(),
-                NativeSecurityGuard(),
-            )
+            except Exception:
+                if manifest_fd is not None:
+                    os.close(manifest_fd)
+                if workspace_fd is not None:
+                    os.close(workspace_fd)
+                raise
             self._active[scope_id] = sandbox
             self._signals[scope_id] = signal
+            if manifest_fd is not None:
+                self._manifest_fds[scope_id] = manifest_fd
+            self._workspace_fds[scope_id] = workspace_fd
             return sandbox
 
     async def release(self, scope_id: str) -> None:
@@ -190,13 +257,24 @@ class NativeSandboxProvider(SandboxProvider):
         async with lock:
             sandbox = self._active.pop(scope_id, None)
             signal = self._signals.pop(scope_id, None)
+            workspace_fd = self._workspace_fds.pop(scope_id, None)
+            manifest_fd = self._manifest_fds.pop(scope_id, None)
             if sandbox is None:
+                if manifest_fd is not None:
+                    os.close(manifest_fd)
+                if workspace_fd is not None:
+                    os.close(workspace_fd)
                 return
             # Close is only an admission flag on NativeRuntime; signal first
             # so an already-running command is killed before scope teardown.
             if signal is not None and not signal.done():
                 signal.set_result(None)
             await _close_sandbox(sandbox)
+            if workspace_fd is not None:
+                os.close(workspace_fd)
+            if manifest_fd is not None:
+                os.close(manifest_fd)
+
     async def destroy_scope(self, scope_id: str) -> None:
         """Abort any in-flight worker (kills its broker tree) and close the
         scope. The workspace is preserved; task-delete removes it."""
@@ -205,10 +283,16 @@ class NativeSandboxProvider(SandboxProvider):
         async with lock:
             sandbox = self._active.pop(scope_id, None)
             signal = self._signals.pop(scope_id, None)
+            workspace_fd = self._workspace_fds.pop(scope_id, None)
+            manifest_fd = self._manifest_fds.pop(scope_id, None)
             if signal is not None and not signal.done():
                 signal.set_result(None)
             if sandbox is not None:
                 await _close_sandbox(sandbox)
+            if manifest_fd is not None:
+                os.close(manifest_fd)
+            if workspace_fd is not None:
+                os.close(workspace_fd)
 
     async def get_info(self, scope_id: str) -> Any:
         """Native scopes have no container identity; active-ness is enough."""
@@ -221,8 +305,12 @@ class NativeSandboxProvider(SandboxProvider):
         self._shutdown_called = True
         signals = list(self._signals.values())
         sandboxes = list(self._active.values())
+        workspace_fds = list(self._workspace_fds.values())
+        manifest_fds = list(self._manifest_fds.values())
         self._signals.clear()
         self._active.clear()
+        self._workspace_fds.clear()
+        self._manifest_fds.clear()
         for signal in signals:
             if not signal.done():
                 signal.set_result(None)
@@ -230,6 +318,10 @@ class NativeSandboxProvider(SandboxProvider):
             *(_close_sandbox(sandbox) for sandbox in sandboxes),
             return_exceptions=True,
         )
+        for workspace_fd in workspace_fds:
+            os.close(workspace_fd)
+        for manifest_fd in manifest_fds:
+            os.close(manifest_fd)
 
 
 async def _close_sandbox(sandbox: Sandbox) -> None:

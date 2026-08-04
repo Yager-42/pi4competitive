@@ -24,6 +24,16 @@ def _now() -> str:
 async def _await(value: Any) -> Any:
     return await value if inspect.isawaitable(value) else value
 
+class EvolutionRecoveryError(RuntimeError):
+    """Acceptance failed and restoring the active projection also failed."""
+
+    def __init__(self, original_error: BaseException, recovery_errors: tuple[BaseException, ...]) -> None:
+        self.original_error = original_error
+        self.recovery_errors = recovery_errors
+        super().__init__("evolution acceptance failed and recovery failed")
+
+
+
 
 class EvolutionManager:
     def __init__(self, store: Any, triggers: list[Any], focuser: Any, mutator: Any, eval_bridge: Any,
@@ -50,21 +60,48 @@ class EvolutionManager:
                     trigger.mark_evolved(context.target_skill.name, context.target_skill.total_selections)
         return records
 
-    async def _rollback_acceptance(self, baseline: Any, candidate: Any) -> None:
-        if baseline is not None:
+    async def _rollback_acceptance(self, baseline: Any, candidate: Any) -> tuple[BaseException, ...]:
+        """Restore the active pointer before touching the candidate projection."""
+        if baseline is None:
+            # A newly-created skill has no predecessor that can be made active.
+            # Do not delete its files while the store still points at it.
+            return (RuntimeError("no baseline available to restore active pointer"),)
+
+        try:
+            await self._store.rollback(baseline.skill_id)
+        except Exception as error:
+            # Keep the candidate files because the store may still point at it.
+            return (error,)
+
+        recovery_errors: list[BaseException] = []
+        get_active = getattr(self._store, "get_active", None)
+        if get_active is None:
+            # Without the ability to verify the restored active pointer the
+            # cleanup safety check is bypassable; fail closed and keep the
+            # candidate files until a store with the capability is available.
+            recovery_errors.append(
+                RuntimeError("store cannot verify active pointer after rollback")
+            )
+        else:
             try:
-                await self._store.rollback(baseline.skill_id)
-            except Exception:
-                pass
+                active = await _await(get_active(candidate.name))
+                if active is None or active.skill_id != baseline.skill_id:
+                    recovery_errors.append(RuntimeError("active pointer was not restored"))
+            except Exception as error:
+                recovery_errors.append(error)
+        if recovery_errors:
+            # Never remove a candidate while the restored active pointer is
+            # uncertain; the caller receives an explicit recovery error.
+            return tuple(recovery_errors)
         if self._skill_files is not None:
             try:
                 await self._skill_files.reject_candidate(candidate)
-            except Exception:
-                pass
+            except Exception as error:
+                recovery_errors.append(error)
             try:
                 await self._skill_files.update_manifest()
-            except Exception:
-                pass
+            except Exception as error:
+                recovery_errors.append(error)
         clearer = None
         if self._scope_store is not None:
             for name in ("remove_scope", "delete_scope", "clear_scope"):
@@ -75,8 +112,9 @@ class EvolutionManager:
         if clearer is not None:
             try:
                 await _await(clearer(candidate.skill_id))
-            except Exception:
-                pass
+            except Exception as error:
+                recovery_errors.append(error)
+        return tuple(recovery_errors)
 
     async def run_context(self, context: EvolutionContext) -> EvolutionRecord | None:
         if context.evolution_type == "DERIVED":
@@ -95,8 +133,10 @@ class EvolutionManager:
                 )
                 if self._skill_files is not None:
                     await self._skill_files.accept_candidate(candidate, scope=focused.scope)
-            except Exception:
-                await self._rollback_acceptance(baseline, candidate)
+            except Exception as acceptance_error:
+                recovery_errors = await self._rollback_acceptance(baseline, candidate)
+                if recovery_errors:
+                    raise EvolutionRecoveryError(acceptance_error, recovery_errors) from acceptance_error
                 return None
         record = EvolutionRecord(
             evolution_id=f"evo_{uuid.uuid4().hex[:12]}",
@@ -128,4 +168,4 @@ class EvolutionManager:
         return record
 
 
-__all__ = ["EvolutionManager"]
+__all__ = ["EvolutionManager", "EvolutionRecoveryError"]

@@ -90,16 +90,55 @@ def test_retry_at_attempt_cap_cancels_task() -> None:
     assert frontier.dequeue() is None
 
 
-def test_frontier_deduplicates_when_existing_task_is_subset() -> None:
+def test_frontier_deduplicates_when_existing_task_is_superset() -> None:
+    frontier = Frontier()
+    frontier.add(_frontier_task("broad", ["e.a", "e.b"]))
+
+    duplicate = frontier.add(_frontier_task("narrow", ["e.a"], priority=0.9))
+
+    assert duplicate is not None
+    assert duplicate.id == "broad"
+    assert duplicate.target_cells == ["e.a", "e.b"]
+    assert len(frontier.tasks) == 1
+    assert duplicate.priority == 0.9
+
+
+def test_frontier_merges_superset_and_dispatches_all_requested_cells() -> None:
     frontier = Frontier()
     frontier.add(_frontier_task("narrow", ["e.a"]))
 
-    duplicate = frontier.add(_frontier_task("broad", ["e.a", "e.b"], priority=0.9))
+    merged = frontier.add(_frontier_task("broad", ["e.a", "e.b"], priority=0.9))
 
-    assert duplicate is not None
-    assert duplicate.id == "narrow"
+    assert merged is not None
+    assert merged.id == "narrow"
+    assert merged.target_cells == ["e.a", "e.b"]
     assert len(frontier.tasks) == 1
-    assert duplicate.priority == 0.9
+    dispatched = frontier.dequeue()
+    assert dispatched is merged
+    assert dispatched.target_cells == ["e.a", "e.b"]
+
+
+def test_frontier_merge_preserves_blocked_by_dependencies() -> None:
+    frontier = Frontier()
+    frontier.add(_frontier_task("narrow", ["e.a"]))
+
+    merged = frontier.add(
+        _frontier_task(
+            "broad",
+            ["e.a", "e.b"],
+            blocked_by=["dep-1"],
+            status=FrontierTaskStatus.BLOCKED,
+        )
+    )
+
+    assert merged is not None
+    assert merged.id == "narrow"
+    assert merged.target_cells == ["e.a", "e.b"]
+    assert merged.blocked_by == ["dep-1"]
+    # The merged task keeps the dependency gate until dep-1 completes.
+    assert merged.status == FrontierTaskStatus.BLOCKED
+    assert frontier.dequeue(set()) is None
+    assert frontier.dequeue({"dep-1"}) is merged
 
 
 def test_frontier_eviction_keeps_pending_prerequisite(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -116,8 +155,11 @@ def test_frontier_eviction_keeps_pending_prerequisite(monkeypatch: pytest.Monkey
     frontier.add(_frontier_task("evictable", ["e.other"], priority=0.0))
 
     assert {task.id for task in frontier.tasks} == {"dependency", "dependent"}
-    assert frontier.dequeue() is not None
-    assert frontier.tasks[1].status == FrontierTaskStatus.BLOCKED
+    dispatched = frontier.dequeue()
+    assert dispatched is not None
+    assert dispatched.id == "dependency"
+    dependent = next(task for task in frontier.tasks if task.id == "dependent")
+    assert dependent.status == FrontierTaskStatus.BLOCKED
 
 
 def test_missing_frontier_dependency_never_becomes_ready() -> None:

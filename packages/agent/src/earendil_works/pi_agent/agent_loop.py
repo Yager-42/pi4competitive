@@ -75,16 +75,7 @@ def create_agent_stream() -> EventStream[AgentEvent, list[AgentMessage]]:
 
 def _end_stream_with_error(stream: EventStream[Any, Any], error: BaseException) -> None:
     """Wake stream consumers and expose background-run failures via ``await_result``."""
-    # EventStream.end() synthesizes a generic error and can overwrite the real cause.
-    setattr(stream, "_done", True)
-    setattr(stream, "_result_error", error)
-    final_result = getattr(stream, "_final_result", None)
-    if final_result is not None and not final_result.done():
-        final_result.set_exception(error)
-    for waiter in list(getattr(stream, "_waiting", ())):
-        if not waiter.done():
-            waiter.set_result((None, True))
-    getattr(stream, "_waiting", []).clear()
+    stream.fail(error)
 
 
 def agent_loop(
@@ -101,17 +92,16 @@ def agent_loop(
         try:
             messages = await run_agent_loop(prompts, context, config, stream.push, signal, stream_fn)
         except BaseException as error:
+            # Every failure mode (cancellation, Exception, KeyboardInterrupt,
+            # SystemExit) must wake stream consumers; cancellation and process
+            # control still propagate after the stream is failed.
             _end_stream_with_error(stream, error)
+            if isinstance(error, asyncio.CancelledError) or not isinstance(error, Exception):
+                raise
         else:
             stream.end(messages)
 
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(_run())
-    except RuntimeError:
-        # No running loop — caller must drive via run_agent_loop / await_result after scheduling.
-        stream._pending_run = _run  # type: ignore[attr-defined]
-
+    stream.start(_run)
     return stream
 
 
@@ -136,16 +126,15 @@ def agent_loop_continue(
             messages = await run_agent_loop_continue(context, config, stream.push, signal, stream_fn)
         except BaseException as error:
             _end_stream_with_error(stream, error)
+            if isinstance(error, asyncio.CancelledError) or not isinstance(error, Exception):
+                raise
         else:
             stream.end(messages)
 
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(_run())
-    except RuntimeError:
-        stream._pending_run = _run  # type: ignore[attr-defined]
-
+    stream.start(_run)
     return stream
+
+
 
 
 async def run_agent_loop(

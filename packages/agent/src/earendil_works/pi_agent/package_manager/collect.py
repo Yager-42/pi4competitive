@@ -104,7 +104,7 @@ def collect_files(
                 continue
             if is_dir:
                 walk(target)
-            elif is_file and file_pattern.search(target.name):
+            elif is_file and file_pattern.search(name):
                 files.append(str(target))
 
     walk(start)

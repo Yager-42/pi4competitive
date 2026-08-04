@@ -45,6 +45,31 @@ def test_google_preserves_tool_results_and_calls() -> None:
     assert contents[1]["parts"] == [{"functionResponse": {"name": "lookup", "response": {"result": "answer"}}}]
 
 
+def test_google_places_thought_signature_on_part() -> None:
+    context = {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "toolCall",
+                        "name": "lookup",
+                        "arguments": {"q": "x"},
+                        "thoughtSignature": "sig",
+                    }
+                ],
+            }
+        ]
+    }
+    parts = google_shared.context_to_google_contents(context)[0]["parts"]
+    assert parts == [
+        {
+            "functionCall": {"name": "lookup", "args": {"q": "x"}},
+            "thoughtSignature": "sig",
+        }
+    ]
+
+
 @pytest.mark.asyncio
 async def test_openai_deferred_failure_is_reported(monkeypatch) -> None:
     async def fail(*_args, **_kwargs):
@@ -119,6 +144,24 @@ async def test_http_malformed_frame_is_terminal_parse_error(monkeypatch) -> None
     assert message["error"]["type"] == "parse"
 
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "frame",
+    [
+        {"choices": [{"delta": []}]},
+        {"choices": [{"delta": {"tool_calls": [{"function": []}]}}]},
+    ],
+)
+async def test_http_malformed_nested_frame_is_structured_error(monkeypatch, frame) -> None:
+    _Client.response = _Response([f"data: {json.dumps(frame)}"])
+    monkeypatch.setattr("earendil_works.pi_ai.api._http_stream.httpx.AsyncClient", _Client)
+    result = await stream_openai_chat_completions(MODEL, {"messages": []}, {"apiKey": "x"}, payload={})
+    message = await result.result()
+    assert message["stopReason"] == "error"
+    assert message["error"]["type"] == "other"
+    assert message["errorMessage"].startswith("Invalid SSE")
+
 @pytest.mark.asyncio
 async def test_http_cancellation_interrupts_stalled_line(monkeypatch) -> None:
     signal = threading.Event()
@@ -178,12 +221,36 @@ async def _resolved(source):
     return source
 
 
-@pytest.mark.parametrize("module", [azure_openai_responses_lazy, bedrock_converse_stream_lazy, openai_codex_responses_lazy, openai_responses_lazy])
-def test_lazy_provider_modules_delegate_to_lazy_api(monkeypatch, module) -> None:
+def test_lazy_result_starts_deferred_setup() -> None:
+    started = []
+
+    async def setup():
+        started.append(True)
+        stream = create_assistant_message_event_stream()
+        message = {"role": "assistant", "content": [], "api": "x", "provider": "p", "model": "m", "usage": {}, "stopReason": "stop", "timestamp": 0}
+        stream.end(message)
+        return stream
+
+    result = lazy_stream({"id": "m", "api": "x", "provider": "p"}, setup)
+    assert started == []
+    message = asyncio.run(result.result())
+    assert started == [True]
+    assert message["stopReason"] == "stop"
+
+
+@pytest.mark.parametrize(
+    ("module", "module_name"),
+    [
+        (azure_openai_responses_lazy, "azure_openai_responses_api"),
+        (bedrock_converse_stream_lazy, "bedrock_converse_stream_api"),
+        (openai_codex_responses_lazy, "openai_codex_responses_api"),
+        (openai_responses_lazy, "openai_responses_api"),
+    ],
+)
+def test_lazy_provider_modules_delegate_to_lazy_api(monkeypatch, module, module_name) -> None:
     called = []
     monkeypatch.setattr(module, "lazy_api", lambda load: called.append(load) or {"stream": object()})
-    module_fn = next(value for name, value in vars(module).items() if name.endswith("_api") and callable(value) and name != "lazy_api")
-    assert module_fn()["stream"] is not None
+    assert getattr(module, module_name)()["stream"] is not None
     assert len(called) == 1
 
 

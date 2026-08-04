@@ -30,10 +30,12 @@ export default function TracePage() {
   const navigate = useNavigate()
   const [spans, setSpans] = useState<TraceSpan[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     let active = true
     setSpans([])
+    setError('')
     setLoading(Boolean(reportId))
     if (!reportId) return () => { active = false }
 
@@ -42,7 +44,10 @@ export default function TracePage() {
         if (active) setSpans(next)
       })
       .catch(() => {
-        if (active) setSpans([])
+        if (active) {
+          setSpans([])
+          setError('trace 加载失败，请稍后重试')
+        }
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -88,6 +93,8 @@ export default function TracePage() {
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
         {loading ? (
           <div className="text-aux text-ink-3">加载 trace…</div>
+        ) : error ? (
+          <div className="text-aux text-risk">{error}</div>
         ) : groups.length === 0 ? (
           <div className="text-aux text-ink-3">无 trace span</div>
         ) : (

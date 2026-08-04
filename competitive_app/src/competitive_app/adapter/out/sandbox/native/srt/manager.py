@@ -553,6 +553,7 @@ async def wrap_with_sandbox(
     custom_config: SandboxRuntimeConfig | None = None,
     abort_signal: asyncio.Future | None = None,
     cwd: str | None = None,
+    preserve_fds: list[int] | None = None,
 ) -> list[str]:
     """Build the argv to spawn one sandboxed command (platform dispatch).
     ADAPT: returns argv; the spawner uses ``shell=False`` with this argv and
@@ -680,6 +681,7 @@ async def wrap_with_sandbox(
         bin_shell=bin_shell,
         abort_signal=abort_signal,
         cwd=cwd,
+        preserve_fds=preserve_fds,
     )
 
 
@@ -739,6 +741,7 @@ async def _wrap_linux(
     bin_shell: str | None,
     abort_signal: asyncio.Future | None,
     cwd: str | None,
+    preserve_fds: list[int] | None,
 ) -> list[str]:
     return await wrap_command_with_sandbox_linux(
         command=command,
@@ -780,6 +783,7 @@ async def _wrap_linux(
         ),
         abort_signal=abort_signal,
         cwd=cwd,
+        preserve_fds=preserve_fds,
     )
 
 

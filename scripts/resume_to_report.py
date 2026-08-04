@@ -47,32 +47,8 @@ os.environ["APP_DB"] = APP_DB
 
 
 async def prepare_task_for_resume(state: Any) -> None:
-    """Validate and prepare a stopped task using the application's services.
-
-    The resume endpoint owns the actual preconditions and runner startup. This
-    helper only removes the stop marker and moves the validated terminal task to
-    pending through the shared store API so the endpoint can resume it normally.
-    """
-    task = await state.task_service.get_task(TASK_ID)
-    status = task.get("status")
-    if status not in {"completed", "failed", "aborted"}:
-        raise RuntimeError(f"task {TASK_ID} is not resumable from status {status!r}")
-    if state.task_service._first_non_ok_stage(task.get("projection")) is None:
-        raise RuntimeError(f"task {TASK_ID} has no incomplete stage to resume")
-    if state.registry.task_active(TASK_ID):
-        raise RuntimeError(f"task {TASK_ID} is already running")
-    session_id = task.get("session_id")
-    if not session_id:
-        raise RuntimeError(f"task {TASK_ID} has no session to resume")
-    metadata = dict(task.get("metadata") or {})
-    if not metadata.get("stop_after_stage"):
-        raise RuntimeError(f"task {TASK_ID} has no stop_after_stage marker")
-    if await state.task_service._load_research_brief(session_id) is None:
-        raise RuntimeError(f"task {TASK_ID} brief not recoverable")
-    metadata.pop("stop_after_stage", None)
-    await state.store.update_task_metadata(TASK_ID, metadata)
-    if not await state.store.update_task_status(TASK_ID, "pending"):
-        raise RuntimeError(f"task {TASK_ID} changed while preparing resume")
+    """Prepare through the public service transaction before runner startup."""
+    await state.task_service.prepare_resume_task(TASK_ID)
     print(f"[{ARCH}] reset task {TASK_ID} → pending, stripped stop_after_stage")
 
 

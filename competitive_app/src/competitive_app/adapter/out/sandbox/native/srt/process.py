@@ -172,6 +172,7 @@ async def ripgrep(
             )
         except asyncio.TimeoutError:
             _kill_process(process)
+            await process.wait()  # reap; SIGKILL alone leaves a zombie
             raise RuntimeError(
                 f"ripgrep timed out after {RIPGREP_TIMEOUT_SECONDS}s"
             ) from None
@@ -187,19 +188,25 @@ async def ripgrep(
             )
             if wait_task not in done:
                 _kill_process(process)
+                await process.wait()  # reap before cancellation abandons pipes
                 wait_task.cancel()
                 await asyncio.gather(wait_task, return_exceptions=True)
                 raise asyncio.CancelledError("ripgrep aborted")
         else:
             await wait_task
         stdout, stderr, code = wait_task.result()
-        return _parse_ripgrep_output(stdout, stderr, code)
     finally:
         if abort_task is not None and not abort_task.done():
             abort_task.cancel()
         if abort_task is not None:
             await asyncio.gather(abort_task, return_exceptions=True)
-
+        if process.returncode is None:
+            _kill_process(process)
+            await process.wait()  # reap: SIGKILL alone leaves a zombie
+        if not wait_task.done():
+            wait_task.cancel()
+        await asyncio.gather(wait_task, return_exceptions=True)
+    return _parse_ripgrep_output(stdout, stderr, code)
 
 
 

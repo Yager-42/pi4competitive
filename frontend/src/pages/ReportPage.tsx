@@ -31,14 +31,21 @@ export default function ReportPage() {
   const [fbEdited, setFbEdited] = useState(0)
   const [fbTotal, setFbTotal] = useState(0)
   const [fbMsg, setFbMsg] = useState('')
+  const [refineErrors, setRefineErrors] = useState<Record<string, string>>({})
 
   async function load() {
     if (!reportId) return
     setLoading(true)
-    const r = await fetchReport(reportId)
-    setReport(r)
-    setFbTotal(r?.sections?.length ?? 0)
-    setLoading(false)
+    try {
+      const r = await fetchReport(reportId)
+      setReport(r)
+      setFbTotal(r?.sections?.length ?? 0)
+    } catch {
+      setReport(null)
+      setFbTotal(0)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -49,21 +56,39 @@ export default function ReportPage() {
   async function doRefine(s: ReportSection) {
     if (!reportId || refining) return
     setRefining(s.id)
+    setRefineErrors((prev) => ({ ...prev, [s.id]: '' }))
     const annotations = (annoInput[s.id] ?? '')
       .split(/[,，\n]+/)
       .map((x) => x.trim())
       .filter(Boolean)
-    await refineSection(reportId, s.id, annotations)
-    setAnnoInput((m) => ({ ...m, [s.id]: '' }))
-    await load() // re-fetch: refine stage_output 优先,section 标 refined
-    setRefining(null)
+    try {
+      const response = await refineSection(reportId, s.id, annotations)
+      if (!response.ok) {
+        setRefineErrors((prev) => ({
+          ...prev,
+          [s.id]: response.message ?? '章节深化失败，请稍后重试',
+        }))
+        return
+      }
+      await load() // re-fetch: refine stage_output 优先,section 标 refined
+    } catch {
+      setRefineErrors((prev) => ({ ...prev, [s.id]: '章节深化失败，请稍后重试' }))
+    } finally {
+      setRefining(null)
+    }
   }
 
   async function doFeedback() {
     if (!reportId) return
-    const r = await submitFeedback(reportId, fbEdited, fbTotal)
-    setFbMsg(r.ok ? `已记录修正率 ${((r.revision_rate ?? 0) * 100).toFixed(0)}%` : '提交失败')
+    setFbMsg('')
+    try {
+      const r = await submitFeedback(reportId, fbEdited, fbTotal)
+      setFbMsg(r.ok ? `已记录修正率 ${((r.revision_rate ?? 0) * 100).toFixed(0)}%` : '提交失败')
+    } catch {
+      setFbMsg('提交失败，请稍后重试')
+    }
   }
+
 
   if (loading) {
     return (
@@ -152,6 +177,7 @@ export default function ReportPage() {
                       >
                         {refining === s.id ? <><Loader2 size={14} className="animate-spin" /> 深化中…</> : '深化此章节'}
                       </button>
+                      {refineErrors[s.id] && <p className="mt-2 text-tag text-risk">{refineErrors[s.id]}</p>}
                     </div>
                   </motion.div>
                 ))}

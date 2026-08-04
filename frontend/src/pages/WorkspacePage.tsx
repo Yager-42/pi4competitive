@@ -61,15 +61,22 @@ export default function WorkspacePage() {
     running,
   } = useTaskStore()
   const [aborting, setAborting] = useState(false)
+  const [abortError, setAbortError] = useState('')
 
   async function onAbort() {
     if (!taskId || aborting) return
     const ok = window.confirm('确定中止此任务?\n\n研究将停止,后续阶段不再运行(可在列表恢复)。')
     if (!ok) return
     setAborting(true)
-    await abortTask(taskId)
-    // SSE 会推 error(status=aborted)或轮询兜底拿到 aborted;留工作台显示已中止
-    setAborting(false)
+    setAbortError('')
+    try {
+      const result = await abortTask(taskId)
+      if (result.status !== 'aborted') setAbortError('中止任务失败，请稍后重试')
+    } catch {
+      setAbortError('中止任务失败，请稍后重试')
+    } finally {
+      setAborting(false)
+    }
   }
 
   useEffect(() => {
@@ -217,9 +224,9 @@ export default function WorkspacePage() {
         </div>
       </div>
 
-      {error && (
+      {(error || abortError) && (
         <div className="absolute bottom-6 right-6 rounded-card border border-risk/40 bg-card p-4 shadow-float">
-          <div className="text-aux font-medium text-risk">{error}</div>
+          <div className="text-aux font-medium text-risk">{error || abortError}</div>
         </div>
       )}
     </div>

@@ -107,6 +107,13 @@ class _FakeProcess:
             await self._release.wait()
         return b"", b""
 
+    async def wait(self) -> int:
+        if not self._done:
+            await self._release.wait()
+        if self.returncode is None:
+            self.returncode = -9 if self.killed else 0
+        return self.returncode
+
     def kill(self) -> None:
         self.killed = True
         self._done = True

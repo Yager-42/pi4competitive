@@ -18,6 +18,7 @@ imports SOCMState. Not in domain/ because it does filesystem IO (G1).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -62,7 +63,8 @@ class SocmStore:
         """
         lock = await self._lock_for(session_id)
         async with lock:
-            self._write_locked(session_id, state)
+            async with self._cross_process_lock_async(session_id):
+                self._write_unlocked(session_id, state)
 
     async def atomic_update(
         self,
@@ -80,12 +82,10 @@ class SocmStore:
         """
         lock = await self._lock_for(session_id)
         async with lock:
-            with self._cross_process_lock(session_id) as acquired:
+            async with self._cross_process_lock_async(session_id):
                 state = await self._load_unlocked(session_id)
                 state = updater(state)
                 self._write_unlocked(session_id, state)
-                # acquired is only False on non-POSIX; in-process lock still held.
-                _ = acquired
             return state
 
     async def delete(self, session_id: str) -> None:
@@ -97,7 +97,7 @@ class SocmStore:
         """
         lock = await self._lock_for(session_id)
         async with lock:
-            with self._cross_process_lock(session_id):
+            async with self._cross_process_lock_async(session_id):
                 path = self._state_path(session_id)
                 if path.is_file():
                     path.unlink()
@@ -125,12 +125,7 @@ class SocmStore:
     # ------------------------------------------------------------------ internals
 
     def _cross_process_lock(self, session_id: str):
-        """Context manager: fcntl.flock around the lock file for the full RMW.
-
-        Returns (acquired: bool). On non-POSIX or unsupported filesystems,
-        yields False (no cross-process lock; in-process asyncio.Lock still
-        serializes same-process writers).
-        """
+        """Synchronous compatibility context manager for non-async callers."""
         import contextlib
 
         lock_path = self._state_path(session_id).parent / ".search_state.json.lock"
@@ -144,17 +139,20 @@ class SocmStore:
             try:
                 try:
                     import fcntl
-
                     fcntl.flock(fd, fcntl.LOCK_EX)
                     acquired = True
-                except (ImportError, OSError):
-                    acquired = False
+                except ImportError:
+                    # Non-POSIX platforms without fcntl: best-effort no lock.
+                    pass
+                except OSError:
+                    # POSIX: a failed flock means the lock was NOT acquired;
+                    # proceeding would silently break cross-process exclusion.
+                    raise
                 yield acquired
             finally:
                 if acquired:
                     try:
                         import fcntl
-
                         fcntl.flock(fd, fcntl.LOCK_UN)
                     except (ImportError, OSError):
                         pass
@@ -162,8 +160,44 @@ class SocmStore:
 
         return _cm()
 
+    @contextlib.asynccontextmanager
+    async def _cross_process_lock_async(self, session_id: str):
+        """Acquire/release the cross-process flock without blocking the loop."""
+        import contextlib
+
+        def _prepare_lock_file(lock_path):
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path.touch(exist_ok=True)
+            return open(lock_path, "r")
+
+        lock_path = self._state_path(session_id).parent / ".search_state.json.lock"
+        fd = await asyncio.to_thread(_prepare_lock_file, lock_path)
+        acquired = False
+        try:
+            try:
+                import fcntl
+                await asyncio.to_thread(fcntl.flock, fd, fcntl.LOCK_EX)
+                acquired = True
+            except ImportError:
+                # Non-POSIX platforms without fcntl: best-effort no lock.
+                pass
+            except OSError:
+                # POSIX: a failed flock means the lock was NOT acquired;
+                # proceeding would silently break cross-process exclusion.
+                raise
+            yield acquired
+        finally:
+            if acquired:
+                try:
+                    import fcntl
+                    await asyncio.to_thread(fcntl.flock, fd, fcntl.LOCK_UN)
+                except (ImportError, OSError):
+                    pass
+            fd.close()
+
+
     def _write_locked(self, session_id: str, state: SOCMState) -> None:
-        """Write with the cross-process fcntl lock (for ``save``)."""
+        """Deprecated synchronous helper retained for compatibility."""
         with self._cross_process_lock(session_id):
             self._write_unlocked(session_id, state)
 

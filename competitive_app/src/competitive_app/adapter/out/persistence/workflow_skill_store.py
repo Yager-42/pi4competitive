@@ -85,6 +85,14 @@ class WorkflowSkillStore:
             row = await cur.fetchone()
         return row[0] if row else None
 
+    async def clear_scope(self, skill_id: str) -> None:
+        db = await self._ready()
+        async with self._write_lock:
+            await db.execute(
+                "DELETE FROM workflow_skill_metadata WHERE skill_id=?", (skill_id,)
+            )
+            await db.commit()
+
     async def list_scoped_skill_ids(self, scope: str) -> list[str]:
         db = await self._ready()
         async with db.execute("SELECT skill_id FROM workflow_skill_metadata WHERE scope=? ORDER BY skill_id", (scope,)) as cur:

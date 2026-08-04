@@ -211,6 +211,9 @@ class CoverageMap(BaseModel):
         new_value = _normalize_value(value)
         if existing_value == new_value:
             # Support: keep filled, bump confidence and count another weak retry.
+            if confidence > cell.confidence:
+                cell.source = source
+                cell.source_excerpt = source_excerpt
             cell.confidence = max(cell.confidence, confidence)
             if cell.confidence < WEAK_CONFIDENCE:
                 cell.attempts += 1

@@ -367,7 +367,74 @@ class TaskProjectionStore:
             await self._db.execute("delete from report_feedback where report_id = ?", (task_id,))
             await self._db.commit()
             return session_id
+    async def restore_task_if_current(
+        self, task: dict[str, Any], *, expected_status: str = "pending",
+        expected_session_id: str | None = None,
+    ) -> bool:
+        """Conditionally restore a task snapshot without delete/recreate gaps.
 
+        The compare-and-set predicate prevents a concurrent mutation from being
+        overwritten by startup compensation and preserves original timestamps.
+        The row's ``updated_at`` is part of the predicate when the snapshot
+        carries one, so a concurrent metadata/projection update that leaves
+        ``status`` untouched still fails the CAS instead of being clobbered.
+        """
+        await self.init()
+        assert self._db is not None
+        session_id = expected_session_id if expected_session_id is not None else task.get("session_id")
+        expected_updated_at = task.get("updated_at")
+        async with self._write_lock:
+            cur = await self._db.execute(
+                """update tasks set session_id = ?, query = ?, status = ?,
+                   metadata_json = ?, projection_json = ?, created_at = ?, updated_at = ?
+                   where task_id = ? and status = ? and session_id is ?"""
+                + (" and updated_at = ?" if expected_updated_at is not None else ""),
+                (
+                    task.get("session_id"), task.get("query", ""), task.get("status", "pending"),
+                    json.dumps(task.get("metadata") or {}, ensure_ascii=False),
+                    json.dumps(task.get("projection") or {}, ensure_ascii=False),
+                    task.get("created_at") or _now_iso(), task.get("updated_at") or _now_iso(),
+                    task["task_id"], expected_status, session_id,
+                    *((expected_updated_at,) if expected_updated_at is not None else ()),
+                ),
+            )
+            await self._db.commit()
+            return cur.rowcount > 0
+
+
+    async def delete_task_if_current(
+        self, task_id: str, *, expected_status: str = "pending", expected_session_id: str | None = None
+    ) -> bool:
+        """Delete only the startup row still owned by this task transition."""
+        await self.init()
+        assert self._db is not None
+        async with self._write_lock:
+            cur = await self._db.execute(
+                "delete from tasks where task_id = ? and status = ? and session_id is ?",
+                (task_id, expected_status, expected_session_id),
+            )
+            await self._db.commit()
+            return cur.rowcount > 0
+
+    async def prepare_resume_if_current(
+        self, task_id: str, *, expected_status: str, metadata: dict[str, Any],
+        expected_updated_at: str | None = None,
+    ) -> bool:
+        """Atomically strip the stop marker and move a terminal task pending."""
+        await self.init()
+        assert self._db is not None
+        async with self._write_lock:
+            cur = await self._db.execute(
+                "update tasks set metadata_json = ?, status = ?, updated_at = ? "
+                "where task_id = ? and status = ?"
+                + (" and updated_at = ?" if expected_updated_at is not None else ""),
+                (
+                    json.dumps(metadata, ensure_ascii=False), "pending", _now_iso(), task_id,
+                    expected_status, *((expected_updated_at,) if expected_updated_at is not None else ()),
+                ),
+            )
+            await self._db.commit()
+            return cur.rowcount > 0
     # ---------------------------------------------------------------- sessions
 
     async def index_session(

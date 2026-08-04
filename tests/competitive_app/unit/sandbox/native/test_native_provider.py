@@ -104,6 +104,26 @@ async def test_provider_release_closes_and_reacquire_rebuilds(tmp_path: Path) ->
     await provider.shutdown()
 
 
+
+
+@pytest.mark.asyncio
+async def test_provider_closes_retained_workspace_and_manifest_fds(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("trusted")
+    provider = NativeSandboxProvider(
+        sandbox_root=tmp_path / "sandboxes", manifest_path=manifest
+    )
+    await provider.acquire(SCOPE)
+    workspace_fd = provider._workspace_fds[SCOPE]
+    manifest_fd = provider._manifest_fds[SCOPE]
+    os.fstat(workspace_fd)
+    os.fstat(manifest_fd)
+    await provider.release(SCOPE)
+    with pytest.raises(OSError):
+        os.fstat(workspace_fd)
+    with pytest.raises(OSError):
+        os.fstat(manifest_fd)
+
 @pytest.mark.asyncio
 async def test_provider_destroy_aborts_in_flight_invocation(tmp_path: Path) -> None:
     provider = NativeSandboxProvider(sandbox_root=tmp_path / "sandboxes")
@@ -313,6 +333,23 @@ async def test_runtime_closed_rejects_execution(tmp_path: Path) -> None:
     with pytest.raises(SandboxRuntimeError, match="closed"):
         await _execute(runtime)
 
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_workspace_replacement_before_spawn(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runtime = _runtime(workspace)
+    moved = tmp_path / "moved"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    workspace.rename(moved)
+    workspace.symlink_to(outside, target_is_directory=True)
+    try:
+        with pytest.raises(SandboxRuntimeError, match="workspace"):
+            await _execute(runtime)
+        assert not (outside / "approved_tools.json").exists()
+    finally:
+        await runtime.close()
 
 @pytest.mark.asyncio
 async def test_runtime_independent_concurrent_scopes(tmp_path: Path) -> None:

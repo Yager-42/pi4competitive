@@ -50,6 +50,8 @@ async def _main() -> int:
             sys.stderr.write("fake broker: network denied\n")
             return 1
 
+    manifest_fd_raw = os.environ.get("PI4COMPETITIVE_MANIFEST_FD")
+    pass_fds = (int(manifest_fd_raw),) if manifest_fd_raw is not None else ()
     proc = await asyncio.create_subprocess_exec(
         *init["invocation"],
         cwd=os.getcwd(),
@@ -57,6 +59,7 @@ async def _main() -> int:
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        pass_fds=pass_fds,
     )
 
     async def _pump(src, dst) -> None:

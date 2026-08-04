@@ -1,0 +1,1321 @@
+{
+  "status": "complete",
+  "message": "Review complete: 54 finding(s) across 77 selected item(s).",
+  "summary": {
+    "files_reviewed": 77,
+    "comments": 54,
+    "total_tokens": 4946990,
+    "input_tokens": 4818144,
+    "output_tokens": 128846,
+    "cache_read_tokens": 2753536,
+    "elapsed": "10m15s"
+  },
+  "tool_calls": {
+    "total": 437,
+    "by_tool": {
+      "code_comment": 44,
+      "code_search": 133,
+      "file_read": 225,
+      "file_read_diff": 35
+    }
+  },
+  "comments": [
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/persistence/task_projection_store.py",
+      "content": "This CAS predicate does not actually identify the snapshot/transition being compensated: another writer can update `metadata_json`, `projection_json`, `query`, or `updated_at` while leaving `status = 'pending'` and the same `session_id`. The rollback will then match and overwrite that newer state with the stale `task` snapshot. Likewise, `prepare_resume_if_current` only predicates on status, so a concurrent metadata update in a terminal state can be lost. Include an immutable transition/version token (or the fetched `updated_at`) in the `WHERE` predicate and pass it through the caller.",
+      "suggestion_code": "where task_id = ? and status = ? and session_id is ? and updated_at = ?\"\"\",",
+      "existing_code": "where task_id = ? and status = ? and session_id is ?\"\"\",",
+      "start_line": 386,
+      "end_line": 386,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_runtime.py",
+      "content": "If `os.dup(manifest_fd)` raises (for example, because the caller supplied an invalid descriptor or the process is out of file descriptors), construction exits after the workspace descriptor has already been acquired, but `_workspace_fd` is never closed. Repeated failed runtime creation can therefore leak descriptors; duplicate the manifest inside the same cleanup-protected block or close the workspace descriptor in an exception handler.",
+      "existing_code": "        self._manifest_fd = os.dup(manifest_fd) if manifest_fd is not None else None\n        if self._manifest_fd is not None:",
+      "start_line": 146,
+      "end_line": 147,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_runtime.py",
+      "content": "`_owns_workspace_fd` is assigned in both branches but is never read anywhere in the repository, while `close()` always closes `_workspace_fd`. This is dead ownership bookkeeping and can mislead future callers into believing ownership affects cleanup; remove it or use it to govern the close behavior.",
+      "existing_code": "            self._owns_workspace_fd = True\n        else:\n            self._owns_workspace_fd = True\n            workspace_fd = os.dup(workspace_fd)",
+      "start_line": 133,
+      "end_line": 136,
+      "category": "maintainability",
+      "severity": "low"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approved_registry.py",
+      "content": "This broad catch now converts every exception from importing the capability module, resolving its origin, or resolving the trusted root into `False`. That silently hides genuine capability initialization/import failures and can make a broken deployment look like an ordinary module-policy rejection; narrow this to the expected import/path errors (or preserve the original exception while still failing closed for untrusted origins).",
+      "existing_code": "    except Exception:  # noqa: BLE001\n        return False\n    return True",
+      "start_line": 64,
+      "end_line": 66,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approved_registry.py",
+      "content": "`from_manifest` installs manifest bindings directly without the trusted-root origin check (or lineage/module approval performed by `from_tools`). Any caller that constructs a registry from a persisted or otherwise untrusted manifest can therefore admit an out-of-root target and bypass the protection added here. Validate each binding against the configured root and approved module policy before constructing the registry, or make this path accept only a registry-validated manifest.",
+      "existing_code": "    def from_manifest(\n        cls,\n        manifest: ApprovedToolManifest,\n        *,\n        capability_root: Path | str | None = None,\n    ) -\u003e \"ApprovedToolRegistry\":\n        return cls(manifest.bindings, _trusted_capability_root(capability_root))",
+      "start_line": 188,
+      "end_line": 194,
+      "category": "security",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approved_registry.py",
+      "content": "Top-level function declarations need two blank lines under standard Python formatting conventions. The new helpers are adjacent to the preceding declarations without the required separation, which can fail formatting/lint checks and makes this security-sensitive flow harder to scan.",
+      "existing_code": "    return Path(capability_root).resolve()\n\ndef _imported_target_callable(target: ToolExecutionTarget) -\u003e Any | None:",
+      "start_line": 30,
+      "end_line": 32,
+      "category": "style",
+      "severity": "low"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/policy.py",
+      "content": "On Linux this removes the explicit `DARWIN_SECRET_DENY_WRITE_GLOBS` entries that were previously appended to the policy. The shallow scan only adds concrete paths that exist at policy creation time, so a sandboxed process can now create new nested `.env.*`, `.pem`, `.key`, `.p12`, or `.pfx` files (and new `secrets` directories) under the writable workspace. This widens the secret-write boundary and contradicts the fail-closed behavior described above; retain the Linux protection or make policy/runtime initialization reject configurations that cannot enforce these patterns.",
+      "existing_code": "                *create_workspace_secret_deny_write_paths(workspace, sys.platform),",
+      "start_line": 281,
+      "end_line": 281,
+      "category": "security",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_sandbox_provider.py",
+      "content": "`destroy_scope` no longer applies the same `require_scope_id` validation used by `acquire` and `release`. If this cleanup API is called with an externally supplied or malformed identifier, each distinct value is inserted into `_scope_locks` via `setdefault`, allowing unbounded lock accumulation and bypassing the provider's scope-ID contract. Validate before creating the lock (as `release` does).",
+      "existing_code": "    async def destroy_scope(self, scope_id: str) -\u003e None:\n        \"\"\"Abort any in-flight worker (kills its broker tree) and close the\n        scope. The workspace is preserved; task-delete removes it.\"\"\"\n        lock = self._scope_locks.setdefault(scope_id, asyncio.Lock())",
+      "start_line": 271,
+      "end_line": 274,
+      "category": "security",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/routes_tasks.py",
+      "content": "A closed fanout can be reused during the `unsubscribe()`/registry cleanup window. When the last subscriber leaves, `unsubscribe()` sets `_closed` and cancels the pump, but `_SSE_FANOUTS` is only removed later in `event_gen`'s `finally`; a concurrent request can therefore retrieve this instance, add a queue, and take this branch without starting a pump. Unless a terminal event was already recorded, that subscriber will wait forever because no task consumes `_source` (and the registry's source queue is no longer being drained). Reject closed fanouts or atomically replace/remove them before allowing a new subscriber.",
+      "existing_code": "        elif self._pump_task is None and not self._closed:\n            self.start()",
+      "start_line": 164,
+      "end_line": 165,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/routes_tasks.py",
+      "content": "This silently discards the oldest event whenever a subscriber falls more than 256 events behind. The task stream contains incremental events (`evidence`, coverage/stage/subagent updates), and the client applies them as mutations; after a drop, the later terminal event does not reconstruct the missing state, so a slow but otherwise healthy SSE client can finish with an incomplete or stale view. Preserve the full ordered stream (e.g. apply backpressure/disconnect and let the client resync via snapshot, or use a recoverable sequence/history protocol) rather than silently dropping updates.",
+      "existing_code": "        if queue.full():\n            try:\n                queue.get_nowait()\n            except asyncio.QueueEmpty:\n                pass\n        queue.put_nowait(event)",
+      "start_line": 181,
+      "end_line": 186,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_sandbox_provider.py",
+      "content": "If `runtime_factory` returns a `NativeRuntime` and constructing `Sandbox` (or any later acquisition step) raises, this handler closes only the provider-owned descriptors. `NativeRuntime` duplicates `workspace_fd` and `manifest_fd`, so those runtime-owned duplicates are left open because the partially constructed runtime is never closed. Ensure the created runtime is closed on the acquisition failure path before releasing the original descriptors.",
+      "existing_code": "                runtime = self._runtime_factory(\n                    workspace,\n                    workspace_fd=workspace_fd,\n                    env=self._environment,\n                    manifest_path=staged_manifest,\n                    manifest_fd=manifest_fd,\n                    scope_signal=signal,\n                    additional_allow_read=self._additional_allow_read,\n                )\n                sandbox = Sandbox(",
+      "start_line": 220,
+      "end_line": 229,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/process.py",
+      "content": "`Process.kill()` only sends SIGKILL; it does not reap the child. On the abort/timeout paths, `process.communicate()` is cancelled and this cleanup only gathers `_wait()` (which is already cancelled or failed), so no `process.wait()` is performed. A still-running subprocess can therefore remain as a zombie on POSIX, especially under repeated ripgrep calls. After killing/cancelling the wait task, explicitly await `process.wait()` (handling cancellation/lookup races) to complete the process lifecycle.",
+      "existing_code": "        if process.returncode is None:\n            _kill_process(process)\n        if not wait_task.done():\n            wait_task.cancel()\n        await asyncio.gather(wait_task, return_exceptions=True)",
+      "start_line": 202,
+      "end_line": 206,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_sandbox_provider.py",
+      "content": "If duplicating `manifest_fd` fails (for example, descriptor exhaustion), the already-opened `self._workspace_fd` is not closed because this assignment occurs before the validation `try` block. The constructor then raises, while the provider only closes its original descriptors and cannot clean up this duplicate. Wrap manifest duplication and subsequent initialization in cleanup that closes `self._workspace_fd` on failure.",
+      "existing_code": "runtime = self._runtime_factory(\n                    workspace,\n                    workspace_fd=workspace_fd,\n                    env=self._environment,\n                    manifest_path=staged_manifest,\n                    manifest_fd=manifest_fd,\n                    scope_signal=signal,\n                    additional_allow_read=self._additional_allow_read,\n                )",
+      "start_line": 220,
+      "end_line": 228,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/persistence/socm_store.py",
+      "content": "On POSIX, an `OSError` from `fcntl.flock` means the cross-process lock was not acquired, but this handler continues to `yield` and `save`/`atomic_update`/`delete` proceed anyway. A transient I/O or filesystem locking failure can therefore let independent processes perform concurrent read-modify-write operations and lose updates (or delete state while another writer is active). Fail closed by propagating the lock error (or explicitly restrict the fallback to platforms where `fcntl` is unavailable), rather than treating an acquisition failure as success.",
+      "existing_code": "            except (ImportError, OSError):\n                pass\n            yield acquired",
+      "start_line": 144,
+      "end_line": 146,
+      "category": "security",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/persistence/socm_store.py",
+      "content": "These filesystem operations still execute synchronously on the event-loop thread. `mkdir`, `touch`, `open`, and especially `open`/metadata operations can block on a slow or network-backed sessions filesystem, despite moving only `flock` to `to_thread`; every async save/update/delete pays this path. Move lock-file setup/open/close to the worker thread as well (or otherwise use non-blocking async file I/O) so persistence cannot stall unrelated async requests.",
+      "existing_code": "        lock_path.parent.mkdir(parents=True, exist_ok=True)\n        lock_path.touch(exist_ok=True)\n        fd = open(lock_path, \"r\")",
+      "start_line": 164,
+      "end_line": 166,
+      "category": "performance",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_sandbox_provider.py",
+      "content": "When `PI4COMPETITIVE_MANIFEST_FD` is present but malformed or closed, `main()` silently sets `manifest_fd = None` and falls back to `PI4COMPETITIVE_MANIFEST_PATH`/the baked default. That turns a broken descriptor handoff into execution with a different manifest than the provider staged and verified, defeating the intended fail-closed trusted-manifest binding. Treat an invalid supplied descriptor as a startup error instead of falling back.",
+      "existing_code": "manifest_fd=manifest_fd,",
+      "start_line": 225,
+      "end_line": 225,
+      "category": "security",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/runner.py",
+      "content": "`socket.socketpair()` is created before this validation, but an exception here leaves both `ipc_parent` and `ipc_child` open because `spawn_broker()` has no cleanup path before `create_subprocess_exec()` succeeds. A changed/invalid workspace descriptor can therefore leak two file descriptors on every failed launch (and repeated requests can exhaust the process limit). Validate before creating the socketpair, or close both sockets in an exception-safe `try/finally`.",
+      "existing_code": "    if options.cwd_fd is not None:\n        _validate_cwd_descriptor(options.cwd, options.cwd_fd)\n        env[\"PI_SANDBOX_WORKSPACE_FD\"] = str(options.cwd_fd)\n        env[\"PI_SANDBOX_WORKSPACE_PATH\"] = options.cwd",
+      "start_line": 128,
+      "end_line": 131,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/worker.py",
+      "content": "If `os.dup(manifest_fd)` fails (for example, a closed or otherwise invalid descriptor supplied by a caller), the workspace descriptor opened/duplicated above remains open because this assignment occurs outside the cleanup path. Releasing the partially initialized runtime then cannot close it, causing a file-descriptor leak on repeated failed runtime creation. Put manifest duplication and validation in the same cleanup scope as workspace setup, or close `self._workspace_fd` when duplication fails.",
+      "existing_code": "manifest_fd_raw = os.environ.get(\"PI4COMPETITIVE_MANIFEST_FD\")\n    manifest_fd: int | None = None\n    if manifest_fd_raw is not None:\n        try:\n            descriptor = int(manifest_fd_raw)\n            os.fstat(descriptor)\n            manifest_fd = descriptor\n        except (ValueError, OSError):\n            manifest_fd = None",
+      "start_line": 328,
+      "end_line": 336,
+      "category": "other",
+      "severity": "low"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/adapter/out/sandbox/worker.py",
+      "content": "When `PI4COMPETITIVE_MANIFEST_FD` is present but malformed, closed, or otherwise unusable, this code silently discards the descriptor and falls back to `PI4COMPETITIVE_MANIFEST_PATH` (or the baked default). That defeats the trusted descriptor handoff: a misconfigured launcher—or any caller able to influence the path environment—can make the worker load a different manifest than the broker selected, potentially changing the approved capability set. Treat a present-but-invalid FD as a startup error; only use the path fallback when the FD variable is absent.",
+      "existing_code": "        except (ValueError, OSError):\n            manifest_fd = None\n    if manifest_fd is not None:\n        raise SystemExit(run_worker(manifest_fd=manifest_fd))\n    manifest_path = os.environ.get(\"PI4COMPETITIVE_MANIFEST_PATH\") or DEFAULT_MANIFEST_PATH",
+      "start_line": 335,
+      "end_line": 339,
+      "category": "security",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/session_service.py",
+      "content": "If the acquire task completes successfully at the same time that `wait_for` times out, `acquire_task.cancel()` is a no-op and `gather()` returns with the lock already held, but `acquired` remains `False`. The method then raises without releasing `lock`, permanently blocking subsequent prompts for this session. After cancelling/awaiting the task, inspect whether it completed successfully and release the lock (or centralize this cleanup for both timeout and cancellation paths).",
+      "existing_code": "            except asyncio.TimeoutError as exc:\n                acquire_task.cancel()\n                await asyncio.gather(acquire_task, return_exceptions=True)\n                raise SessionConflictError(",
+      "start_line": 151,
+      "end_line": 154,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+      "content": "These rollback exceptions are silently discarded, so a failed manifest publication can return the original error while leaving the marker or scope metadata in the newly-published state. That breaks the stated dependency-before-manifest consistency and can make subsequent recovery select stale state; at minimum, preserve/report rollback failures (or raise a dedicated recovery error) instead of `pass`.",
+      "existing_code": "                if scope_attempted:\n                    try:\n                        await self._clear_scope_locked(candidate.skill_id)\n                    except Exception:\n                        pass\n                if marker_written:\n                    try:\n                        if previous_marker is None:\n                            marker.unlink()\n                        else:\n                            _atomic_write(marker, previous_marker)\n                    except Exception:\n                        pass",
+      "start_line": 66,
+      "end_line": 78,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+      "content": "The fallback-by-name cleanup silently becomes a no-op when the scope store exposes only `set_scope`/`get_scope` (as the production workflow scope store does). Consequently, after `set_scope` succeeds and manifest publication fails, the candidate's committed scope row is retained even though this method's rollback is expected to remove it, leaving scope metadata inconsistent with the manifest. Make deletion part of the scope-store contract or treat the absence of a clearer as a recovery failure.",
+      "existing_code": "        for name in (\"remove_scope\", \"delete_scope\", \"clear_scope\"):\n            clearer = getattr(self._scope_store, name, None)\n            if clearer is None:\n                continue\n            result = clearer(skill_id)\n            if hasattr(result, \"__await__\"):\n                await result\n            return",
+      "start_line": 85,
+      "end_line": 92,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+      "content": "Rollback does not snapshot the pre-existing scope record before `set_scope` overwrites it. If this candidate already has metadata and manifest publication fails, `_clear_scope_locked` deletes the record rather than restoring its prior scope/path, causing metadata loss and making retry/recovery incomplete. Capture the previous value and restore it on failure, or use a transactional scope-store operation.",
+      "existing_code": "                if self._scope_store is not None and scope is not None:\n                    scope_attempted = True\n                    await self._scope_store.set_scope(candidate.skill_id, scope, str(path))",
+      "start_line": 61,
+      "end_line": 63,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+      "content": "The helper fsyncs the temporary file but not the containing directory after `os.replace`. On filesystems where directory entry durability is not implied by the file fsync, a crash after return can lose the replacement despite the helper's durability claim. Fsync the parent directory (where supported) after replacement if crash durability is part of this projection's contract.",
+      "existing_code": "        os.replace(temporary, path)\n    finally:\n        try:\n            os.unlink(temporary)",
+      "start_line": 27,
+      "end_line": 30,
+      "category": "maintainability",
+      "severity": "low"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/coverage_engine.py",
+      "content": "This new reaping path only detects exceptions that escape the sub-agent task, but `_run_subagent_prompt()` catches `Exception` from `harness.prompt()`, logs it, and returns normally. Consequently an LLM failure is still reported as a successful sub-agent here, allowing the round to complete without evidence despite this code's intended fail-fast behavior. Propagate the prompt failure (or return an explicit failure that this loop checks) so `task.result()` can trigger the cancellation and `RuntimeError` path.",
+      "existing_code": "                try:\n                    task.result()\n                except asyncio.CancelledError:\n                    raise",
+      "start_line": 357,
+      "end_line": 360,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/domain/socm/frontier.py",
+      "content": "When the incoming superset task has `blocked_by` dependencies, those dependencies are discarded and the newly merged cells inherit only `dup`'s status/dependencies. This can dispatch the newly requested cells before their prerequisites complete (for example, an existing pending task merged with a blocked request). Either require compatible dependencies before merging, or propagate the incoming dependency constraints to the retained task.",
+      "existing_code": "            existing_cells = frozenset(dup.target_cells)\n            for cell in task.target_cells:\n                if cell not in existing_cells:\n                    dup.target_cells.append(cell)\n                    existing_cells = existing_cells | {cell}",
+      "start_line": 75,
+      "end_line": 79,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/coverage_engine.py",
+      "content": "Raising `CancelledError` here exits `_dispatch_parallel` without cancelling and awaiting the other tasks still in `pool`. If one sub-agent is cancelled independently, its siblings continue running after the dispatch has unwound, can still write SOCM/emit events, and their exceptions may become unobserved. Clean up the remaining pool (cancel unfinished tasks and `gather(..., return_exceptions=True)`) before propagating cancellation, as is done in the abort paths.",
+      "existing_code": "                except asyncio.CancelledError:\n                    raise",
+      "start_line": 359,
+      "end_line": 360,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+      "content": "`start_task` now creates and stores the task but never attaches `_forget` via `task.add_done_callback(_forget)` and never returns `task` (the function therefore returns `None`). Callers currently ignore the return value, but this also removes the registry's exception retrieval and leaves failed background tasks unobserved, potentially producing “Task exception was never retrieved” warnings and losing the intended cleanup of `_tasks`. Restore the callback registration and return the created task.",
+      "existing_code": "        self._release_stream_owners(task_id)",
+      "start_line": 147,
+      "end_line": 147,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+      "content": "This appends the task ID on every terminal publication, including when a retained task ID is reused after a previous terminal stream. The eviction deque can consequently contain stale entries for the same ID; when one stale entry is popped, `old_stream` may refer to the current terminal stream and this code removes that live/new stream prematurely. Track stream identity (or deduplicate/remove old entries when replacing a stream) before evicting by task ID.",
+      "existing_code": "                self._terminal_streams.append(task_id)",
+      "start_line": 203,
+      "end_line": 203,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/pages/LibraryPage.tsx",
+      "content": "A successful retry does not clear the previous `actionError`, so after a transient list-load failure the error message remains visible even when `fetchTasks()` succeeds (including the reload triggered after deletion). Clear the error on successful loading, or scope the error to the failed operation.",
+      "existing_code": "      const t = await fetchTasks()\n      setTasks(t)",
+      "start_line": 40,
+      "end_line": 41,
+      "category": "bug",
+      "severity": "low"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+      "content": "When metadata recovery fails, this fallback calls `repo.delete(session)` and returns immediately. The JSONL repository's `delete` implementation expects session metadata (it indexes `metadata[\"path\"]`), not the session object, so this may fail; even if a repository accepts the object, returning here skips sandbox workspace, SOCM, and session-index cleanup. Keep attempting the independent cleanup steps (using any recoverable session id/path) and do not treat JSONL deletion as complete cleanup.",
+      "existing_code": "        if not meta:\n            if session is not None:\n                try:\n                    await self._repo.delete(session)\n                    return\n                except Exception:\n                    _log.exception(\"opaque created session cleanup failed\")\n            _log.error(\"created session cleanup skipped: metadata unavailable\")\n            return",
+      "start_line": 361,
+      "end_line": 369,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+      "content": "This compatibility fallback breaks the method's documented atomic-preparation guarantee: metadata is committed first and the subsequent status update can fail, leaving a terminal task with `stop_after_stage` removed. Since this class explicitly supports stores without the CAS method, either require the atomic store API or provide a transaction/rollback path for legacy stores instead of performing two independent writes.",
+      "existing_code": "        else:\n            await self._store.update_task_metadata(task_id, metadata)\n            changed = await self._store.update_task_status(task_id, \"pending\")",
+      "start_line": 429,
+      "end_line": 431,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+      "content": "An exception from the conditional rollback is only logged and then treated as handled. A transient store failure therefore leaves either a newly created task row stuck in `pending` or an existing clarify row mutated, while startup continues to report only the original exception. Do not return on rollback failure without an explicit recovery/escalation path; at minimum attempt a safe retry or propagate/record the incomplete-compensation state.",
+      "existing_code": "            except Exception:\n                _log.exception(\"conditional task rollback failed for %s\", task_id)\n                return",
+      "start_line": 313,
+      "end_line": 315,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/application/evolution/evolution_manager.py",
+      "content": "The optional lookup makes the cleanup safety check bypassable: when a store/test double has no `get_active`, a successful `rollback()` is treated as sufficient and `reject_candidate()` can delete the projection even though the store's active pointer may still reference it. Since this class accepts an untyped store and the rollback contract is not verified here, an incompatible implementation can leave the active skill pointing at deleted files. Fail closed when active-pointer verification is unavailable (or require it as part of the store interface) before removing the candidate.",
+      "suggestion_code": "        get_active = getattr(self._store, \"get_active\", None)\n        if not callable(get_active):\n            return (RuntimeError(\"cannot verify active pointer after rollback\"),)\n        try:",
+      "existing_code": "        get_active = getattr(self._store, \"get_active\", None)\n        if get_active is not None:",
+      "start_line": 77,
+      "end_line": 78,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/hooks/useTaskStream.ts",
+      "content": "This generation is advanced when a request starts, not when a newer snapshot is successfully applied. If the slow initial request overlaps the first watchdog-triggered poll and that poll fails/returns `null`, the valid initial response is rejected by the checks below and the UI can remain reset until a later read or SSE event succeeds. Track the last applied response generation (or otherwise allow the initial response when the newer request did not produce data).",
+      "existing_code": "      const requestGeneration = ++httpGeneration\n      const requestEventVersion = eventVersion\n      try {\n        const t = await fetchTask(taskId, controller.signal)\n        if (\n          !isCurrent() ||\n          requestGeneration !== httpGeneration ||\n          requestEventVersion !== eventVersion\n        ) return",
+      "start_line": 92,
+      "end_line": 100,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/pages/ReportPage.tsx",
+      "content": "`refineError` is a single page-level string but this element is rendered inside every section's card, so a failed refinement for one section displays the same error under all sections. Track the failed section ID alongside the message (or render the message outside the map) and conditionally show it only for the section that failed.",
+      "existing_code": "                      {refineError \u0026\u0026 \u003cp className=\"mt-2 text-tag text-risk\"\u003e{refineError}\u003c/p\u003e}",
+      "start_line": 177,
+      "end_line": 177,
+      "category": "maintainability",
+      "severity": "low"
+    },
+    {
+      "path": "frontend/src/pages/DashboardPage.tsx",
+      "content": "This catch treats the two independent loads as an all-or-nothing operation: if either request rejects after the API layer (or a future implementation stops converting failures to fallbacks), it clears both datasets. A transient failure in one endpoint can therefore erase valid data already displayed for the other section. Keep the last-known-good value for the unaffected dataset, or load/handle the two requests independently and report the section-specific error.",
+      "existing_code": "    } catch {\n      setStats(null)\n      setSubs([])\n      setSubError('仪表盘加载失败，请稍后重试')\n    }",
+      "start_line": 0,
+      "end_line": 0,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "frontend/src/pages/TracePage.tsx",
+      "content": "This adds another branch to an already conditional JSX expression, resulting in a nested/chained ternary (`loading ? ... : error ? ... : groups.length ...`). Per the project's checklist, avoid nested ternaries here; extract the content into an `if`/early-return helper or a separate render component/variable for readability and consistency.",
+      "existing_code": "        ) : error ? (\n          \u003cdiv className=\"text-aux text-risk\"\u003e{error}\u003c/div\u003e\n        ) : groups.length === 0 ? (",
+      "start_line": 96,
+      "end_line": 98,
+      "category": "style",
+      "severity": "low"
+    },
+    {
+      "path": "packages/agent/src/earendil_works/pi_agent/agent_loop.py",
+      "content": "This catch split no longer handles `BaseException` values other than `CancelledError` (for example, `KeyboardInterrupt`, `SystemExit`, or a custom control-flow exception). Because `_run` is a background task, such an exception bypasses `stream.fail()` and leaves the returned stream unfinished; consumers awaiting `await_result()` or iterating it can wait indefinitely. Preserve the previous fail-closed behavior by handling the remaining `BaseException` cases as well (and re-raise if they must retain task-level propagation).",
+      "existing_code": "        except asyncio.CancelledError as error:\n            _end_stream_with_error(stream, error)\n            raise\n        except Exception as error:\n            _end_stream_with_error(stream, error)",
+      "start_line": 94,
+      "end_line": 98,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/agent/src/earendil_works/pi_agent/agent_loop.py",
+      "content": "This catch split no longer handles `BaseException` values other than `CancelledError` (for example, `KeyboardInterrupt`, `SystemExit`, or a custom control-flow exception). Because `_run` is a background task, such an exception bypasses `stream.fail()` and leaves the returned stream unfinished; consumers awaiting `await_result()` or iterating it can wait indefinitely. Preserve the previous fail-closed behavior by handling the remaining `BaseException` cases as well (and re-raise if they must retain task-level propagation).",
+      "existing_code": "        except asyncio.CancelledError as error:\n            _end_stream_with_error(stream, error)\n            raise\n        except Exception as error:\n            _end_stream_with_error(stream, error)",
+      "start_line": 94,
+      "end_line": 98,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "competitive_app/src/competitive_app/wiring.py",
+      "content": "These new `BaseException` handlers also catch `asyncio.CancelledError`, `KeyboardInterrupt`, and `SystemExit`. They then invoke `_rollback_resources()`, whose cleanup catches `Exception` and silently ignores failures; cancellation or an interrupted/failed shutdown can therefore leave stores or the sandbox running while the original lifecycle failure is re-raised, and cleanup errors are hidden. Limit these initialization handlers to the expected `Exception` failures (or use a cancellation-safe `finally`/cleanup mechanism that preserves both the original exception and cleanup failures) rather than catching interpreter/control-flow exceptions broadly.",
+      "suggestion_code": "        except Exception:\n            await _rollback_resources()\n            raise",
+      "existing_code": "        except BaseException:\n            await _rollback_resources()\n            raise",
+      "start_line": 589,
+      "end_line": 591,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/api/_http_stream.py",
+      "content": "The validation only checks that the tool-call index is an integer, so a negative index is accepted and becomes a synthetic buffer such as `call_-1`. OpenAI-compatible tool-call indices are zero-based non-negative array positions; accepting a malformed negative index can produce an invalid tool call rather than rejecting the provider frame. Reject negative values here as well.",
+      "suggestion_code": "                        if (\n                            not isinstance(raw_index, int)\n                            or isinstance(raw_index, bool)\n                            or raw_index \u003c 0\n                        ):\n                            raise ValueError(\"Invalid SSE tool call index\")",
+      "existing_code": "                        if not isinstance(raw_index, int) or isinstance(raw_index, bool):\n                            raise ValueError(\"Invalid SSE tool call index\")",
+      "start_line": 275,
+      "end_line": 276,
+      "category": "other",
+      "severity": "low"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/auth/credential_store.py",
+      "content": "`Callable` and `Awaitable` are still used in this annotation, but their import was removed. With postponed annotations this may not fail at class definition, but it breaks tools/runtime callers that evaluate annotations (for example `typing.get_type_hints`) and produces a type-checking error. Restore the import from `collections.abc`.",
+      "existing_code": "        mutator: Callable[[Credential | None], Awaitable[Credential | None]],",
+      "start_line": 27,
+      "end_line": 27,
+      "category": "bug",
+      "severity": "high"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/auth/credential_store.py",
+      "content": "The new lock only covers `modify`, while the other mutating methods (`write` and `delete`) still update `_entries` without acquiring it. A concurrent login/refresh (`modify`) and logout/write can therefore interleave and let an older operation overwrite a newer deletion or credential, so the store is not actually mutation-atomic. Use the same lock in all mutating methods (or route them through a common locked helper).",
+      "existing_code": "        self._modify_lock = asyncio.Lock()",
+      "start_line": 15,
+      "end_line": 15,
+      "category": "bug",
+      "severity": "medium"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/utils/event_stream.py",
+      "content": "`result()` no longer consistently returns the Future/Task promised by the previous public signature: when called without a running loop it returns a bare coroutine from `await_result()`. A caller that obtains a stream synchronously and then uses Future/Task operations (`done()`, `cancel()`, `add_done_callback()`, or sharing the same result awaitable) will now fail with `AttributeError` or different scheduling semantics. Please preserve a Future-like return contract (for example, defer creation via an awaitable wrapper that exposes the required API, or explicitly update and migrate the public contract/callers).",
+      "existing_code": "        except RuntimeError:\n            # A stream may be constructed synchronously and awaited in a later\n            # loop. Creating a Future here would bind it to the wrong loop.\n            return self.await_result()",
+      "start_line": 147,
+      "end_line": 150,
+      "category": "maintainability",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/evolution/test_evolution_known_issues.py",
+      "content": "This assertion changes the manifest-failure test to accept a scope update, even though the test is named `...no_marker_or_scope`. When manifest publication fails after `set_scope`, the implementation has no effective rollback for a scope store that exposes only `set_scope`, so a stale scope can remain published while the marker is removed. Model a removable scope store and assert that the scope is cleared/restored (or otherwise make the production failure path atomic); do not encode the inconsistent state as the expected behavior.",
+      "existing_code": "    assert files._scope_store.calls == 1",
+      "start_line": 269,
+      "end_line": 269,
+      "category": "test",
+      "severity": "high"
+    },
+    {
+      "path": "packages/ai/src/earendil_works/pi_ai/utils/event_stream.py",
+      "content": "If the producer calls `end()` (or emits a terminal event) and then raises during post-completion cleanup, `fail()` returns immediately because `_done` is already true. `_run_pending()` then also suppresses the exception, so the task completes without exposing the cleanup/transport failure to consumers or logs. Since this wrapper owns the producer task, exceptions should not be silently discarded merely because the stream was marked complete; preserve/report the exception (or ensure producer cleanup happens before completion).",
+      "existing_code": "        except Exception as error:\n            self.fail(error)",
+      "start_line": 50,
+      "end_line": 51,
+      "category": "other",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_native_known_issues.py",
+      "content": "This replacement drops the assertion that `validate_public_hostname` runs twice. The test now passes even if the post-approval revalidation at the broker is removed, which would regress the DNS-rebinding protection this test is intended to cover. Keep the drain assertion, but retain `assert calls == 2` (or otherwise assert both validation phases).",
+      "suggestion_code": "    assert calls == 2\n    assert writer.drains == 1",
+      "existing_code": "    assert writer.drains == 1",
+      "start_line": 218,
+      "end_line": 218,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_native_known_issues.py",
+      "content": "The fake process does not model termination or expose a `wait()`/termination event: `kill()` only changes `returncode`, while `communicate()` exits because the test cancels it. Therefore this test can pass without verifying that the subprocess has actually been reaped after cancellation, despite its name and the resource-lifecycle requirement. Make the fake require an observable termination/reap step and assert that it occurs.",
+      "existing_code": "        def kill(self) -\u003e None:\n            self.returncode = -9",
+      "start_line": 239,
+      "end_line": 240,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_native_known_issues.py",
+      "content": "This only exercises cleanup after a successful acquire and couples the test to the private `_workspace_fds` map. If manifest staging or runtime construction raises after the descriptors are opened, this test provides no coverage for the exceptional cleanup path, where descriptor leaks would be particularly easy to introduce. Add a failure-path test (for example, inject a failing manifest/runtime setup and verify the opened descriptors are closed), or assert the lifecycle through a public contract.",
+      "existing_code": "    workspace_fd = provider._workspace_fds[SCOPE]\n    os.fstat(workspace_fd)\n    await provider.release(SCOPE)\n    with pytest.raises(OSError):\n        os.fstat(workspace_fd)",
+      "start_line": 165,
+      "end_line": 169,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/scripts/test_misc_scripts.py",
+      "content": "This test now defines `prepare_resume_task` on the local `Service` test double and then invokes that method, so none of the production resume logic in `resume_to_report.py` (or the real task service) is exercised. The assertions can pass even if the implementation under test is deleted or broken; retain a call through the loaded module/public entry point while mocking only its dependencies.",
+      "existing_code": "        async def prepare_resume_task(self, task_id):\n            task = await self.get_task(task_id)\n            if not task.get(\"session_id\"):\n                raise RuntimeError(\"no session\")",
+      "start_line": 112,
+      "end_line": 115,
+      "category": "test",
+      "severity": "medium"
+    },
+    {
+      "path": "tests/competitive_app/unit/test_workflow_data_medium_known_issues.py",
+      "content": "The lock descriptor is manually managed and cleanup only happens after the assertions and `await delete_task`. If either assertion or the deletion raises, this descriptor remains open while holding the exclusive flock, which can contaminate later tests and leak a resource. Put the lock acquisition and test body in a `try`/`finally` that always unlocks and closes `fd`.",
+      "suggestion_code": "    fd = open(tmp_path / \"s\" / \".search_state.json.lock\", \"r\")\n    try:\n        fcntl.flock(fd, fcntl.LOCK_EX)\n        ticked = False",
+      "existing_code": "    fd = open(tmp_path / \"s\" / \".search_state.json.lock\", \"r\")\n    fcntl.flock(fd, fcntl.LOCK_EX)\n    ticked = False",
+      "start_line": 35,
+      "end_line": 37,
+      "category": "other",
+      "severity": "low"
+    },
+    {
+      "path": "tests/competitive_app/unit/test_sandbox_registry_known_issues.py",
+      "content": "This test derives the trust root from `Path.cwd()`, so it only exercises the intended repository boundary when pytest is launched from the repository root. Running the test from another working directory can point `capability_root` at a nonexistent or unrelated path and fail before validating the shadow-module behavior. Use the file-derived `ROOT` constant (or `ROOT / \"capability_packages\"`) instead.",
+      "suggestion_code": "            capability_root=ROOT / \"capability_packages\",",
+      "existing_code": "            capability_root=Path.cwd() / \"capability_packages\",",
+      "start_line": 59,
+      "end_line": 59,
+      "category": "test",
+      "severity": "low"
+    },
+    {
+      "path": "tests/competitive_app/unit/test_workflow_runtime_known_issues.py",
+      "content": "This assertion codifies a false-success contract: `RuntimeRegistry.abort_task` now catches a runner exception and returns `True`, while `TaskService.abort_task` ignores the result and proceeds to mark the task `aborted`. A runner that fails during cancellation can therefore leave work/resources active while the persisted task is reported terminal. The test should require the cleanup failure to be surfaced (or at least return a failure value that callers handle), rather than accepting `True`.",
+      "suggestion_code": "with pytest.raises(RuntimeError, match=\"cleanup failed\"):\n        await registry.abort_task(\"task\", \"test\")",
+      "existing_code": "assert await registry.abort_task(\"task\", \"test\") is True",
+      "start_line": 42,
+      "end_line": 42,
+      "category": "bug",
+      "severity": "high"
+    }
+  ],
+  "session_id": "35ec1563-9f35-4542-82ed-49774a025255",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "run_id": "35ec1563-9f35-4542-82ed-49774a025255",
+    "operation": "review",
+    "terminal_state": "complete",
+    "repository": {
+      "identity_sha256": "5c0a10287a8f602b33ef626681198e5cf3dc001181201a27a892f831cac45dc3"
+    },
+    "input": {
+      "mode": "workspace",
+      "resolved_base": "48edefea55871753a0e9f89292632b743363acfe",
+      "source_artifact_sha256": "6d4f10901d8385a03058817a1d5320d5c4cbcda1f3139dbd4140626acabbea84"
+    },
+    "execution": {
+      "ocr_version": "v1.8.6",
+      "provider": "pro3",
+      "model": "gpt-5.6-luna",
+      "configured_concurrency": 8,
+      "rule_config_sha256": "a194bae770c108896ec2da3585fb0375b66e49f0749b6d3737e31181fb325052",
+      "runtime_config_sha256": "724007894572bb6284b1a764066a97a5e674bb40dd869ccd40b0ee7b3fd6e846"
+    },
+    "coverage": {
+      "selected": [
+        {
+          "item_id": "01dfa38412032ddf960172d99966373de8f96cf33b3acb70e98901c9ea630ef8",
+          "path": "tests/competitive_app/unit/test_api_wiring_known_issues.py",
+          "fingerprint": "3982034e8f26ec0a12e756bdb61b552c0106ae6c38ec8fb964e270b2321e34dc"
+        },
+        {
+          "item_id": "03a8efe73606942d29c815311b276d76138b92d37c6b778e70c3bd21fcd440a2",
+          "path": "tests/competitive_app/unit/test_workflow_known_issues.py",
+          "fingerprint": "9a1d0cc4ee7c59a9ff79cbab866b224965057eb55f31cca0975988771a205b3c"
+        },
+        {
+          "item_id": "064a0de6d668866f50fd498a11fffff03f838d250ea512b914d6fddd96ad3efd",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/skills.py",
+          "fingerprint": "92facc33d97a3fd451e17a82bce8e8a181ddc92080c906d379c0833b049e1673"
+        },
+        {
+          "item_id": "0d48e02ae4a0628e72a48023604d7d9d72bba1c686db7c2b3ba381ebbf16e28d",
+          "path": "frontend/src/pages/LibraryPage.tsx",
+          "fingerprint": "67a4758c3178fe8297c63709ffc7f25b3a87b93c68a41119a87dc71d094381b0"
+        },
+        {
+          "item_id": "166f775b709c06f7dd90e3f1e74609c287baa8c57e385d18dafa07ceaf4dd676",
+          "path": "frontend/src/hooks/useTaskStream.ts",
+          "fingerprint": "24b86af2d0d787155df00d0f878ab97ef6ad041fe28189bce920d46824bb91b9"
+        },
+        {
+          "item_id": "1bbc9947f630a45fd3e69e121524c0606d06f137be3d4c2ae3f60909af0ce2c8",
+          "path": "competitive_app/src/competitive_app/domain/socm/strategy.py",
+          "fingerprint": "0a12575679b2233262af7a98120335fa32800011311e980c73096f4e7efbdb40"
+        },
+        {
+          "item_id": "1d64e755ae335716c768d7656ab20e4f37a23943be4b7503480fef8b56ca44d5",
+          "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+          "fingerprint": "60e75cd781d16bf2a7f43190fbf7ae8d2eec86d7b3bc8eef5fea4cb845493c58"
+        },
+        {
+          "item_id": "1e096af0a87e53683688611c234b2dcdee1d5ea5b07155e8a536e614eeab67a4",
+          "path": "packages/agent/src/earendil_works/pi_agent/agent_loop.py",
+          "fingerprint": "f103ad762ab4b58410b1df13875fe68ca99122364b29efca7e1e571981ca907f"
+        },
+        {
+          "item_id": "2420b88e1066864d8867156fd5d347c7eae4122f89702e5d6a0c7ccb092754e3",
+          "path": "competitive_app/src/competitive_app/application/workflow/extraction.py",
+          "fingerprint": "5b7856e7452c1d0302c5b0b909962f2c9ee14b4e4060744f399e0122a3fd6722"
+        },
+        {
+          "item_id": "2578155ced05614f486e44fc5402f674b67341750929829873ae5fd75b1df562",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/process.py",
+          "fingerprint": "a422ed9a4e2cf4fb2346c8b60b4f5906411e63c238daf3b282530f61976f5ac7"
+        },
+        {
+          "item_id": "28676071e496d5d0a6ea32084c28d9e0a2ff59c6588a9904cbcdbc30fb6e8524",
+          "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+          "fingerprint": "8f85a3ec6b82faf3f2caadabfe7cbefe2d329c493e9ce017bcb843bfe91e1e19"
+        },
+        {
+          "item_id": "2bb7e776febe06cd9a923275dc2246c0a7ecd642a3466400117efa62e2ad044c",
+          "path": "tests/competitive_app/unit/sandbox/native/test_srt_manager_proxy_known_issues.py",
+          "fingerprint": "c696892f3bc6f8fd7d1018e14ad1ca474034b83a7259713f6b6050c43c78c0de"
+        },
+        {
+          "item_id": "2c9d9379617bff936d98ae0e9665979df242bd0cde113e7fea5cd451a91febd2",
+          "path": "packages/ai/src/earendil_works/pi_ai/providers/mistral.py",
+          "fingerprint": "9917ccfa2dda3eb5c3795338fd382b60340705b59b55ae75b9523062ac2d2157"
+        },
+        {
+          "item_id": "2da5af7ec65ac157dcb78c3a2b86571a8034e78363621def85456360c457d880",
+          "path": "scripts/_run_one_group.py",
+          "fingerprint": "c011c25b30099750c81041bd6e6ae1ec05f5f5973fdeff1111b6fa9966246261"
+        },
+        {
+          "item_id": "30a9b275f5c621d0fff67ebb69b98916aa6339ffe8fdf2f78db11991b8b8934f",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/session.py",
+          "fingerprint": "eb216d99ebef246c4ff279f390518f78b779c8cea10a75e8b1a7f0c86f9c1dd2"
+        },
+        {
+          "item_id": "32c860427db75f7673a3c4734e11b74a0c549a282aab503186a4b7dbd710c889",
+          "path": "packages/ai/src/earendil_works/pi_ai/providers/faux.py",
+          "fingerprint": "13a3a81d5f82b6764a9b7d7031c57765e57181af819d6285869ec9b3db04169e"
+        },
+        {
+          "item_id": "48b345485d11aefba00e10d1c64edfa90f852d5e78b30eb43c330eec67255f0b",
+          "path": "packages/agent/src/earendil_works/pi_agent/package_manager/collect.py",
+          "fingerprint": "e22ba953e61a9d6b486a78a3db58dcf0336aa01e4fae83464d55f09cdb37fe0e"
+        },
+        {
+          "item_id": "49969c749ef1e2de2dc30ad19b0a4cedc6f8619f7eba125513e9af14ec73fa28",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/worker.py",
+          "fingerprint": "eab83ae8dc955e3c247239fbb5651fe8d481207ff6b7fbe77592fee4331cad7d"
+        },
+        {
+          "item_id": "51a375f02c531c1f0ef8b018265bdf8fa36df4d5a5fe297fa37e40cc48f1897c",
+          "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+          "fingerprint": "fd73b60c14df3bf9da81399151e49e4fae1ae4a05860273ea29e293c7d598d9f"
+        },
+        {
+          "item_id": "540558dd92bd6aae0d566d8519674d3cdd2ce79c18814589cf3a31bd3e5681fd",
+          "path": "competitive_app/src/competitive_app/domain/socm/frontier.py",
+          "fingerprint": "566cc35067ad5f480137a33333ed1f8f4f3d2098e87d1cd527ca1adc1bdf0524"
+        },
+        {
+          "item_id": "56e262f8b51eb20440adce49606a55305c4c9a0db61a9c6da8561aecba44925d",
+          "path": "frontend/src/pages/DashboardPage.tsx",
+          "fingerprint": "daa085cf23b35c2be515c6d11a18a8388d02bcbebcc00a7d9b15749677f61ff4"
+        },
+        {
+          "item_id": "5924a473ee592067a474d17487946953ffadcb636017c54bdc9f300ac9eedd4e",
+          "path": "tests/competitive_app/unit/sandbox/test_worker.py",
+          "fingerprint": "51a655474fd29b040d3f31bfb8e0e3be224a82e95f4edbfe62ff6de693f0336f"
+        },
+        {
+          "item_id": "5a67636a68acbf7f4b75b05736da99b1b7ed22afe867c5efbc0d49d790a93091",
+          "path": "tests/packages/agent/unit/test_package_collect_medium_known_issues.py",
+          "fingerprint": "4e0b12f3e716d22345a391dd20d92fff5be913b578ada0db0cd31b2e40046dcf"
+        },
+        {
+          "item_id": "5b8c9093416a47b095111f4ed256d751bb72b9d9d8410e60319e0ab6e890163e",
+          "path": "tests/capability_packages/pi_auto_review/test_known_issues_capabilities.py",
+          "fingerprint": "dbb5fc158a200de814a7e22112a9be9019a2e88e9df7e064bca0b4c17bc2700c"
+        },
+        {
+          "item_id": "5f6a26d1d78b9176633dec068a3f008cb751b3aa4d1c67bbb66ecacad16290de",
+          "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/routes_tasks.py",
+          "fingerprint": "64d723f0abc0466a432854590ec5414e4aeeff75c582044db8bf4b659438a6f5"
+        },
+        {
+          "item_id": "60277799d8b0522717c09ce2e80a35edba64e8d63ddd0ea8ad2741ce513d97e1",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/lazy.py",
+          "fingerprint": "c45f43d4363db59cb9ec070ad1cd3677c0e718180432ad4acc49b789f57023e0"
+        },
+        {
+          "item_id": "6401cd90854b7d932ade6bea59b8b8e68b223f85b0c9c433c13f55346823621e",
+          "path": "tests/competitive_app/unit/test_sandbox_registry_known_issues.py",
+          "fingerprint": "749e381c0b1bab1292f36ec9a8e44dbf89db9cd4c6ed10d2c22763ed06da006b"
+        },
+        {
+          "item_id": "6d7421fd78436ad0d9856c91c84877a70538cc83251a9be67945b17ff43f70ad",
+          "path": "tests/competitive_app/unit/test_workflow_data_medium_known_issues.py",
+          "fingerprint": "8fe084d1a90498ebbbeef31906534358bc5aa77dc6aa28a542242514de4f4eb2"
+        },
+        {
+          "item_id": "6fc09a6d24402a3bc2c6e156a6ce970f66fe0d9a968a8ac23f14872524858209",
+          "path": "tests/competitive_app/unit/test_domain_known_issues.py",
+          "fingerprint": "5862cd40726ed3a1dcb0975007feb791cb5ffa897a655ade2b82e46730ad7a51"
+        },
+        {
+          "item_id": "706a99c33c849c140b50f1f6ee50498c6d9f32f79546b4546ca0be3617e2921c",
+          "path": "tests/packages/agent/unit/test_harness_medium_known_issues.py",
+          "fingerprint": "f1538ee7f6c8013e26daabca878aab49505b3d1b348f4e844f06d6bdd3740bc5"
+        },
+        {
+          "item_id": "711cc105e14b93c1bbc703b3ba11caff783074437226532705f8c753a69ad962",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/runner.py",
+          "fingerprint": "cff24c49b79ff8f5c2bc5e4cc62738e68a60b3887d3bf3ae9c282b6c731f45c8"
+        },
+        {
+          "item_id": "73606104dcc7411f1f9c5124d1795867902f0ae4412d528a030426e4fb654521",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/json_parse.py",
+          "fingerprint": "e896a2fe25a04f5799d2bc1c50cb7a2afa2f1c432d49c30a68f5681e8389285e"
+        },
+        {
+          "item_id": "75ca2b56b9515a3903a2f1e9be32f564b637ef6582b2ca873d2fcb7b659cafc0",
+          "path": "frontend/src/pages/ReportPage.tsx",
+          "fingerprint": "fdad3dbbca5b0f26644485ba5e42f6b7e1a040fd26296594cb77fcfc19c9a826"
+        },
+        {
+          "item_id": "75e27fce48670a871be1a67f5db142c5042de8f3a516c9738513caec230ccfe4",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/workspace.py",
+          "fingerprint": "be4d38092e6140c4111572aa6443b3ff4f4942f6d6a46f5d9dcecb4326b45424"
+        },
+        {
+          "item_id": "761c7325519be068fb4281e7611eb0326b38dcceb4dd1718759466a261a31bb5",
+          "path": "frontend/src/pages/HomePage.tsx",
+          "fingerprint": "11e127155388ff93309c9d317bc9ded64d7c062f5a8b0fdc746cd9bfc173f110"
+        },
+        {
+          "item_id": "7747dce17e5a0dad12a0d103326ec8c49cc95137f4d0d8e0e09d49047fe91224",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/proxy.py",
+          "fingerprint": "fd7ed3fe49b0ce36d13c1471366fb968751c62559b6bcfa8fe56fe45feb39033"
+        },
+        {
+          "item_id": "78b1c219018ee203976b395483bfcd6eefffa6ca5c776eec5a63c2a283b2fe80",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approved_registry.py",
+          "fingerprint": "0f5708f05dca3d6631a0c483edfd4daf29116a9de8e34db50c2b41d61d4367a6"
+        },
+        {
+          "item_id": "7a7b80446a88cd25b379e56337ee526b4e464d3f0b6b18981982eb77cf20ec00",
+          "path": "tests/competitive_app/unit/sandbox/native/test_native_provider.py",
+          "fingerprint": "4b9c7c2fad2dcf4598942c5fcee0023e700c0310053ac7d4cfb2e553c46f8472"
+        },
+        {
+          "item_id": "7c7cd778a1f59f14e37b7002c9e0b4cd37404c14e1114d3ac62069d05814b49d",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/linux.py",
+          "fingerprint": "294f6beae9728751c4aa0ce1db19511b3019988c3ae6309f0547aeb35a379f30"
+        },
+        {
+          "item_id": "7d03dae1bcdede8a3af37eca03700d7529323581229f165266dd52f02e43dd0c",
+          "path": "frontend/src/pages/WorkspacePage.tsx",
+          "fingerprint": "8003b8f1426e75f0d36bf63a588f8dc03d4a641e0f47646c15cece6181ff74fd"
+        },
+        {
+          "item_id": "7f579c845e308940ef75421ce385515799a687f2e5a0dbc4c57ffed3792e429a",
+          "path": "tests/packages/ai/unit/test_ai_api_known_issues.py",
+          "fingerprint": "69af28b94d6716d5ddd3dfcd584044bba815b068a0fcb8508d7590493609e626"
+        },
+        {
+          "item_id": "8084c60987661fe0fde322e90ce30c4f605b5172fef33aa4e74b37765852df95",
+          "path": "tests/packages/agent/unit/test_agent_core_known_issues.py",
+          "fingerprint": "fed1a08ae8882be48591bac99734eb325a535290e8860bb9a4cda0416dd8c787"
+        },
+        {
+          "item_id": "82f4857efe8c87f0e3284bf1474523c1b84c21b6482e0790a033b1762afde112",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/google_shared.py",
+          "fingerprint": "843c3f970f28b40ef625627e879b8e7c6edb83c393cfd455dbe335caaae48c1f"
+        },
+        {
+          "item_id": "842170a0bcaceae99aba61b47345aeb3b3943f0b498e6624f0474561020f4327",
+          "path": "competitive_app/src/competitive_app/domain/socm/coverage.py",
+          "fingerprint": "aed9c9a43a4f82dbe5fe5f170909091e38852545f7e70397a408ae841c6f3971"
+        },
+        {
+          "item_id": "85a363b73765ce9de0c3a2fee2e3a8e63fd58f36a00a8d50ce57c144c78d08a2",
+          "path": "tests/competitive_app/unit/test_persistence_observability_known_issues.py",
+          "fingerprint": "868366f1e4bd2dd0d4a484941688852fc15468f33e6de8d3d41e31373bed04d8"
+        },
+        {
+          "item_id": "893dfe784fa67826d4befeb301d6f9c38997c6bfe266a60f50b9929a54aa34d2",
+          "path": "tests/competitive_app/unit/evolution/test_evolution_known_issues.py",
+          "fingerprint": "11451fb25c511ac837a05898e4a42048ac4e9d9f19c9541928b06b4e8214d03b"
+        },
+        {
+          "item_id": "8a2bf637b3ee1d15ed55fa3e40d3219458395aef63a51553ca9c7b327ddb1c61",
+          "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_native_known_issues.py",
+          "fingerprint": "68659402bd2008df5bf3645bfbfa5e4f414c4e7ce9167ddc3aa4d64297f67367"
+        },
+        {
+          "item_id": "8a2d46cc529d9af380220eafbeab051a1ca781f8133d7393144cb94dfcde6c6f",
+          "path": "tests/competitive_app/unit/evolution/test_eval_known_issues.py",
+          "fingerprint": "2018bdeec4fca3c1f70cf6fc5df5e1e11230d4a90a539651dcccbe69b82aa995"
+        },
+        {
+          "item_id": "8b03b7ac67db93881320bdc7226485a46777a0425b10ca3079da8338cc459942",
+          "path": "tests/competitive_app/unit/sandbox/native/test_runner.py",
+          "fingerprint": "337ba2c58341905f6f095eff0f6d61a2999fed0cf5ff95fceeb9f4b11cf9cc8d"
+        },
+        {
+          "item_id": "8c6ed984361d79f87041938269fbbe2d3a80a8ab237542d4818d4daf1a931770",
+          "path": "capability_packages/pi_auto_review/pi_auto_review/policy.py",
+          "fingerprint": "5eaf651d211ca49cdecbdbe3e5f6b345daa4847196bba9b89a7200f4d14c4402"
+        },
+        {
+          "item_id": "8d1f82750f7ac4e6c27c33f4922e92ee6ea02c41b0d2b839faebd156f982d9f5",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approval/sandbox.py",
+          "fingerprint": "8cc574dae111c64de3b85636c58139cce757597297cc005763e5b97fc9a54638"
+        },
+        {
+          "item_id": "8e7df5860552d285f003cf38a818089c4ca87a74828a316c5fbd7cbf9a379e08",
+          "path": "capability_packages/pi_auto_review/extensions/register.py",
+          "fingerprint": "1612da47e30795bcd36b46fbbcadb2db2060c5e9bdd46851aab20f78ab83ffe8"
+        },
+        {
+          "item_id": "8f38caa750b609bd4ac27f29c356f070459c9345f318e07fd039bff66bb9f948",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/protocol.py",
+          "fingerprint": "9c9fcae53741a8e5eee2f417cab373822ad002f2baf39b19b7389a2f89b72409"
+        },
+        {
+          "item_id": "95f54914b343541991c72f1fe8832eb9b958e94a3ad7f0634594701652e24d52",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/manager.py",
+          "fingerprint": "8b72902ee2b131b1cad840495059ca6c4501c9ff2cfa0f84170c68aefa0a9863"
+        },
+        {
+          "item_id": "973ec405dff9d63c7c671974aa543f1a44b0824ea276ffb8f75459e77a5852d5",
+          "path": "competitive_app/src/competitive_app/application/evolution/evolution_manager.py",
+          "fingerprint": "1661d999507c276ac7526522dbb0428913f23ace9e9d24bf9fd903165ab4d8cf"
+        },
+        {
+          "item_id": "a0e13b9661fc134ead376cef40d1f716ea4b24e444eefa6f5a1a26e0937d82b5",
+          "path": "packages/ai/src/earendil_works/pi_ai/auth/credential_store.py",
+          "fingerprint": "5f44988eebe206727de8ccca69715d3d6cbe0271724b6c1f4c2c22620f4fdb1a"
+        },
+        {
+          "item_id": "a8d91bf1ecf2442d34df6964889063d77947a96c3eb8b1048cd2a8479fe7e9b7",
+          "path": "competitive_app/src/competitive_app/wiring.py",
+          "fingerprint": "3a9ae32637cc2505894b17e576c65c00d1ceaa3368296c4237307e2ba166a13f"
+        },
+        {
+          "item_id": "aa2457026c33f1e50e0ce630cf01c0f604726daa0d4f23a942af0f52ef455eea",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/broker.py",
+          "fingerprint": "8b8f4ed479f0e0337db3f3cc3d3b2a034ffe677e3557781d902c5679deca02b8"
+        },
+        {
+          "item_id": "abb1b6a14193dd4814c1733d78b8688b05aa870e3fd64b64bff7b996ed5f3bc2",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_runtime.py",
+          "fingerprint": "d2cd5f158ebeb591cb0b98efe5dcb66193c6f2b31a7e3b06ef78a60210f5b78a"
+        },
+        {
+          "item_id": "b1828753a12b176dc0ec5595c2401d56dc924117e0ff70a0d8f3929640bf71ac",
+          "path": "frontend/src/pages/TracePage.tsx",
+          "fingerprint": "86fdfb61cc2aecf27e8c47c39d2be43fa545992daa795205c301884337c59a18"
+        },
+        {
+          "item_id": "b67725e3ffb6fd56474fe762ab8b198e1f60fe211977673015910d5975b95c40",
+          "path": "competitive_app/src/competitive_app/application/workflow/session_service.py",
+          "fingerprint": "849a07fd1a8b58884c110945e11917018a253cdf1b7b6fe2570321742ebb07bd"
+        },
+        {
+          "item_id": "c57a1a2ec3619fabcf8162e84eddeaf02aa2679bd64b45174c9ecffa5d4c2613",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/event_stream.py",
+          "fingerprint": "3cb9b320a16f4cdbb9344284d01f700cca59f1361111116d12992423fb8d6f81"
+        },
+        {
+          "item_id": "cc7faa8cc0c1c282ed4a92d6e6f7b3b8eef40aaddea1ac64040068320bdd6d65",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/socm_store.py",
+          "fingerprint": "cef2c1d89cbda970131c12f2a8f46da9d53bab78add2bd7e024df3d03cbad45e"
+        },
+        {
+          "item_id": "d1aa533464c01344f40698c86d5393a1d0c05e3f496c584da4578b19def7c721",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/_http_stream.py",
+          "fingerprint": "c3c44610e44516b3293a9bb94f4083b6a94aa5d79f8f49433af98582483b5614"
+        },
+        {
+          "item_id": "d4b8f45f6ecb0beaaf9534fb33be7b5630de2e3b1146e7cdb330fd9a275a13b7",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_sandbox_provider.py",
+          "fingerprint": "5360527587a6ccac87479200965a0e8715c9041b7bb2ab954d25ba5e064ba42a"
+        },
+        {
+          "item_id": "db677fb8f6020bfdb07c3130d1216be99435f1c9b5709cec57847dcf2963f02f",
+          "path": "tests/packages/agent/unit/test_harness_known_issues.py",
+          "fingerprint": "dc4f7386b31077f80d6c2c69fac6fe0eac6024ded5ce784a00cccad88d8b1fa6"
+        },
+        {
+          "item_id": "de659581b3d657f91ee603c9b91a00f5bb3b19d7c088cbd3082256901339d4f2",
+          "path": "competitive_app/src/competitive_app/application/workflow/coverage_engine.py",
+          "fingerprint": "2ae2d823f842923bf8cd55a02fe0c9b80db3cdf4212fda2b4795803742c4745e"
+        },
+        {
+          "item_id": "e42549afb90996476e0a8fec6ac337cda4b673c0264f2fe0eea130678da32239",
+          "path": "tests/competitive_app/unit/test_workflow_runtime_known_issues.py",
+          "fingerprint": "8187444fb414ca74236936aeb35124b205bd10bec699758ba9555c8f113cbcc6"
+        },
+        {
+          "item_id": "e50fc122d383b9134c8fd2f0ed7dd03e1ec96e94ceecce317f64737b0de1b86c",
+          "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_facade_known_issues.py",
+          "fingerprint": "c65114de176190270e496e1ecb7f1981deefc06fab28120aae8c7325013e1b16"
+        },
+        {
+          "item_id": "f13635862ed395f52b918d879e359a5f48c7257bb1e678840d8a2ca97ac5b7fa",
+          "path": "frontend/src/pages/EvidencesPage.tsx",
+          "fingerprint": "86024cc63f29ce1b2fcc7c71396176994f38034cc810965a77145162b7821f3b"
+        },
+        {
+          "item_id": "f2361ac231f3929846fe04648fae58c3b7120750548991d1b2f5790e0be61b19",
+          "path": "tests/packages/ai/unit/test_ai_core_known_issues.py",
+          "fingerprint": "6f7dfa666978206bfc5a85eb0895e2164714fcfa8229290ac44307baf7e8e1fa"
+        },
+        {
+          "item_id": "f26d904e4839a80c3b5026dfbb0a66384012281eaa29f0d13941477180a73046",
+          "path": "scripts/resume_to_report.py",
+          "fingerprint": "bdc3d80fffb5aa9f5f94a2a5f6b768aa7eac5868e3ace3f20378d46dedcf4126"
+        },
+        {
+          "item_id": "f2e5ca432582f3cdb41d1c223ece1fb9a0b182acf201def80a66f21ee8303a5f",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/policy.py",
+          "fingerprint": "31b4a7429970f322af649356e3353298ebefa70aa2308c3ce39971a619ca74f5"
+        },
+        {
+          "item_id": "f6a52cbc7b04700f3b610f820b0646c62ea266c51303a1b3cd6aa7f2b5d70b09",
+          "path": "tests/scripts/test_misc_scripts.py",
+          "fingerprint": "b184b679c83c4c563ffc9d8daa434d0179d58b2a43ae17e55441600002c14674"
+        },
+        {
+          "item_id": "f901cc19be84a02254b48852873ee1b26f953cb0a090aff3db3282d86233f546",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/jsonl_storage.py",
+          "fingerprint": "2cb9fc5673cf9761c0a3dd18b4eeadb6cb0016345e8e5a3bb02da8da4402b86a"
+        },
+        {
+          "item_id": "fa48ad81c003a7f63c6e6b5be6733d60b56b0bedddcf285d2f42d11643a00cbd",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/task_projection_store.py",
+          "fingerprint": "8a92cfd27dc13b12bd242e2872be984771aded555ea742a1f45c828610c112fd"
+        },
+        {
+          "item_id": "fd606acdbc315b492025edb4d6554175d8f29b902b7bd1a2c065cf8e09cbfad7",
+          "path": "frontend/src/pages/ClarifyPage.tsx",
+          "fingerprint": "847575f2793779d12478d9ed351561d27c297bccaa1b117d49d3af99108a2585"
+        }
+      ],
+      "completed": [
+        {
+          "item_id": "01dfa38412032ddf960172d99966373de8f96cf33b3acb70e98901c9ea630ef8",
+          "path": "tests/competitive_app/unit/test_api_wiring_known_issues.py",
+          "fingerprint": "3982034e8f26ec0a12e756bdb61b552c0106ae6c38ec8fb964e270b2321e34dc"
+        },
+        {
+          "item_id": "03a8efe73606942d29c815311b276d76138b92d37c6b778e70c3bd21fcd440a2",
+          "path": "tests/competitive_app/unit/test_workflow_known_issues.py",
+          "fingerprint": "9a1d0cc4ee7c59a9ff79cbab866b224965057eb55f31cca0975988771a205b3c"
+        },
+        {
+          "item_id": "064a0de6d668866f50fd498a11fffff03f838d250ea512b914d6fddd96ad3efd",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/skills.py",
+          "fingerprint": "92facc33d97a3fd451e17a82bce8e8a181ddc92080c906d379c0833b049e1673"
+        },
+        {
+          "item_id": "0d48e02ae4a0628e72a48023604d7d9d72bba1c686db7c2b3ba381ebbf16e28d",
+          "path": "frontend/src/pages/LibraryPage.tsx",
+          "fingerprint": "67a4758c3178fe8297c63709ffc7f25b3a87b93c68a41119a87dc71d094381b0"
+        },
+        {
+          "item_id": "166f775b709c06f7dd90e3f1e74609c287baa8c57e385d18dafa07ceaf4dd676",
+          "path": "frontend/src/hooks/useTaskStream.ts",
+          "fingerprint": "24b86af2d0d787155df00d0f878ab97ef6ad041fe28189bce920d46824bb91b9"
+        },
+        {
+          "item_id": "1bbc9947f630a45fd3e69e121524c0606d06f137be3d4c2ae3f60909af0ce2c8",
+          "path": "competitive_app/src/competitive_app/domain/socm/strategy.py",
+          "fingerprint": "0a12575679b2233262af7a98120335fa32800011311e980c73096f4e7efbdb40"
+        },
+        {
+          "item_id": "1d64e755ae335716c768d7656ab20e4f37a23943be4b7503480fef8b56ca44d5",
+          "path": "competitive_app/src/competitive_app/application/evolution/skill_files.py",
+          "fingerprint": "60e75cd781d16bf2a7f43190fbf7ae8d2eec86d7b3bc8eef5fea4cb845493c58"
+        },
+        {
+          "item_id": "1e096af0a87e53683688611c234b2dcdee1d5ea5b07155e8a536e614eeab67a4",
+          "path": "packages/agent/src/earendil_works/pi_agent/agent_loop.py",
+          "fingerprint": "f103ad762ab4b58410b1df13875fe68ca99122364b29efca7e1e571981ca907f"
+        },
+        {
+          "item_id": "2420b88e1066864d8867156fd5d347c7eae4122f89702e5d6a0c7ccb092754e3",
+          "path": "competitive_app/src/competitive_app/application/workflow/extraction.py",
+          "fingerprint": "5b7856e7452c1d0302c5b0b909962f2c9ee14b4e4060744f399e0122a3fd6722"
+        },
+        {
+          "item_id": "2578155ced05614f486e44fc5402f674b67341750929829873ae5fd75b1df562",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/process.py",
+          "fingerprint": "a422ed9a4e2cf4fb2346c8b60b4f5906411e63c238daf3b282530f61976f5ac7"
+        },
+        {
+          "item_id": "28676071e496d5d0a6ea32084c28d9e0a2ff59c6588a9904cbcdbc30fb6e8524",
+          "path": "competitive_app/src/competitive_app/application/workflow/task_service.py",
+          "fingerprint": "8f85a3ec6b82faf3f2caadabfe7cbefe2d329c493e9ce017bcb843bfe91e1e19"
+        },
+        {
+          "item_id": "2bb7e776febe06cd9a923275dc2246c0a7ecd642a3466400117efa62e2ad044c",
+          "path": "tests/competitive_app/unit/sandbox/native/test_srt_manager_proxy_known_issues.py",
+          "fingerprint": "c696892f3bc6f8fd7d1018e14ad1ca474034b83a7259713f6b6050c43c78c0de"
+        },
+        {
+          "item_id": "2c9d9379617bff936d98ae0e9665979df242bd0cde113e7fea5cd451a91febd2",
+          "path": "packages/ai/src/earendil_works/pi_ai/providers/mistral.py",
+          "fingerprint": "9917ccfa2dda3eb5c3795338fd382b60340705b59b55ae75b9523062ac2d2157"
+        },
+        {
+          "item_id": "2da5af7ec65ac157dcb78c3a2b86571a8034e78363621def85456360c457d880",
+          "path": "scripts/_run_one_group.py",
+          "fingerprint": "c011c25b30099750c81041bd6e6ae1ec05f5f5973fdeff1111b6fa9966246261"
+        },
+        {
+          "item_id": "30a9b275f5c621d0fff67ebb69b98916aa6339ffe8fdf2f78db11991b8b8934f",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/session.py",
+          "fingerprint": "eb216d99ebef246c4ff279f390518f78b779c8cea10a75e8b1a7f0c86f9c1dd2"
+        },
+        {
+          "item_id": "32c860427db75f7673a3c4734e11b74a0c549a282aab503186a4b7dbd710c889",
+          "path": "packages/ai/src/earendil_works/pi_ai/providers/faux.py",
+          "fingerprint": "13a3a81d5f82b6764a9b7d7031c57765e57181af819d6285869ec9b3db04169e"
+        },
+        {
+          "item_id": "48b345485d11aefba00e10d1c64edfa90f852d5e78b30eb43c330eec67255f0b",
+          "path": "packages/agent/src/earendil_works/pi_agent/package_manager/collect.py",
+          "fingerprint": "e22ba953e61a9d6b486a78a3db58dcf0336aa01e4fae83464d55f09cdb37fe0e"
+        },
+        {
+          "item_id": "49969c749ef1e2de2dc30ad19b0a4cedc6f8619f7eba125513e9af14ec73fa28",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/worker.py",
+          "fingerprint": "eab83ae8dc955e3c247239fbb5651fe8d481207ff6b7fbe77592fee4331cad7d"
+        },
+        {
+          "item_id": "51a375f02c531c1f0ef8b018265bdf8fa36df4d5a5fe297fa37e40cc48f1897c",
+          "path": "competitive_app/src/competitive_app/application/workflow/runtime_registry.py",
+          "fingerprint": "fd73b60c14df3bf9da81399151e49e4fae1ae4a05860273ea29e293c7d598d9f"
+        },
+        {
+          "item_id": "540558dd92bd6aae0d566d8519674d3cdd2ce79c18814589cf3a31bd3e5681fd",
+          "path": "competitive_app/src/competitive_app/domain/socm/frontier.py",
+          "fingerprint": "566cc35067ad5f480137a33333ed1f8f4f3d2098e87d1cd527ca1adc1bdf0524"
+        },
+        {
+          "item_id": "56e262f8b51eb20440adce49606a55305c4c9a0db61a9c6da8561aecba44925d",
+          "path": "frontend/src/pages/DashboardPage.tsx",
+          "fingerprint": "daa085cf23b35c2be515c6d11a18a8388d02bcbebcc00a7d9b15749677f61ff4"
+        },
+        {
+          "item_id": "5924a473ee592067a474d17487946953ffadcb636017c54bdc9f300ac9eedd4e",
+          "path": "tests/competitive_app/unit/sandbox/test_worker.py",
+          "fingerprint": "51a655474fd29b040d3f31bfb8e0e3be224a82e95f4edbfe62ff6de693f0336f"
+        },
+        {
+          "item_id": "5a67636a68acbf7f4b75b05736da99b1b7ed22afe867c5efbc0d49d790a93091",
+          "path": "tests/packages/agent/unit/test_package_collect_medium_known_issues.py",
+          "fingerprint": "4e0b12f3e716d22345a391dd20d92fff5be913b578ada0db0cd31b2e40046dcf"
+        },
+        {
+          "item_id": "5b8c9093416a47b095111f4ed256d751bb72b9d9d8410e60319e0ab6e890163e",
+          "path": "tests/capability_packages/pi_auto_review/test_known_issues_capabilities.py",
+          "fingerprint": "dbb5fc158a200de814a7e22112a9be9019a2e88e9df7e064bca0b4c17bc2700c"
+        },
+        {
+          "item_id": "5f6a26d1d78b9176633dec068a3f008cb751b3aa4d1c67bbb66ecacad16290de",
+          "path": "competitive_app/src/competitive_app/adapter/in_/fastapi/routes_tasks.py",
+          "fingerprint": "64d723f0abc0466a432854590ec5414e4aeeff75c582044db8bf4b659438a6f5"
+        },
+        {
+          "item_id": "60277799d8b0522717c09ce2e80a35edba64e8d63ddd0ea8ad2741ce513d97e1",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/lazy.py",
+          "fingerprint": "c45f43d4363db59cb9ec070ad1cd3677c0e718180432ad4acc49b789f57023e0"
+        },
+        {
+          "item_id": "6401cd90854b7d932ade6bea59b8b8e68b223f85b0c9c433c13f55346823621e",
+          "path": "tests/competitive_app/unit/test_sandbox_registry_known_issues.py",
+          "fingerprint": "749e381c0b1bab1292f36ec9a8e44dbf89db9cd4c6ed10d2c22763ed06da006b"
+        },
+        {
+          "item_id": "6d7421fd78436ad0d9856c91c84877a70538cc83251a9be67945b17ff43f70ad",
+          "path": "tests/competitive_app/unit/test_workflow_data_medium_known_issues.py",
+          "fingerprint": "8fe084d1a90498ebbbeef31906534358bc5aa77dc6aa28a542242514de4f4eb2"
+        },
+        {
+          "item_id": "6fc09a6d24402a3bc2c6e156a6ce970f66fe0d9a968a8ac23f14872524858209",
+          "path": "tests/competitive_app/unit/test_domain_known_issues.py",
+          "fingerprint": "5862cd40726ed3a1dcb0975007feb791cb5ffa897a655ade2b82e46730ad7a51"
+        },
+        {
+          "item_id": "706a99c33c849c140b50f1f6ee50498c6d9f32f79546b4546ca0be3617e2921c",
+          "path": "tests/packages/agent/unit/test_harness_medium_known_issues.py",
+          "fingerprint": "f1538ee7f6c8013e26daabca878aab49505b3d1b348f4e844f06d6bdd3740bc5"
+        },
+        {
+          "item_id": "711cc105e14b93c1bbc703b3ba11caff783074437226532705f8c753a69ad962",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/runner.py",
+          "fingerprint": "cff24c49b79ff8f5c2bc5e4cc62738e68a60b3887d3bf3ae9c282b6c731f45c8"
+        },
+        {
+          "item_id": "73606104dcc7411f1f9c5124d1795867902f0ae4412d528a030426e4fb654521",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/json_parse.py",
+          "fingerprint": "e896a2fe25a04f5799d2bc1c50cb7a2afa2f1c432d49c30a68f5681e8389285e"
+        },
+        {
+          "item_id": "75ca2b56b9515a3903a2f1e9be32f564b637ef6582b2ca873d2fcb7b659cafc0",
+          "path": "frontend/src/pages/ReportPage.tsx",
+          "fingerprint": "fdad3dbbca5b0f26644485ba5e42f6b7e1a040fd26296594cb77fcfc19c9a826"
+        },
+        {
+          "item_id": "75e27fce48670a871be1a67f5db142c5042de8f3a516c9738513caec230ccfe4",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/workspace.py",
+          "fingerprint": "be4d38092e6140c4111572aa6443b3ff4f4942f6d6a46f5d9dcecb4326b45424"
+        },
+        {
+          "item_id": "761c7325519be068fb4281e7611eb0326b38dcceb4dd1718759466a261a31bb5",
+          "path": "frontend/src/pages/HomePage.tsx",
+          "fingerprint": "11e127155388ff93309c9d317bc9ded64d7c062f5a8b0fdc746cd9bfc173f110"
+        },
+        {
+          "item_id": "7747dce17e5a0dad12a0d103326ec8c49cc95137f4d0d8e0e09d49047fe91224",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/proxy.py",
+          "fingerprint": "fd7ed3fe49b0ce36d13c1471366fb968751c62559b6bcfa8fe56fe45feb39033"
+        },
+        {
+          "item_id": "78b1c219018ee203976b395483bfcd6eefffa6ca5c776eec5a63c2a283b2fe80",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approved_registry.py",
+          "fingerprint": "0f5708f05dca3d6631a0c483edfd4daf29116a9de8e34db50c2b41d61d4367a6"
+        },
+        {
+          "item_id": "7a7b80446a88cd25b379e56337ee526b4e464d3f0b6b18981982eb77cf20ec00",
+          "path": "tests/competitive_app/unit/sandbox/native/test_native_provider.py",
+          "fingerprint": "4b9c7c2fad2dcf4598942c5fcee0023e700c0310053ac7d4cfb2e553c46f8472"
+        },
+        {
+          "item_id": "7c7cd778a1f59f14e37b7002c9e0b4cd37404c14e1114d3ac62069d05814b49d",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/linux.py",
+          "fingerprint": "294f6beae9728751c4aa0ce1db19511b3019988c3ae6309f0547aeb35a379f30"
+        },
+        {
+          "item_id": "7d03dae1bcdede8a3af37eca03700d7529323581229f165266dd52f02e43dd0c",
+          "path": "frontend/src/pages/WorkspacePage.tsx",
+          "fingerprint": "8003b8f1426e75f0d36bf63a588f8dc03d4a641e0f47646c15cece6181ff74fd"
+        },
+        {
+          "item_id": "7f579c845e308940ef75421ce385515799a687f2e5a0dbc4c57ffed3792e429a",
+          "path": "tests/packages/ai/unit/test_ai_api_known_issues.py",
+          "fingerprint": "69af28b94d6716d5ddd3dfcd584044bba815b068a0fcb8508d7590493609e626"
+        },
+        {
+          "item_id": "8084c60987661fe0fde322e90ce30c4f605b5172fef33aa4e74b37765852df95",
+          "path": "tests/packages/agent/unit/test_agent_core_known_issues.py",
+          "fingerprint": "fed1a08ae8882be48591bac99734eb325a535290e8860bb9a4cda0416dd8c787"
+        },
+        {
+          "item_id": "82f4857efe8c87f0e3284bf1474523c1b84c21b6482e0790a033b1762afde112",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/google_shared.py",
+          "fingerprint": "843c3f970f28b40ef625627e879b8e7c6edb83c393cfd455dbe335caaae48c1f"
+        },
+        {
+          "item_id": "842170a0bcaceae99aba61b47345aeb3b3943f0b498e6624f0474561020f4327",
+          "path": "competitive_app/src/competitive_app/domain/socm/coverage.py",
+          "fingerprint": "aed9c9a43a4f82dbe5fe5f170909091e38852545f7e70397a408ae841c6f3971"
+        },
+        {
+          "item_id": "85a363b73765ce9de0c3a2fee2e3a8e63fd58f36a00a8d50ce57c144c78d08a2",
+          "path": "tests/competitive_app/unit/test_persistence_observability_known_issues.py",
+          "fingerprint": "868366f1e4bd2dd0d4a484941688852fc15468f33e6de8d3d41e31373bed04d8"
+        },
+        {
+          "item_id": "893dfe784fa67826d4befeb301d6f9c38997c6bfe266a60f50b9929a54aa34d2",
+          "path": "tests/competitive_app/unit/evolution/test_evolution_known_issues.py",
+          "fingerprint": "11451fb25c511ac837a05898e4a42048ac4e9d9f19c9541928b06b4e8214d03b"
+        },
+        {
+          "item_id": "8a2bf637b3ee1d15ed55fa3e40d3219458395aef63a51553ca9c7b327ddb1c61",
+          "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_native_known_issues.py",
+          "fingerprint": "68659402bd2008df5bf3645bfbfa5e4f414c4e7ce9167ddc3aa4d64297f67367"
+        },
+        {
+          "item_id": "8a2d46cc529d9af380220eafbeab051a1ca781f8133d7393144cb94dfcde6c6f",
+          "path": "tests/competitive_app/unit/evolution/test_eval_known_issues.py",
+          "fingerprint": "2018bdeec4fca3c1f70cf6fc5df5e1e11230d4a90a539651dcccbe69b82aa995"
+        },
+        {
+          "item_id": "8b03b7ac67db93881320bdc7226485a46777a0425b10ca3079da8338cc459942",
+          "path": "tests/competitive_app/unit/sandbox/native/test_runner.py",
+          "fingerprint": "337ba2c58341905f6f095eff0f6d61a2999fed0cf5ff95fceeb9f4b11cf9cc8d"
+        },
+        {
+          "item_id": "8c6ed984361d79f87041938269fbbe2d3a80a8ab237542d4818d4daf1a931770",
+          "path": "capability_packages/pi_auto_review/pi_auto_review/policy.py",
+          "fingerprint": "5eaf651d211ca49cdecbdbe3e5f6b345daa4847196bba9b89a7200f4d14c4402"
+        },
+        {
+          "item_id": "8d1f82750f7ac4e6c27c33f4922e92ee6ea02c41b0d2b839faebd156f982d9f5",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/approval/sandbox.py",
+          "fingerprint": "8cc574dae111c64de3b85636c58139cce757597297cc005763e5b97fc9a54638"
+        },
+        {
+          "item_id": "8e7df5860552d285f003cf38a818089c4ca87a74828a316c5fbd7cbf9a379e08",
+          "path": "capability_packages/pi_auto_review/extensions/register.py",
+          "fingerprint": "1612da47e30795bcd36b46fbbcadb2db2060c5e9bdd46851aab20f78ab83ffe8"
+        },
+        {
+          "item_id": "8f38caa750b609bd4ac27f29c356f070459c9345f318e07fd039bff66bb9f948",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/protocol.py",
+          "fingerprint": "9c9fcae53741a8e5eee2f417cab373822ad002f2baf39b19b7389a2f89b72409"
+        },
+        {
+          "item_id": "95f54914b343541991c72f1fe8832eb9b958e94a3ad7f0634594701652e24d52",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/srt/manager.py",
+          "fingerprint": "8b72902ee2b131b1cad840495059ca6c4501c9ff2cfa0f84170c68aefa0a9863"
+        },
+        {
+          "item_id": "973ec405dff9d63c7c671974aa543f1a44b0824ea276ffb8f75459e77a5852d5",
+          "path": "competitive_app/src/competitive_app/application/evolution/evolution_manager.py",
+          "fingerprint": "1661d999507c276ac7526522dbb0428913f23ace9e9d24bf9fd903165ab4d8cf"
+        },
+        {
+          "item_id": "a0e13b9661fc134ead376cef40d1f716ea4b24e444eefa6f5a1a26e0937d82b5",
+          "path": "packages/ai/src/earendil_works/pi_ai/auth/credential_store.py",
+          "fingerprint": "5f44988eebe206727de8ccca69715d3d6cbe0271724b6c1f4c2c22620f4fdb1a"
+        },
+        {
+          "item_id": "a8d91bf1ecf2442d34df6964889063d77947a96c3eb8b1048cd2a8479fe7e9b7",
+          "path": "competitive_app/src/competitive_app/wiring.py",
+          "fingerprint": "3a9ae32637cc2505894b17e576c65c00d1ceaa3368296c4237307e2ba166a13f"
+        },
+        {
+          "item_id": "aa2457026c33f1e50e0ce630cf01c0f604726daa0d4f23a942af0f52ef455eea",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/broker.py",
+          "fingerprint": "8b8f4ed479f0e0337db3f3cc3d3b2a034ffe677e3557781d902c5679deca02b8"
+        },
+        {
+          "item_id": "abb1b6a14193dd4814c1733d78b8688b05aa870e3fd64b64bff7b996ed5f3bc2",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_runtime.py",
+          "fingerprint": "d2cd5f158ebeb591cb0b98efe5dcb66193c6f2b31a7e3b06ef78a60210f5b78a"
+        },
+        {
+          "item_id": "b1828753a12b176dc0ec5595c2401d56dc924117e0ff70a0d8f3929640bf71ac",
+          "path": "frontend/src/pages/TracePage.tsx",
+          "fingerprint": "86fdfb61cc2aecf27e8c47c39d2be43fa545992daa795205c301884337c59a18"
+        },
+        {
+          "item_id": "b67725e3ffb6fd56474fe762ab8b198e1f60fe211977673015910d5975b95c40",
+          "path": "competitive_app/src/competitive_app/application/workflow/session_service.py",
+          "fingerprint": "849a07fd1a8b58884c110945e11917018a253cdf1b7b6fe2570321742ebb07bd"
+        },
+        {
+          "item_id": "c57a1a2ec3619fabcf8162e84eddeaf02aa2679bd64b45174c9ecffa5d4c2613",
+          "path": "packages/ai/src/earendil_works/pi_ai/utils/event_stream.py",
+          "fingerprint": "3cb9b320a16f4cdbb9344284d01f700cca59f1361111116d12992423fb8d6f81"
+        },
+        {
+          "item_id": "cc7faa8cc0c1c282ed4a92d6e6f7b3b8eef40aaddea1ac64040068320bdd6d65",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/socm_store.py",
+          "fingerprint": "cef2c1d89cbda970131c12f2a8f46da9d53bab78add2bd7e024df3d03cbad45e"
+        },
+        {
+          "item_id": "d1aa533464c01344f40698c86d5393a1d0c05e3f496c584da4578b19def7c721",
+          "path": "packages/ai/src/earendil_works/pi_ai/api/_http_stream.py",
+          "fingerprint": "c3c44610e44516b3293a9bb94f4083b6a94aa5d79f8f49433af98582483b5614"
+        },
+        {
+          "item_id": "d4b8f45f6ecb0beaaf9534fb33be7b5630de2e3b1146e7cdb330fd9a275a13b7",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/native_sandbox_provider.py",
+          "fingerprint": "5360527587a6ccac87479200965a0e8715c9041b7bb2ab954d25ba5e064ba42a"
+        },
+        {
+          "item_id": "db677fb8f6020bfdb07c3130d1216be99435f1c9b5709cec57847dcf2963f02f",
+          "path": "tests/packages/agent/unit/test_harness_known_issues.py",
+          "fingerprint": "dc4f7386b31077f80d6c2c69fac6fe0eac6024ded5ce784a00cccad88d8b1fa6"
+        },
+        {
+          "item_id": "de659581b3d657f91ee603c9b91a00f5bb3b19d7c088cbd3082256901339d4f2",
+          "path": "competitive_app/src/competitive_app/application/workflow/coverage_engine.py",
+          "fingerprint": "2ae2d823f842923bf8cd55a02fe0c9b80db3cdf4212fda2b4795803742c4745e"
+        },
+        {
+          "item_id": "e42549afb90996476e0a8fec6ac337cda4b673c0264f2fe0eea130678da32239",
+          "path": "tests/competitive_app/unit/test_workflow_runtime_known_issues.py",
+          "fingerprint": "8187444fb414ca74236936aeb35124b205bd10bec699758ba9555c8f113cbcc6"
+        },
+        {
+          "item_id": "e50fc122d383b9134c8fd2f0ed7dd03e1ec96e94ceecce317f64737b0de1b86c",
+          "path": "tests/competitive_app/unit/sandbox/native/test_sandbox_facade_known_issues.py",
+          "fingerprint": "c65114de176190270e496e1ecb7f1981deefc06fab28120aae8c7325013e1b16"
+        },
+        {
+          "item_id": "f13635862ed395f52b918d879e359a5f48c7257bb1e678840d8a2ca97ac5b7fa",
+          "path": "frontend/src/pages/EvidencesPage.tsx",
+          "fingerprint": "86024cc63f29ce1b2fcc7c71396176994f38034cc810965a77145162b7821f3b"
+        },
+        {
+          "item_id": "f2361ac231f3929846fe04648fae58c3b7120750548991d1b2f5790e0be61b19",
+          "path": "tests/packages/ai/unit/test_ai_core_known_issues.py",
+          "fingerprint": "6f7dfa666978206bfc5a85eb0895e2164714fcfa8229290ac44307baf7e8e1fa"
+        },
+        {
+          "item_id": "f26d904e4839a80c3b5026dfbb0a66384012281eaa29f0d13941477180a73046",
+          "path": "scripts/resume_to_report.py",
+          "fingerprint": "bdc3d80fffb5aa9f5f94a2a5f6b768aa7eac5868e3ace3f20378d46dedcf4126"
+        },
+        {
+          "item_id": "f2e5ca432582f3cdb41d1c223ece1fb9a0b182acf201def80a66f21ee8303a5f",
+          "path": "competitive_app/src/competitive_app/adapter/out/sandbox/native/policy.py",
+          "fingerprint": "31b4a7429970f322af649356e3353298ebefa70aa2308c3ce39971a619ca74f5"
+        },
+        {
+          "item_id": "f6a52cbc7b04700f3b610f820b0646c62ea266c51303a1b3cd6aa7f2b5d70b09",
+          "path": "tests/scripts/test_misc_scripts.py",
+          "fingerprint": "b184b679c83c4c563ffc9d8daa434d0179d58b2a43ae17e55441600002c14674"
+        },
+        {
+          "item_id": "f901cc19be84a02254b48852873ee1b26f953cb0a090aff3db3282d86233f546",
+          "path": "packages/agent/src/earendil_works/pi_agent/harness/session/jsonl_storage.py",
+          "fingerprint": "2cb9fc5673cf9761c0a3dd18b4eeadb6cb0016345e8e5a3bb02da8da4402b86a"
+        },
+        {
+          "item_id": "fa48ad81c003a7f63c6e6b5be6733d60b56b0bedddcf285d2f42d11643a00cbd",
+          "path": "competitive_app/src/competitive_app/adapter/out/persistence/task_projection_store.py",
+          "fingerprint": "8a92cfd27dc13b12bd242e2872be984771aded555ea742a1f45c828610c112fd"
+        },
+        {
+          "item_id": "fd606acdbc315b492025edb4d6554175d8f29b902b7bd1a2c065cf8e09cbfad7",
+          "path": "frontend/src/pages/ClarifyPage.tsx",
+          "fingerprint": "847575f2793779d12478d9ed351561d27c297bccaa1b117d49d3af99108a2585"
+        }
+      ],
+      "reused": [],
+      "failed": [],
+      "waived": []
+    },
+    "elapsed_ms": 614741
+  }
+}

@@ -25,6 +25,7 @@ function safeHttpUrl(raw?: string): string | null {
 export default function EvidencesPage() {
   const [data, setData] = useState<EvidenceQueryResp>(EMPTY)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [brand, setBrand] = useState('')
   const [sourceType, setSourceType] = useState('')
   const [minConf, setMinConf] = useState(0)
@@ -32,6 +33,7 @@ export default function EvidencesPage() {
 
   useEffect(() => {
     const requestedLimit = Number(limit)
+    setError('')
     if (!Number.isFinite(requestedLimit) || requestedLimit < 1) {
       setLoading(false)
       return
@@ -39,6 +41,7 @@ export default function EvidencesPage() {
 
     let cancelled = false
     setLoading(true)
+    setError('')
     fetchEvidences({
       brand: brand || undefined,
       source_type: sourceType || undefined,
@@ -47,6 +50,12 @@ export default function EvidencesPage() {
     })
       .then((result) => {
         if (!cancelled) setData(result)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setData(EMPTY)
+          setError('证据加载失败，请稍后重试')
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -124,6 +133,7 @@ export default function EvidencesPage() {
 
         {/* 证据卡片网格 */}
         <div className="min-w-0 flex-1">
+          {error && <p className="mb-3 text-aux text-risk">{error}</p>}
           {loading ? (
             <div className="flex items-center gap-2 text-aux text-ink-3">
               <Loader2 size={16} className="animate-spin" /> 加载证据…

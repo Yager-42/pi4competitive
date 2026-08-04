@@ -5,6 +5,7 @@ import asyncio
 import importlib.util
 import json
 from pathlib import Path
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -12,16 +13,22 @@ ROOT = Path(__file__).resolve().parents[2]
 def load_script(name: str, **env: str):
     import os
 
+    previous = os.environ.copy()
     os.environ.update(env)
-    path = ROOT / "scripts" / name
-    spec = importlib.util.spec_from_file_location(f"known_{name.replace('.', '_')}", path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    try:
+        path = ROOT / "scripts" / name
+        spec = importlib.util.spec_from_file_location(f"known_{name.replace('.', '_')}", path)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        os.environ.clear()
+        os.environ.update(previous)
 
 
-def test_group_session_helper_awaits_repo_open():
+def test_group_session_helper_awaits_repo_open(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("SESSIONS_CWD", "comp_test")
     module = load_script(
         "_run_one_group.py",
         GROUP_LABEL="test",
@@ -57,7 +64,9 @@ def test_postprocess_creates_output_parent(tmp_path):
     assert (module.OUT / "comparison_stats.json").is_file()
 
 
-def test_resume_preparation_uses_shared_validation(tmp_path):
+def test_resume_preparation_uses_public_service_api(tmp_path):
+    """The resume script must drive the public service transaction, not a
+    script-local reimplementation of the resume rules."""
     module = load_script(
         "resume_to_report.py",
         RESUME_REPO=str(ROOT),
@@ -70,76 +79,18 @@ def test_resume_preparation_uses_shared_validation(tmp_path):
         RESUME_ARCH="three",
     )
 
-    class Registry:
-        def task_active(self, _task_id):
-            return False
-
-    class Store:
-        def __init__(self):
-            self.metadata = None
-            self.status = None
-
-        async def update_task_metadata(self, _task_id, metadata):
-            self.metadata = metadata
-
-        async def update_task_status(self, _task_id, status):
-            self.status = status
-            return True
-
     class Service:
-        async def get_task(self, _task_id):
-            return {
-                "task_id": "task-1",
-                "status": "completed",
-                "session_id": "session-1",
-                "metadata": {"stop_after_stage": "search", "trace": "t"},
-                "projection": {"stages": {"search": "ok", "write": "pending"}},
-            }
+        def __init__(self):
+            self.prepared: list[str] = []
 
-        def _first_non_ok_stage(self, projection):
-            stages = (projection or {}).get("stages") or {}
-            return next((name for name in ("search", "write") if stages.get(name) != "ok"), None)
+        async def prepare_resume_task(self, task_id):
+            self.prepared.append(task_id)
+            return {"task_id": task_id, "status": "pending"}
 
-        async def _load_research_brief(self, _session_id):
-            return {"research_brief": {}}
-    state = type("State", (), {"registry": Registry(), "store": Store(), "task_service": Service()})()
+    service = Service()
+    state = type("State", (), {"task_service": service})()
     asyncio.run(module.prepare_task_for_resume(state))
-    assert state.store.status == "pending"
-    assert "stop_after_stage" not in state.store.metadata
-
-    async def missing_task(_task_id):
-        raise RuntimeError("task not found")
-
-    state.task_service.get_task = missing_task
-    try:
-        asyncio.run(module.prepare_task_for_resume(state))
-    except RuntimeError as exc:
-        assert "not found" in str(exc)
-    else:
-        raise AssertionError("unknown task id must be rejected")
-
-    async def no_session(_task_id):
-        return {"status": "completed", "metadata": {"stop_after_stage": "search"}}
-
-    state.task_service.get_task = no_session
-    try:
-        asyncio.run(module.prepare_task_for_resume(state))
-    except RuntimeError as exc:
-        assert "no session" in str(exc)
-    else:
-        raise AssertionError("missing session must be rejected")
-
-    async def no_brief(_session_id):
-        return None
-
-    state.task_service.get_task = Service().get_task
-    state.task_service._load_research_brief = no_brief
-    try:
-        asyncio.run(module.prepare_task_for_resume(state))
-    except RuntimeError as exc:
-        assert "brief not recoverable" in str(exc)
-    else:
-        raise AssertionError("unrecoverable brief must be rejected")
+    assert service.prepared == ["task-1"]
 
 
 def test_docker_context_keeps_nested_vendor_tree():

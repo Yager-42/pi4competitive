@@ -692,6 +692,9 @@ class HttpProxyServer:
         except RequestBodyTooLarge:
             await _send_simple(writer, 413, "Payload Too Large")
             return
+        except ValueError:
+            await _send_simple(writer, 400, "Bad Request")
+            return
 
         forwarded = strip_hop_by_hop(headers)
         forwarded["host"] = (
@@ -813,8 +816,10 @@ async def _read_body(
     if content_length:
         try:
             length = int(content_length)
-        except ValueError:
-            return b""
+        except ValueError as error:
+            raise ValueError("invalid Content-Length") from error
+        if length < 0:
+            raise ValueError("invalid negative Content-Length")
         if length > MAX_REQUEST_BODY_SIZE:
             raise RequestBodyTooLarge(
                 f"request body exceeds {MAX_REQUEST_BODY_SIZE} bytes"

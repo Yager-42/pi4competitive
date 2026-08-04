@@ -16,7 +16,7 @@ from earendil_works.pi_ai.models_store import InMemoryModelsStore
 from earendil_works.pi_ai.providers.faux import _with_usage_estimate, create_faux_core, faux_assistant_message
 from earendil_works.pi_ai.providers.mistral import mistral_provider
 from earendil_works.pi_ai.utils.diagnostics import redacted_diagnostic
-from earendil_works.pi_ai.utils.event_stream import create_assistant_message_event_stream
+from earendil_works.pi_ai.utils.event_stream import EventStream, create_assistant_message_event_stream
 from earendil_works.pi_ai.utils.json_parse import parse_partial_json
 
 
@@ -74,6 +74,39 @@ async def test_oauth_refresh_race_and_errors_are_normalized() -> None:
         await _resolve_stored_oauth(store, "p", oauth_bad, fresh)  # type: ignore[arg-type]
     assert exc.value.code == "auth"
 
+
+
+@pytest.mark.asyncio
+async def test_oauth_refresh_is_coordinated_for_concurrent_expired_requests() -> None:
+    store = InMemoryCredentialStore()
+    stale = {"type": "oauth", "access": "old", "refresh": "r", "expires": 0}
+    fresh = {"type": "oauth", "access": "new", "refresh": "r", "expires": int(time.time() * 1000) + 60_000}
+    await store.write("p", stale)
+    first_started = asyncio.Event()
+    release = asyncio.Event()
+    refresh_calls = 0
+
+    async def refresh(_credential):
+        nonlocal refresh_calls
+        refresh_calls += 1
+        if refresh_calls == 1:
+            first_started.set()
+            await release.wait()
+        return fresh
+
+    async def to_auth(credential):
+        return {"auth": {"apiKey": credential["access"]}, "source": "oauth"}
+
+    oauth = {"toAuth": to_auth, "refresh": refresh}
+    tasks = [
+        asyncio.create_task(_resolve_stored_oauth(store, "p", oauth, stale)),
+        asyncio.create_task(_resolve_stored_oauth(store, "p", oauth, stale)),
+    ]
+    await asyncio.wait_for(first_started.wait(), timeout=1)
+    release.set()
+    results = await asyncio.gather(*tasks)
+    assert refresh_calls == 1
+    assert results == [{"auth": {"apiKey": "new"}, "source": "oauth"}] * 2
 
 async def _to_auth(credential):
     return {"auth": {"apiKey": credential["access"]}, "source": "oauth"}
@@ -160,7 +193,18 @@ def test_faux_usage_has_consistent_cache_buckets() -> None:
     result = _with_usage_estimate(message, {"messages": [{"role": "user", "content": "hello"}]}, None, {})
     usage = result["usage"]
     assert usage["totalTokens"] == usage["input"] + usage["output"] + usage["cacheRead"] + usage["cacheWrite"]
-    assert usage["input"] + usage["cacheRead"] + usage["cacheWrite"] > 0
+    assert usage["input"] > 0
+    assert usage["cacheRead"] == 0
+    assert usage["cacheWrite"] == 0
+
+
+def test_mistral_base_url_does_not_duplicate_v1(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "earendil_works.pi_ai.providers.mistral.get_models",
+        lambda: [{"id": "m", "name": "m", "baseUrl": "https://api.mistral.ai/v1"}],
+    )
+    provider = mistral_provider()
+    assert provider.getModels()[0]["baseUrl"] == "https://api.mistral.ai/v1"
 
 
 def test_mistral_models_use_v1_base_url() -> None:
@@ -206,13 +250,141 @@ def test_partial_json_closes_mixed_nesting_stack() -> None:
     assert parse_partial_json('{"text": "[not nesting"') == {"text": "[not nesting"}
 
 
+def test_partial_json_preserves_trailing_comma_in_string() -> None:
+    assert parse_partial_json('{"text":"hello,') == {"text": "hello,"}
+
+
 def test_faux_stream_started_after_sync_construction() -> None:
     core = create_faux_core()
     core["setResponses"]([faux_assistant_message("offline")])
     stream = core["stream"](core["models"][0], {"messages": []})
 
     async def consume():
-        events = [event async for event in stream]
-        return events[-1]["type"]
+        return [event async for event in stream]
 
-    assert asyncio.run(consume()) == "done"
+    events = asyncio.run(consume())
+    assert events[-1]["type"] == "done"
+    assert events[-1]["reason"] == "stop"
+    assert events[-1]["message"]["content"] == [{"type": "text", "text": "offline"}]
+    assert not any(event["type"] == "error" for event in events)
+
+
+def test_event_stream_result_can_be_constructed_before_a_loop() -> None:
+    stream = EventStream(lambda event: event == "done", lambda _event: "ok")
+    pending = stream.result()
+
+    async def complete() -> str:
+        stream.push("done")
+        return await pending
+
+    assert asyncio.run(complete()) == "ok"
+
+
+def test_event_stream_deferred_runner_starts_in_consuming_loop() -> None:
+    stream = EventStream(lambda event: event == "done", lambda _event: "ok")
+
+    async def run() -> None:
+        stream.push("done")
+
+    stream.start(run)
+    pending = stream.result()
+    assert asyncio.run(pending) == "ok"
+
+
+def test_event_stream_producer_and_consumer_can_use_different_loops() -> None:
+    stream = EventStream(lambda event: event == "done", lambda _event: "ok")
+
+    async def produce() -> None:
+        stream.push("intermediate")
+        stream.push("done")
+
+    asyncio.run(produce())
+
+    async def consume() -> tuple[list[str], str]:
+        events = [event async for event in stream]
+        return events, await stream.result()
+
+    events, result = asyncio.run(consume())
+    assert events == ["intermediate", "done"]
+    assert result == "ok"
+
+
+@pytest.mark.asyncio
+async def test_event_stream_runner_cancellation_wakes_iterator_and_result() -> None:
+    stream = EventStream(lambda event: event == "done", lambda _event: "ok")
+    started = asyncio.Event()
+
+    async def run() -> None:
+        started.set()
+        raise asyncio.CancelledError()
+
+    stream.start(run)
+    iterator = asyncio.create_task(collect_stream(stream))
+    await started.wait()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(stream.await_result(), timeout=1)
+    assert await asyncio.wait_for(iterator, timeout=1) == []
+    assert stream._final_result is not None and stream._final_result.done()
+    assert stream._runner_task is not None and stream._runner_task.done()
+
+
+@pytest.mark.asyncio
+async def test_event_stream_runner_failure_wakes_iterator_and_result() -> None:
+    stream = EventStream(lambda event: event == "done", lambda _event: "ok")
+    started = asyncio.Event()
+
+    async def run() -> None:
+        started.set()
+        raise RuntimeError("producer failed")
+
+    stream.start(run)
+    iterator = asyncio.create_task(collect_stream(stream))
+    await started.wait()
+    with pytest.raises(RuntimeError, match="producer failed"):
+        await asyncio.wait_for(stream.await_result(), timeout=1)
+    assert await asyncio.wait_for(iterator, timeout=1) == []
+    assert stream._final_result is not None and stream._final_result.done()
+    assert stream._runner_task is not None and stream._runner_task.done()
+
+
+async def collect_stream(stream: EventStream[str, str]) -> list[str]:
+    return [event async for event in stream]
+
+
+@pytest.mark.asyncio
+async def test_credential_write_serializes_with_modify() -> None:
+    """write/delete must not interleave with an in-flight modify."""
+    store = InMemoryCredentialStore()
+    order: list[str] = []
+
+    async def slow_mutator(_cred):
+        order.append("modify-start")
+        await asyncio.sleep(0.05)
+        order.append("modify-end")
+        return {"type": "api_key", "key": "m"}
+    modify_task = asyncio.create_task(store.modify("p", slow_mutator))
+    await asyncio.sleep(0.01)
+    await store.write("p", {"type": "api_key", "key": "w"})
+    await modify_task
+    assert order == ["modify-start", "modify-end"]
+    # write queued behind the modify lock and applied afterwards.
+    assert (await store.read("p"))["key"] == "w"
+
+
+@pytest.mark.asyncio
+async def test_credential_delete_serializes_with_modify() -> None:
+    store = InMemoryCredentialStore()
+    await store.write("p", {"type": "api_key", "key": "old"})
+    entered = asyncio.Event()
+
+    async def slow_mutator(_cred):
+        entered.set()
+        await asyncio.sleep(0.05)
+        return {"type": "api_key", "key": "m"}
+
+    modify_task = asyncio.create_task(store.modify("p", slow_mutator))
+    await entered.wait()
+    await store.delete("p")
+    await modify_task
+    # delete queued behind the modify lock and applied afterwards.
+    assert await store.read("p") is None

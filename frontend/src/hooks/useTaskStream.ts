@@ -12,7 +12,9 @@ import { openTaskStream, fetchTask } from '../lib/api'
 import { useTaskStore } from '../store/taskStore'
 
 const POLL_INTERVAL = 5000
-const TERMINAL: Record<string, true> = { completed: true, failed: true, aborted: true }
+const STREAM_STALL_TIMEOUT = 20000
+const WATCHDOG_INTERVAL = 5000
+
 
 export function useTaskStream(taskId: string | undefined, query: string) {
   const reset = useTaskStore((s) => s.reset)
@@ -25,7 +27,12 @@ export function useTaskStream(taskId: string | undefined, query: string) {
     const controller = new AbortController()
     let active = true
     let pollTimer: number | null = null
+    let watchdogTimer: number | null = null
     let pollInFlight = false
+    let eventVersion = 0
+    let httpGeneration = 0
+    let lastEventAt = Date.now()
+    let readFailures = 0
 
     const isCurrent = () => active && useTaskStore.getState().taskId === taskId
     const stopPolling = () => {
@@ -34,46 +41,130 @@ export function useTaskStream(taskId: string | undefined, query: string) {
         pollTimer = null
       }
     }
+    const stopWatchdog = () => {
+      if (watchdogTimer !== null) {
+        window.clearInterval(watchdogTimer)
+        watchdogTimer = null
+      }
+    }
+    const stopIfTerminal = () => {
+      const state = useTaskStore.getState()
+      if (state.finished || state.error) {
+        stopPolling()
+        stopWatchdog()
+      }
+    }
 
     reset(taskId, query)
 
-    // 1. 进入先拉一次单任务状态(兜底白屏 + 终态直接显示)
+    // Ignore a delayed initial HTTP snapshot once any newer SSE event or HTTP
+    // request has advanced the local freshness sequence.
+    const initialGeneration = ++httpGeneration
+    const initialEventVersion = eventVersion
     void fetchTask(taskId, controller.signal)
       .then((t) => {
-        if (isCurrent() && t) applyTask(t)
+        if (!t) {
+          if (isCurrent()) readFailures += 1
+          return
+        }
+        if (
+          isCurrent() &&
+          initialGeneration === httpGeneration &&
+          initialEventVersion === eventVersion
+        ) {
+          applyTask(t)
+          stopIfTerminal()
+        }
       })
-      .catch(() => {
-        // SSE/polling remains the fallback for transient GET failures.
+      .catch((error) => {
+        if (
+          error &&
+          typeof error === 'object' &&
+          'name' in error &&
+          error.name === 'AbortError'
+        ) return
+        if (isCurrent()) readFailures += 1
       })
+
+    const poll = async () => {
+      if (!isCurrent() || pollInFlight) return
+      pollInFlight = true
+      const requestGeneration = ++httpGeneration
+      const requestEventVersion = eventVersion
+      try {
+        const t = await fetchTask(taskId, controller.signal)
+        if (
+          !isCurrent() ||
+          requestGeneration !== httpGeneration ||
+          requestEventVersion !== eventVersion
+        ) return
+        if (!t) {
+          readFailures += 1
+          if (readFailures >= 3) {
+            ingest('error', { message: '任务状态加载失败，请稍后重试' })
+            stopIfTerminal()
+          }
+          return
+        }
+        applyTask(t)
+        readFailures = 0
+        stopIfTerminal()
+      } catch (error) {
+        if (
+          error &&
+          typeof error === 'object' &&
+          'name' in error &&
+          error.name === 'AbortError'
+        ) return
+        if (!isCurrent()) return
+        readFailures += 1
+        if (readFailures >= 3) {
+          ingest('error', { message: '任务状态加载失败，请稍后重试' })
+          stopIfTerminal()
+        }
+      } finally {
+        pollInFlight = false
+      }
+    }
 
     const startPolling = () => {
       if (!isCurrent() || pollTimer !== null) return
-      pollTimer = window.setInterval(async () => {
-        if (!isCurrent() || pollInFlight) return
-        pollInFlight = true
-        try {
-          const t = await fetchTask(taskId, controller.signal)
-          if (!isCurrent() || !t) return
-          applyTask(t)
-          if (TERMINAL[t.status]) stopPolling()
-        } catch {
-          // Keep polling after transient failures until the effect is cleaned up.
-        } finally {
-          pollInFlight = false
-        }
-      }, POLL_INTERVAL)
+      void poll()
+      pollTimer = window.setInterval(() => void poll(), POLL_INTERVAL)
     }
 
-    // 2. 开 SSE
+    // A connection can stay open while a proxy silently drops task events.
+    // Heartbeats do not change task state, so this timer independently starts
+    // the same polling fallback when no task event has arrived recently.
+    watchdogTimer = window.setInterval(() => {
+      if (!isCurrent()) return
+      const state = useTaskStore.getState()
+      if (state.finished || state.error) {
+        stopIfTerminal()
+      } else if (Date.now() - lastEventAt >= STREAM_STALL_TIMEOUT) {
+        startPolling()
+      }
+    }, WATCHDOG_INTERVAL)
+
     const close = openTaskStream(taskId, {
       onEvent: (type, data) => {
-        if (isCurrent()) ingest(type, data)
+        if (!isCurrent()) return
+        eventVersion += 1
+        lastEventAt = Date.now()
+        readFailures = 0
+        ingest(type, data)
+        stopIfTerminal()
+      },
+      onOpen: () => {
+        lastEventAt = Date.now()
       },
       onError: () => {
-        // SSE 断连(含正常结束);仅未终态时切轮询
         if (!isCurrent()) return
-        const st = useTaskStore.getState()
-        if (st.finished || st.error) return
+        const state = useTaskStore.getState()
+        if (state.finished || state.error) {
+          stopIfTerminal()
+          return
+        }
         startPolling()
       },
     })
@@ -83,6 +174,7 @@ export function useTaskStream(taskId: string | undefined, query: string) {
       controller.abort()
       close()
       stopPolling()
+      stopWatchdog()
     }
   }, [taskId, query, reset, ingest, applyTask])
 }

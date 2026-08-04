@@ -34,9 +34,16 @@ export default function DashboardPage() {
 
   async function load() {
     setLoading(true)
-    const [d, s] = await Promise.all([fetchDashboard(), fetchSubscriptions()])
-    setStats(d)
-    setSubs(s)
+    const [d, s] = await Promise.allSettled([fetchDashboard(), fetchSubscriptions()])
+    if (d.status === 'fulfilled') setStats(d.value)
+    else setStats(null)
+    if (s.status === 'fulfilled') setSubs(s.value)
+    else setSubs([])
+    if (d.status === 'rejected' || s.status === 'rejected') {
+      setSubError('仪表盘加载失败，请稍后重试')
+    } else {
+      setSubError('')
+    }
     setLoading(false)
   }
 
@@ -47,28 +54,53 @@ export default function DashboardPage() {
   async function addSub() {
     if (!newQuery.trim()) return
     const brands = newBrands.split(/[,，\s]+/).map((b) => b.trim()).filter(Boolean)
-    const created = await createSubscription(newQuery.trim(), brands)
-    if (!created) {
-      setSubError('创建订阅失败，请稍后重试')
-      return
-    }
     setSubError('')
-    setNewQuery('')
-    setNewBrands('')
-    await load()
+    try {
+      const created = await createSubscription(newQuery.trim(), brands)
+      if (!created) {
+        setSubError('创建订阅失败，请稍后重试')
+        return
+      }
+      setNewQuery('')
+      setNewBrands('')
+      await load()
+    } catch {
+      setSubError('创建订阅失败，请稍后重试')
+    }
   }
 
   async function delSub(id: string) {
-    await deleteSubscription(id)
-    await load()
+    setSubError('')
+    try {
+      const result = await deleteSubscription(id)
+      if (!result.ok) {
+        setSubError('删除订阅失败，请稍后重试')
+        return
+      }
+      await load()
+    } catch {
+      setSubError('删除订阅失败，请稍后重试')
+    }
   }
 
   async function runSub(id: string) {
+    if (running) return
     setRunning(id)
-    const r = await runSubscription(id)
-    if (r.ok && r.task_id) navigate(`/workspace/${r.task_id}`, { state: { query: '' } })
-    setRunning(null)
+    setSubError('')
+    try {
+      const r = await runSubscription(id)
+      if (r.ok && r.task_id) {
+        navigate(`/workspace/${r.task_id}`, { state: { query: '' } })
+      } else {
+        setSubError('运行订阅失败，请稍后重试')
+      }
+    } catch {
+      setSubError('运行订阅失败，请稍后重试')
+    } finally {
+      setRunning(null)
+    }
   }
+
 
   if (loading) {
     return (

@@ -28,11 +28,16 @@ def sandbox_trap_to_boundary_request(
     operation = trap.get("operation")
     if not isinstance(operation, str) or not operation:
         raise ValueError("sandbox trap operation must be a non-empty string")
+    allowed_operations = {"read", "write"} if kind == "filesystem" else {"connect", "bind"}
+    if operation not in allowed_operations:
+        raise ValueError(f"unsupported sandbox {kind} trap operation: {operation!r}")
     if kind == "filesystem":
         resolved_path = trap.get("path")
         if not isinstance(resolved_path, str) or not resolved_path:
             raise ValueError("sandbox filesystem trap path is missing")
         requested_path = trap.get("requested_path")
+        if requested_path is not None and (not isinstance(requested_path, str) or not requested_path):
+            raise ValueError("sandbox filesystem trap requested_path must be a non-empty string")
         resource = f"{requested_path}:{resolved_path}" if requested_path else resolved_path
     else:
         resource = trap.get("target")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 from pathlib import Path
 from typing import Any, cast
 
@@ -21,6 +22,8 @@ from earendil_works.pi_agent import (
     wrap_registered_tools,
 )
 from earendil_works.pi_agent.types import AgentContext, AgentMessage, AgentToolResult
+
+agent_loop_module = importlib.import_module("earendil_works.pi_agent.agent_loop")
 
 
 def _convert(messages: list[AgentMessage]) -> list[Any]:
@@ -71,12 +74,14 @@ async def test_settled_dispatch_failure_still_finishes_agent() -> None:
 async def test_reset_rejected_while_run_is_active() -> None:
     agent = Agent()
     gate = asyncio.Event()
+    ready = asyncio.Event()
 
     async def executor(_signal: Any) -> None:
+        ready.set()
         await gate.wait()
 
     task = asyncio.create_task(agent._run_with_lifecycle(executor))
-    await asyncio.sleep(0)
+    await ready.wait()
     original = {"role": "user", "content": "keep", "timestamp": 0}
     agent.state.messages = [original]
     agent.steer({"role": "user", "content": "queued", "timestamp": 1})
@@ -115,7 +120,7 @@ async def test_sequential_abort_synthesizes_remaining_tool_results() -> None:
     )
     results = [m for m in messages if m.get("role") == "toolResult"]
     assert [m["toolCallId"] for m in results] == ["first", "second"]
-    assert all(m["isError"] is True or m["toolCallId"] == "first" for m in results)
+    assert [m["isError"] for m in results] == [False, True]
     ends = [e["toolCallId"] for e in events if e["type"] == "tool_execution_end"]
     assert ends == ["first", "second"]
 
@@ -167,6 +172,34 @@ async def test_agent_loop_stream_failure_completes_with_exception() -> None:
     with pytest.raises(ValueError, match="stream_fn is required"):
         await asyncio.wait_for(stream.await_result(), timeout=1)
     assert stream._done is True
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_cancellation_propagates_and_wakes_waiters(monkeypatch) -> None:
+    async def cancelled(*_args: Any, **_kwargs: Any) -> list[AgentMessage]:
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(agent_loop_module, "run_agent_loop", cancelled)
+    config = AgentLoopConfig(model=cast(Any, {}), convertToLlm=_convert)
+    stream = agent_loop(
+        [{"role": "user", "content": "x", "timestamp": 0}],
+        {"systemPrompt": "", "messages": []},
+        config,
+        None,
+        None,
+    )
+    iterator = asyncio.create_task(collect_agent_events(stream))
+    await asyncio.sleep(0)
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(stream.await_result(), timeout=1)
+    assert await asyncio.wait_for(iterator, timeout=1) == []
+    assert stream._done is True
+    assert stream._final_result is not None and stream._final_result.done()
+    assert stream._runner_task is not None and stream._runner_task.done()
+
+
+async def collect_agent_events(stream) -> list[Any]:
+    return [event async for event in stream]
 
 
 @pytest.mark.asyncio
@@ -253,3 +286,32 @@ async def test_error_listener_failures_are_isolated() -> None:
     runner.on_error(lambda error: seen.append(error.error))
     await runner.emit({"type": "agent_start"})
     assert seen == ["handler"]
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_surfaces_base_exception_to_stream(monkeypatch) -> None:
+    """Non-Exception BaseException failures must still wake stream consumers
+    before propagating (they are not swallowed by the Exception branch)."""
+    class ControlFlowAbort(BaseException):
+        pass
+
+    async def interrupted(*_args: Any, **_kwargs: Any) -> list[AgentMessage]:
+        raise ControlFlowAbort()
+
+    monkeypatch.setattr(agent_loop_module, "run_agent_loop", interrupted)
+    config = AgentLoopConfig(model=cast(Any, {}), convertToLlm=_convert)
+    stream = agent_loop(
+        [{"role": "user", "content": "x", "timestamp": 0}],
+        {"systemPrompt": "", "messages": []},
+        config,
+        signal=None,
+        stream_fn=None,
+    )
+    iterator = asyncio.create_task(collect_agent_events(stream))
+    with pytest.raises(ControlFlowAbort):
+        await asyncio.wait_for(stream.await_result(), timeout=1)
+    assert stream._runner_task is not None
+    with pytest.raises(ControlFlowAbort):
+        await stream._runner_task
+    assert stream._done is True
+    assert await asyncio.wait_for(iterator, timeout=1) == []

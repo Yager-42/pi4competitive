@@ -18,11 +18,11 @@ Host delta:
   escaping) is ported exactly; it is intentionally NOT the SRT shell-quote.
 """
 from __future__ import annotations
-
 import asyncio
 import json
 import os
 import socket
+import stat
 import sys
 import uuid
 
@@ -96,6 +96,7 @@ async def _ask_network(
                 + "\n"
             ).encode()
         )
+        await writer.drain()
         allowed = bool(await future)
         if not allowed:
             return False
@@ -140,7 +141,28 @@ async def _pump_stream(
         dst.flush()
 
 
+def _adopt_workspace_descriptor() -> int | None:
+    raw_fd = os.environ.get("PI_SANDBOX_WORKSPACE_FD")
+    if raw_fd is None:
+        return None
+    descriptor = int(raw_fd)
+    path = os.environ.get("PI_SANDBOX_WORKSPACE_PATH")
+    if not path:
+        raise RuntimeError("workspace descriptor path is missing")
+    fd_stat = os.fstat(descriptor)
+    path_stat = os.stat(path, follow_symlinks=False)
+    if not stat.S_ISDIR(fd_stat.st_mode) or not stat.S_ISDIR(path_stat.st_mode):
+        raise RuntimeError("workspace descriptor is not a directory")
+    if (fd_stat.st_dev, fd_stat.st_ino) != (path_stat.st_dev, path_stat.st_ino):
+        raise RuntimeError("workspace changed during broker handoff")
+    os.fchdir(descriptor)
+    return descriptor
+
+
 async def _main() -> int:
+    workspace_fd = _adopt_workspace_descriptor()
+    manifest_fd_raw = os.environ.get("PI4COMPETITIVE_MANIFEST_FD")
+    manifest_fd = int(manifest_fd_raw) if manifest_fd_raw is not None else None
     ipc_fd = int(os.environ["PI_SANDBOX_IPC_FD"])
     sock = socket.socket(fileno=ipc_fd)
     ipc_reader, ipc_writer = await asyncio.open_connection(sock=sock)
@@ -195,19 +217,28 @@ async def _main() -> int:
         init_message["runtimeConfig"], _ask_callback, False
     )
     command = " ".join(_shell_quote(arg) for arg in init_message["invocation"])
+    preserved_fds = tuple(
+        fd for fd in (workspace_fd, manifest_fd) if fd is not None
+    )
     wrapped = await SandboxManager.wrap_with_sandbox(
-        command, "/bin/bash", None, None, os.getcwd()
+        command,
+        "/bin/bash",
+        None,
+        None,
+        os.getcwd(),
+        preserve_fds=list(preserved_fds),
     )
 
     target_env = dict(os.environ)
     target_env.pop("PI_SANDBOX_IPC_FD", None)
     target = await asyncio.create_subprocess_exec(
         *wrapped,
-        cwd=os.getcwd(),
+        cwd=None if workspace_fd is not None else os.getcwd(),
         env=target_env,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        pass_fds=preserved_fds,
     )
 
     ipc_task = asyncio.create_task(_ipc_loop())

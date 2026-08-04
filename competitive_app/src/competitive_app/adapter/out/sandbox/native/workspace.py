@@ -50,13 +50,22 @@ def canonical_workspace_root(root: str | Path) -> Path:
     return path.resolve(strict=True)
 
 
-def ensure_workspace(root: str | Path, scope_id: str) -> Path:
+def open_workspace_descriptor(root: str | Path, scope_id: str) -> tuple[Path, int]:
+    """Create/validate a scope and retain its directory descriptor.
+
+    The scope name is opened relative to a validated root descriptor with
+    ``O_NOFOLLOW``. Callers that perform later workspace operations should
+    retain the returned fd and use it as the ``dir_fd`` rather than reopening
+    the path by name.
+    """
     if not isinstance(scope_id, str) or _SCOPE_ID_PATTERN.fullmatch(scope_id) is None:
         raise SandboxPermissionError(
             "invalid sandbox scope id", path=str(scope_id), operation="workspace"
         )
     canonical_root = canonical_workspace_root(root)
     workspace = canonical_root / scope_id
+    root_fd: int | None = None
+    workspace_fd: int | None = None
     try:
         root_fd = os.open(
             canonical_root,
@@ -72,17 +81,30 @@ def ensure_workspace(root: str | Path, scope_id: str) -> Path:
                 os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
                 dir_fd=root_fd,
             )
-            os.close(workspace_fd)
+            mode = os.fstat(workspace_fd).st_mode
+            if (mode & 0o170000) != 0o40000:
+                raise OSError("sandbox workspace is not a directory")
         finally:
             os.close(root_fd)
+            root_fd = None
     except OSError as error:
+        if workspace_fd is not None:
+            os.close(workspace_fd)
+        if root_fd is not None:
+            os.close(root_fd)
         raise SandboxPermissionError(
             "sandbox workspace must be a non-symlink directory",
             path=str(workspace),
             operation="workspace",
         ) from error
-    return workspace
+    assert workspace_fd is not None
+    return workspace, workspace_fd
 
+
+def ensure_workspace(root: str | Path, scope_id: str) -> Path:
+    workspace, workspace_fd = open_workspace_descriptor(root, scope_id)
+    os.close(workspace_fd)
+    return workspace
 
 def remove_workspace(root: str | Path, scope_id: str) -> None:
     """Delete the exact derived workspace directory (task-delete cascade only).
@@ -100,4 +122,9 @@ def remove_workspace(root: str | Path, scope_id: str) -> None:
         pass
 
 
-__all__ = ["canonical_workspace_root", "ensure_workspace", "remove_workspace"]
+__all__ = [
+    "canonical_workspace_root",
+    "ensure_workspace",
+    "open_workspace_descriptor",
+    "remove_workspace",
+]

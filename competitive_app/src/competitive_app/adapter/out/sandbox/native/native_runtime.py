@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import os
+import stat
 import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -35,8 +36,22 @@ WORKER_MODULE = "competitive_app.adapter.out.sandbox.worker"
 
 FrameCallback = Callable[[RpcFrame], Awaitable[None] | None]
 
-#: Env var carrying the trusted approved-tool manifest path into the worker.
+#: Legacy path variable; native runs also carry the manifest as an inherited fd.
 MANIFEST_ENV = "PI4COMPETITIVE_MANIFEST_PATH"
+MANIFEST_FD_ENV = "PI4COMPETITIVE_MANIFEST_FD"
+
+
+def _validate_directory_descriptor(path: Path, descriptor: int) -> None:
+    """Require the path and retained descriptor to name the same directory."""
+    try:
+        path_stat = os.stat(path, follow_symlinks=False)
+        fd_stat = os.fstat(descriptor)
+    except OSError as error:
+        raise SandboxRuntimeError("sandbox workspace descriptor is unavailable") from error
+    if not stat.S_ISDIR(path_stat.st_mode) or not stat.S_ISDIR(fd_stat.st_mode):
+        raise SandboxRuntimeError("sandbox workspace is not a directory")
+    if (path_stat.st_dev, path_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+        raise SandboxRuntimeError("sandbox workspace changed during execution")
 
 
 def _runner_abort_signal(
@@ -96,8 +111,10 @@ class NativeRuntime:
         self,
         workspace: str | Path,
         *,
+        workspace_fd: int | None = None,
         env: dict[str, str] | None = None,
         manifest_path: str | Path | None = None,
+        manifest_fd: int | None = None,
         scope_signal: asyncio.Future | None = None,
         broker: dict | None = None,
         no_change_timeout: float = NO_CHANGE_TIMEOUT_SECONDS,
@@ -105,9 +122,36 @@ class NativeRuntime:
         additional_allow_read: list[str] | None = None,
     ) -> None:
         self._workspace = Path(workspace)
+        if workspace_fd is None:
+            try:
+                workspace_fd = os.open(
+                    self._workspace,
+                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
+                )
+            except OSError as error:
+                raise SandboxRuntimeError("sandbox workspace descriptor is unavailable") from error
+        else:
+            workspace_fd = os.dup(workspace_fd)
+        self._workspace_fd = workspace_fd
+        try:
+            _validate_directory_descriptor(self._workspace, workspace_fd)
+        except Exception:
+            os.close(workspace_fd)
+            raise
         self._env = dict(env or {})
         self._additional_allow_read = list(additional_allow_read or [])
         self._manifest_path = Path(manifest_path) if manifest_path else None
+        self._manifest_fd: int | None = None
+        try:
+            if manifest_fd is not None:
+                self._manifest_fd = os.dup(manifest_fd)
+                if not stat.S_ISREG(os.fstat(self._manifest_fd).st_mode):
+                    raise OSError("manifest descriptor is not a regular file")
+        except OSError as error:
+            if self._manifest_fd is not None:
+                os.close(self._manifest_fd)
+            os.close(self._workspace_fd)
+            raise SandboxRuntimeError("sandbox manifest descriptor is unavailable") from error
         self._scope_signal = scope_signal
         self._broker = broker
         self._no_change_timeout = float(no_change_timeout)
@@ -129,10 +173,18 @@ class NativeRuntime:
             raise SandboxRuntimeError("sandbox runtime is closed")
         if not command or "\n" in command or "\r" in command:
             raise SandboxRuntimeError("sandbox worker command is invalid")
+        _validate_directory_descriptor(self._workspace, self._workspace_fd)
         payload = encode_request(request).decode("utf-8") + "\n"
 
         worker_env = dict(self._env)
-        if self._manifest_path is not None:
+        if self._manifest_fd is not None:
+            worker_env[MANIFEST_FD_ENV] = str(self._manifest_fd)
+            worker_env[MANIFEST_ENV] = (
+                str(self._manifest_path)
+                if self._manifest_path is not None
+                else f"/dev/fd/{self._manifest_fd}"
+            )
+        elif self._manifest_path is not None:
             worker_env[MANIFEST_ENV] = str(self._manifest_path)
         policy = create_default_policy(
             str(self._workspace),
@@ -142,6 +194,7 @@ class NativeRuntime:
                 )
             ),
         )
+        _validate_directory_descriptor(self._workspace, self._workspace_fd)
         invocation = self._worker_invocation
 
         terminal: RpcFrame | None = None
@@ -184,6 +237,7 @@ class NativeRuntime:
                 SandboxCommandOptions(
                     command=command,
                     cwd=str(self._workspace),
+                    cwd_fd=self._workspace_fd,
                     env=worker_env,
                     signal=_runner_abort_signal(self._scope_signal, signal),
                     timeout=self._no_change_timeout,
@@ -193,6 +247,10 @@ class NativeRuntime:
                     on_stderr=consume_stderr,
                     broker=self._broker,
                     policy=policy,
+                    pass_fds=tuple(
+                        fd for fd in (self._workspace_fd, self._manifest_fd)
+                        if fd is not None
+                    ),
                 )
             )
         except TimeoutError as error:
@@ -217,11 +275,16 @@ class NativeRuntime:
         return terminal
 
     async def close(self) -> None:
+        if self._closed:
+            return
         self._closed = True
-
+        os.close(self._workspace_fd)
+        if self._manifest_fd is not None:
+            os.close(self._manifest_fd)
 
 __all__ = [
     "MANIFEST_ENV",
+    "MANIFEST_FD_ENV",
     "NativeRuntime",
     "WORKER_MODULE",
     "_additional_allow_read",

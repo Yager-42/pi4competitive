@@ -106,15 +106,17 @@ async def test_query_budget_limits_dispatches_and_observes_task_errors(caplog) -
         raise RuntimeError("boom")
 
     engine._run_subagent_ephemeral = MethodType(failing, engine)
-    state.budget.max_queries = 0
-    await engine._dispatch_parallel(state, [{"entity_id": "x", "target_cells": []}])
+    state.budget.max_queries = 2
+    with pytest.raises(RuntimeError, match="incomplete"):
+        await engine._dispatch_parallel(state, [{"entity_id": "x", "target_cells": []}])
     assert "search sub-agent failed" in caplog.text
 
 
 @pytest.mark.asyncio
 async def test_cancelled_prompt_still_flushes_intake() -> None:
     class Intake:
-        flushed = False
+        def __init__(self) -> None:
+            self.flushed = False
 
         async def flush(self):
             self.flushed = True
@@ -124,10 +126,13 @@ async def test_cancelled_prompt_still_flushes_intake() -> None:
 
         async def shutdown(self):
             return None
+    created_intakes: list[Intake] = []
 
     class Factory:
         async def build_ephemeral(self, **_kwargs):
-            return Harness(), Intake()
+            intake = Intake()
+            created_intakes.append(intake)
+            return Harness(), intake
 
     engine = object.__new__(CoverageEngine)
     engine._subagent_factory = Factory()
@@ -148,6 +153,8 @@ async def test_cancelled_prompt_still_flushes_intake() -> None:
     engine._run_subagent_prompt = MethodType(cancelled, engine)
     with pytest.raises(asyncio.CancelledError):
         await engine._run_subagent_ephemeral({"entity_id": "e", "target_cells": []})
+    assert len(created_intakes) == 1
+    assert created_intakes[0].flushed is True
 
 
 def test_report_title_requires_h1() -> None:

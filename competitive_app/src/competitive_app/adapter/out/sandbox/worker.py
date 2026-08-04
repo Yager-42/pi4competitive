@@ -12,6 +12,7 @@ import importlib
 import inspect
 import json
 import os
+import stat
 import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -30,6 +31,7 @@ from .protocol import (
 )
 
 DEFAULT_MANIFEST_PATH = "/opt/pi4competitive/approved_tools.json"
+MAX_MANIFEST_BYTES = 5 * 1024 * 1024
 
 
 class WorkerError(RuntimeError):
@@ -72,11 +74,8 @@ def _strict_json(raw: bytes) -> Any:
         raise WorkerError("manifest_invalid", "approved tool manifest is invalid") from exc
 
 
-def load_baked_manifest(path: str | Path = DEFAULT_MANIFEST_PATH) -> BakedToolManifest:
-    try:
-        value = _strict_json(Path(path).read_bytes())
-    except OSError as exc:
-        raise WorkerError("manifest_unavailable", "approved tool manifest is unavailable") from exc
+def _parse_baked_manifest(raw: bytes) -> BakedToolManifest:
+    value = _strict_json(raw)
     if not isinstance(value, dict):
         raise WorkerError("manifest_invalid", "approved tool manifest is not an object")
     if set(value) != {"protocol", "protocolVersion", "buildIdentity", "tools"}:
@@ -109,6 +108,25 @@ def load_baked_manifest(path: str | Path = DEFAULT_MANIFEST_PATH) -> BakedToolMa
         build_identity=value["buildIdentity"],
         tools=normalized,
     )
+
+
+def load_baked_manifest(path: str | Path = DEFAULT_MANIFEST_PATH) -> BakedToolManifest:
+    try:
+        raw = Path(path).read_bytes()
+    except OSError as exc:
+        raise WorkerError("manifest_unavailable", "approved tool manifest is unavailable") from exc
+    return _parse_baked_manifest(raw)
+
+
+def load_baked_manifest_fd(fd: int) -> BakedToolManifest:
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_MANIFEST_BYTES:
+            raise OSError("manifest descriptor is not a regular bounded file")
+        raw = os.pread(fd, info.st_size, 0)
+    except OSError as exc:
+        raise WorkerError("manifest_unavailable", "approved tool manifest is unavailable") from exc
+    return _parse_baked_manifest(raw)
 
 
 class WorkerAbortSignal:
@@ -268,6 +286,7 @@ async def execute_request(
 def run_worker(
     *,
     manifest_path: str | Path = DEFAULT_MANIFEST_PATH,
+    manifest_fd: int | None = None,
     stdin: Any = None,
     stdout: Any = None,
 ) -> int:
@@ -280,7 +299,11 @@ def run_worker(
         return 2
     try:
         request = decode_request(line)
-        manifest = load_baked_manifest(manifest_path)
+        manifest = (
+            load_baked_manifest_fd(manifest_fd)
+            if manifest_fd is not None
+            else load_baked_manifest(manifest_path)
+        )
 
         def write_frame(encoded: bytes) -> None:
             output_stream.write(encoded + b"\n")
@@ -299,8 +322,25 @@ def run_worker(
 
 
 def main() -> None:
-    # P3.3 D: native runs pass the trusted manifest via env (Docker bakes it
-    # at /opt/pi4competitive); the default stays for the historical image.
+    # Native runs pass the trusted manifest by inherited descriptor.  The
+    # legacy path remains for direct callers and brokers that do not preserve
+    # descriptors; descriptor access is preferred whenever live.
+    manifest_fd_raw = os.environ.get("PI4COMPETITIVE_MANIFEST_FD")
+    if manifest_fd_raw is not None:
+        # An explicitly requested inherited descriptor is the trusted channel.
+        # Fail closed when it is malformed or unusable: never silently fall
+        # back to reading the manifest by path, or an attacker could swap the
+        # path contents under a still-running worker.
+        try:
+            descriptor = int(manifest_fd_raw)
+            os.fstat(descriptor)
+        except (ValueError, OSError) as error:
+            print(
+                f"worker: manifest descriptor {manifest_fd_raw!r} is unusable: {error}",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        raise SystemExit(run_worker(manifest_fd=descriptor))
     manifest_path = os.environ.get("PI4COMPETITIVE_MANIFEST_PATH") or DEFAULT_MANIFEST_PATH
     raise SystemExit(run_worker(manifest_path=manifest_path))
 

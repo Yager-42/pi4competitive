@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import shutil
 import time
 import uuid
@@ -24,7 +25,7 @@ from ...domain.stage import STAGES, empty_projection
 from .journal_bridge import current_run_journal
 from .research_runner import ResearchRunner
 from .runtime_registry import RuntimeRegistry
-
+_log = logging.getLogger(__name__)
 
 class TaskNotFoundError(Exception):
     """Raised when a task_id is not in the store (→ 404)."""
@@ -245,12 +246,14 @@ class TaskService:
         # failed transition can restore it without leaving a pending orphan.
         existing = await self._store.get_task(task_id)
         session = await self._repo.create({"cwd": self._sessions_cwd})
-        meta = await session.get_metadata()
-        session_id = meta["id"]
+        meta: dict[str, Any] | None = None
+        session_id = ""
         operation: Any | None = None
         stream_registered = False
         task_touched = False
         try:
+            meta = await session.get_metadata()
+            session_id = meta["id"]
             await self._store.index_session(
                 session_id=session_id,
                 file_path=meta["path"],
@@ -274,7 +277,6 @@ class TaskService:
                     task_id, "pending", projection=empty_projection(), session_id=session_id
                 )
                 await self._store.update_task_metadata(task_id, metadata)
-            # v0.3.1 SSE: pre-register buffered fan-out stream before runner.
             self._registry.register_stream(task_id)
             stream_registered = True
             operation = self._run_research(
@@ -287,8 +289,9 @@ class TaskService:
             if stream_registered:
                 self._registry.unregister_stream(task_id)
             if task_touched:
-                await self._rollback_task_row(task_id, existing)
-            await self._cleanup_created_session(meta)
+                await self._rollback_task_row(task_id, existing, session_id=session_id)
+            cleanup_meta = meta or await self._metadata_for_cleanup(session)
+            await self._cleanup_created_session(cleanup_meta, session=session)
             raise
         return {
             "task_id": task_id,
@@ -297,8 +300,27 @@ class TaskService:
             "query": query,
         }
 
-    async def _rollback_task_row(self, task_id: str, existing: dict[str, Any] | None) -> None:
-        """Undo task-row mutations while preserving an awaiting-clarify row."""
+    async def _rollback_task_row(
+        self, task_id: str, existing: dict[str, Any] | None, *, session_id: str = ""
+    ) -> None:
+        """Conditionally undo this startup transition without delete/recreate gaps."""
+        restore = getattr(self._store, "restore_task_if_current", None)
+        delete = getattr(self._store, "delete_task_if_current", None)
+        if existing is not None and restore is not None:
+            try:
+                await restore(existing, expected_status="pending", expected_session_id=session_id)
+                return
+            except Exception:
+                _log.exception("conditional task rollback failed for %s", task_id)
+                return
+        if existing is None and delete is not None:
+            try:
+                await delete(task_id, expected_status="pending", expected_session_id=session_id)
+                return
+            except Exception:
+                _log.exception("conditional task delete failed for %s", task_id)
+                return
+        # Compatibility for narrow test doubles that predate the conditional API.
         try:
             await self._store.delete_task(task_id)
             if existing is not None:
@@ -311,32 +333,60 @@ class TaskService:
                     session_id=existing.get("session_id"),
                 )
         except Exception:
-            # Preserve the startup exception; best-effort cleanup is still
-            # preferable to masking the original failure.
-            pass
+            _log.exception("task rollback failed for %s", task_id)
 
-    async def _cleanup_created_session(self, meta: dict[str, Any]) -> None:
-        """Remove JSONL, index, and any eagerly-created workspace on rollback."""
+    async def _metadata_for_cleanup(self, session: Any) -> dict[str, Any] | None:
+        """Recover metadata after an initial metadata read failed, if possible."""
+        candidates = [getattr(session, "metadata", None), getattr(session, "_metadata", None)]
+        try:
+            storage = session.get_storage()
+            if hasattr(storage, "__await__"):
+                storage = await storage
+            candidates.extend([getattr(storage, "_metadata", None), {"path": getattr(storage, "_file_path", "")}])
+        except Exception:
+            pass
+        for value in candidates:
+            if isinstance(value, dict) and value.get("path"):
+                return value
+        try:
+            value = await session.get_metadata()
+            return value if isinstance(value, dict) else None
+        except Exception:
+            _log.exception("unable to recover metadata for created session cleanup")
+            return None
+    async def _cleanup_created_session(
+        self, meta: dict[str, Any] | None, *, session: Any = None
+    ) -> None:
+        """Remove JSONL, index, and eagerly-created workspace on rollback."""
+        if not meta:
+            if session is not None:
+                try:
+                    await self._repo.delete(session)
+                    return
+                except Exception:
+                    _log.exception("opaque created session cleanup failed")
+            _log.error("created session cleanup skipped: metadata unavailable")
+            return
         session_id = meta.get("id")
         if self._sandbox_lifecycle is not None and session_id:
             try:
                 await self._sandbox_lifecycle.delete_workspace(session_id=session_id)
             except Exception:
-                pass
+                _log.exception("workspace cleanup failed for session %s", session_id)
         try:
             await self._repo.delete({"path": meta["path"], "cwd": self._sessions_cwd})
         except Exception:
-            pass
+            _log.exception("JSONL cleanup failed for session %s", session_id)
         if self._socm_store is not None and session_id:
             try:
                 await self._socm_store.delete(session_id)
             except Exception:
-                pass
+                _log.exception("SOCM cleanup failed for session %s", session_id)
         if session_id:
             try:
                 await self._store.delete_session(session_id)
             except Exception:
-                pass
+                _log.exception("session index cleanup failed for session %s", session_id)
 
     async def list_tasks(self) -> dict[str, Any]:
         tasks = await self._store.list_tasks()
@@ -347,6 +397,46 @@ class TaskService:
         if task is None:
             raise TaskNotFoundError(task_id)
         return task
+
+    async def prepare_resume_task(self, task_id: str) -> dict[str, Any]:
+        """Validate and atomically prepare a stopped task for resume.
+
+        This is the public preparation path used by offline resume tooling; the
+        runner-starting ``resume_task`` endpoint remains responsible for launch.
+        """
+        task = await self._store.get_task(task_id)
+        if task is None:
+            raise TaskNotFoundError(task_id)
+        status = task.get("status")
+        if status not in {"completed", "failed", "aborted"}:
+            raise TaskConflictError(f"task {task_id} is not resumable from status {status!r}")
+        if self._first_non_ok_stage(task.get("projection")) is None:
+            raise TaskConflictError(f"task {task_id} has no incomplete stage to resume")
+        if self._registry.task_active(task_id):
+            raise TaskConflictError(f"task {task_id} is already running")
+        session_id = task.get("session_id")
+        if not session_id:
+            raise TaskConflictError(f"task {task_id} has no session to resume")
+        metadata = dict(task.get("metadata") or {})
+        if not metadata.get("stop_after_stage"):
+            raise TaskConflictError(f"task {task_id} has no stop_after_stage marker")
+        if await self._load_research_brief(session_id) is None:
+            raise TaskConflictError(f"task {task_id} brief not recoverable")
+        metadata.pop("stop_after_stage", None)
+        prepare = getattr(self._store, "prepare_resume_if_current", None)
+        if prepare is not None:
+            changed = await prepare(
+                task_id,
+                expected_status=status,
+                metadata=metadata,
+                expected_updated_at=task.get("updated_at"),
+            )
+        else:
+            await self._store.update_task_metadata(task_id, metadata)
+            changed = await self._store.update_task_status(task_id, "pending")
+        if not changed:
+            raise TaskConflictError(f"task {task_id} changed while preparing resume")
+        return {"task_id": task_id, "status": "pending"}
 
     async def resume_task(self, task_id: str) -> dict[str, Any]:
         task = await self._store.get_task(task_id)
@@ -1007,7 +1097,7 @@ class TaskService:
                 try:
                     await self._evolution_cycle_runner.run_cycle()
                 except Exception:  # noqa: BLE001
-                    pass
+                    _log.exception("post-task evolution cycle failed for %s", task_id)
         except asyncio.CancelledError:
             if agent is not None:
                 agent.abort()

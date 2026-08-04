@@ -21,6 +21,15 @@ from earendil_works.pi_agent.types import AgentTool
 from .protocol import PROTOCOL_NAME, PROTOCOL_VERSION, RpcProtocolError
 
 
+def _trusted_capability_root(capability_root: Path | str | None = None) -> Path:
+    """Resolve the repository capability root using the package-manager API."""
+    if capability_root is None:
+        from earendil_works.pi_agent.package_manager import default_capability_root
+
+        return default_capability_root()
+    return Path(capability_root).resolve()
+
+
 def _imported_target_callable(target: ToolExecutionTarget) -> Any | None:
     """Import a host-approved target module and resolve its callable."""
     if (
@@ -38,24 +47,35 @@ def _imported_target_callable(target: ToolExecutionTarget) -> Any | None:
     if not inspect.iscoroutinefunction(value):
         return None
     return value
-def _is_local_capability_module(module_name: str) -> bool:
-    """Accept loader aliases only when their source lives under capability_packages."""
-    if module_name.startswith("capability_packages."):
-        return True
+
+
+def _is_local_capability_module(
+    module_name: str,
+    *,
+    capability_root: Path | str | None = None,
+) -> bool:
+    """Require a capability module's origin to be inside the trusted root."""
     try:
         module = importlib.import_module(module_name)
         module_file = getattr(module, "__file__", None)
         if not module_file:
             return False
         resolved = Path(module_file).resolve()
-    except (OSError, ImportError, RuntimeError):
+        root = _trusted_capability_root(capability_root)
+        if not resolved.is_relative_to(root):
+            return False
+    except Exception:  # noqa: BLE001
         return False
-    return any(parent.name == "capability_packages" for parent in resolved.parents)
-def _canonical_target(target: ToolExecutionTarget) -> ToolExecutionTarget:
+    return True
+def _canonical_target(
+    target: ToolExecutionTarget,
+    *,
+    capability_root: Path | str | None = None,
+) -> ToolExecutionTarget:
     """Map loader aliases to the import path available in the worker image."""
     if target.module.startswith("capability_packages.") or target.module.startswith("earendil_works."):
         return target
-    if not _is_local_capability_module(target.module):
+    if not _is_local_capability_module(target.module, capability_root=capability_root):
         return target
     canonical = ToolExecutionTarget(f"capability_packages.{target.module}", target.qualname)
     if _imported_target_callable(canonical) is None:
@@ -63,7 +83,12 @@ def _canonical_target(target: ToolExecutionTarget) -> ToolExecutionTarget:
     return canonical
 
 
-def _lineage_matches(tool: AgentTool, target: ToolExecutionTarget) -> bool:
+def _lineage_matches(
+    tool: AgentTool,
+    target: ToolExecutionTarget,
+    *,
+    capability_root: Path | str | None = None,
+) -> bool:
     """The recorded target matches the tool callable's explicit lineage.
 
     Generated loader aliases and their canonical capability package paths are
@@ -75,7 +100,10 @@ def _lineage_matches(tool: AgentTool, target: ToolExecutionTarget) -> bool:
     if derived.module == target.module:
         return True
     original = inspect.unwrap(tool.execute)
-    if _canonical_target(derived) == target or derived.module.startswith("pi_extension_"):
+    if (
+        _canonical_target(derived, capability_root=capability_root) == target
+        or derived.module.startswith("pi_extension_")
+    ):
         imported = _imported_target_callable(target)
         return imported is not None and imported.__code__ == original.__code__
     return False
@@ -108,9 +136,11 @@ class ApprovedToolManifest:
 @dataclass(frozen=True, slots=True)
 class ApprovedToolRegistry:
     bindings: Mapping[str, ApprovedToolBinding]
+    capability_root: Path | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "bindings", MappingProxyType(dict(self.bindings)))
+        object.__setattr__(self, "capability_root", _trusted_capability_root(self.capability_root))
 
     @classmethod
     def from_tools(
@@ -118,7 +148,9 @@ class ApprovedToolRegistry:
         tools: Iterable[AgentTool],
         *,
         allowed_module_prefixes: tuple[str, ...] | None = None,
+        capability_root: Path | str | None = None,
     ) -> "ApprovedToolRegistry":
+        trusted_root = _trusted_capability_root(capability_root)
         bindings: dict[str, ApprovedToolBinding] = {}
         target_names: dict[ToolExecutionTarget, str] = {}
         for tool in tools:
@@ -127,15 +159,22 @@ class ApprovedToolRegistry:
             target = tool.executionTarget
             if target is None:
                 raise ApprovedRegistryError(f"tool {tool.name} has no execution target")
-            if not _lineage_matches(tool, target):
+            if not _lineage_matches(tool, target, capability_root=trusted_root):
                 raise ApprovedRegistryError(f"tool {tool.name} target does not match callable lineage")
             if allowed_module_prefixes is None:
                 module_approved = (
                     target.module.startswith("earendil_works.pi_agent.")
-                    or _is_local_capability_module(target.module)
+                    or _is_local_capability_module(target.module, capability_root=trusted_root)
                 )
             else:
                 module_approved = target.module.startswith(allowed_module_prefixes)
+                if module_approved and (
+                    target.module == "capability_packages"
+                    or target.module.startswith("capability_packages.")
+                ):
+                    module_approved = _is_local_capability_module(
+                        target.module, capability_root=trusted_root
+                    )
             if not module_approved:
                 raise ApprovedRegistryError(f"tool {tool.name} module is not approved: {target.module}")
             previous = target_names.get(target)
@@ -146,20 +185,42 @@ class ApprovedToolRegistry:
             target_names[target] = tool.name
         if not bindings:
             raise ApprovedRegistryError("approved tool registry cannot be empty")
-        return cls(bindings)
+        return cls(bindings, trusted_root)
 
     @classmethod
-    def from_manifest(cls, manifest: ApprovedToolManifest) -> "ApprovedToolRegistry":
-        return cls(manifest.bindings)
+    def from_manifest(
+        cls,
+        manifest: ApprovedToolManifest,
+        *,
+        capability_root: Path | str | None = None,
+    ) -> "ApprovedToolRegistry":
+        """Load a host-produced manifest.
+
+        The manifest is trusted for tools bound to non-capability modules
+        (``earendil_works.*`` host bindings), but capability modules are still
+        re-checked against the trusted root so a manifest edited outside the
+        loader cannot smuggle an arbitrary import target.
+        """
+        trusted_root = _trusted_capability_root(capability_root)
+        for tool_name, binding in manifest.bindings.items():
+            target = binding.target
+            if target.module == "capability_packages" or target.module.startswith("capability_packages."):
+                if not _is_local_capability_module(target.module, capability_root=trusted_root):
+                    raise ApprovedRegistryError(
+                        f"tool {tool_name} module is not approved: {target.module}"
+                    )
+        return cls(manifest.bindings, trusted_root)
 
     def binding_for(self, tool: AgentTool) -> ApprovedToolBinding:
         try:
             binding = self.bindings[tool.name]
         except KeyError as exc:
             raise ApprovedRegistryError(f"tool is not approved: {tool.name}") from exc
-        if tool.executionTarget is None or _canonical_target(tool.executionTarget) != _canonical_target(binding.target):
+        if tool.executionTarget is None or _canonical_target(
+            tool.executionTarget, capability_root=self.capability_root
+        ) != _canonical_target(binding.target, capability_root=self.capability_root):
             raise ApprovedRegistryError(f"tool target is rebound: {tool.name}")
-        if not _lineage_matches(tool, binding.target):
+        if not _lineage_matches(tool, binding.target, capability_root=self.capability_root):
             raise ApprovedRegistryError(f"tool callable lineage is rebound: {tool.name}")
         return binding
 

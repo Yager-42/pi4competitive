@@ -212,11 +212,12 @@ def _collect_nested_secret_deny_write_paths(
 
 def create_workspace_secret_deny_write_paths(
     workspace: str,
-    platform: str = sys.platform,
+    platform: str | None = None,
 ) -> list[str]:
     """Workspace secret write denials: root-level basenames/directories
     (absolute, so Linux blocks existing files and first-time creation),
     nested existing secrets from a shallow scan, and Darwin-only globs."""
+    platform = platform or sys.platform
     root = os.path.realpath(os.path.abspath(workspace))
     paths = [os.path.join(root, name) for name in WORKSPACE_SECRET_DENY_WRITE_BASENAMES]
     paths += [
@@ -277,11 +278,7 @@ def create_default_policy(
                 ),
                 *( [] if package_is_in_workspace else [str(PACKAGE_ROOT)] ),
                 str(INTERPRETER_BIN_DIR),
-                *create_workspace_secret_deny_write_paths(workspace),
-                # Linux bwrap cannot enforce wildcard denyWrite paths; keep
-                # the rules explicit so manager initialization fails closed
-                # instead of silently allowing arbitrary new secret files.
-                *(DARWIN_SECRET_DENY_WRITE_GLOBS if sys.platform == "linux" else []),
+                *create_workspace_secret_deny_write_paths(workspace, sys.platform),
             ],
         },
         "network": {

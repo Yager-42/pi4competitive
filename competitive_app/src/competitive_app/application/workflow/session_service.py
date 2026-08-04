@@ -7,12 +7,13 @@ timeout → 409 (feature F-A10); abort cancels in-flight + queued (F-A11).
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Protocol
 
 from earendil_works.pi_agent.agent import Agent
 
 from .runtime_registry import RuntimeRegistry
-
+_log = logging.getLogger(__name__)
 
 class ModelResolver(Protocol):
     """Resolves a request ``model`` string to a pi_ai Model dict.
@@ -141,21 +142,43 @@ class SessionService:
         if waiter is None:
             raise RuntimeError("prompt must run in an asyncio task")
         self._registry.register_queued(session_id, waiter)
+        acquired = False
+        acquire_task = asyncio.create_task(lock.acquire())
         try:
             try:
-                await asyncio.wait_for(lock.acquire(), timeout=self._prompt_lock_timeout)
+                await asyncio.wait_for(asyncio.shield(acquire_task), timeout=self._prompt_lock_timeout)
+                acquired = True
             except asyncio.TimeoutError as exc:
+                # The lock may complete at the same moment the wait times out;
+                # a lost lock acquisition would deadlock the session forever.
+                if acquire_task.done() and not acquire_task.cancelled():
+                    acquired = bool(acquire_task.result())
+                else:
+                    acquire_task.cancel()
+                    await asyncio.gather(acquire_task, return_exceptions=True)
+                if acquired:
+                    lock.release()
+                    acquired = False
                 raise SessionConflictError(
                     f"session {session_id} is busy; prompt queue timeout"
                 ) from exc
             except asyncio.CancelledError as exc:
+                if acquire_task.done() and not acquire_task.cancelled():
+                    acquired = bool(acquire_task.result())
+                else:
+                    acquire_task.cancel()
+                    await asyncio.gather(acquire_task, return_exceptions=True)
+                if acquired:
+                    lock.release()
+                    acquired = False
                 raise SessionAbortedError(f"session {session_id} prompt aborted") from exc
         finally:
             self._registry.unregister_queued(session_id, waiter)
         try:
             await harness.prompt(content)
         finally:
-            lock.release()
+            if acquired:
+                lock.release()
             # E3: the outer run owns the once-only sandbox release; a prompt
             # with no tool call creates no container (release is a no-op).
             if self._sandbox_lifecycle is not None:
@@ -194,16 +217,16 @@ class SessionService:
             try:
                 await harness.shutdown()
             except Exception:
-                pass
+                _log.exception("harness cleanup failed for session %s", session_id)
         try:
             await self._repo.delete({"path": meta["path"], "cwd": meta.get("cwd", "")})
         except Exception:
-            pass
+            _log.exception("JSONL cleanup failed for session %s", session_id)
         if session_id:
             try:
                 await self._store.delete_session(session_id)
             except Exception:
-                pass
+                _log.exception("session index cleanup failed for session %s", session_id)
 
     def _resolve_model(self, model: str) -> dict[str, Any]:
         try:

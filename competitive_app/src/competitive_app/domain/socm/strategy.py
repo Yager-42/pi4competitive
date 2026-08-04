@@ -110,7 +110,10 @@ class Budget(BaseModel):
 
     def consume_wall(self, seconds: float) -> None:
         self._check_amount(seconds, "wall-clock consumption")
-        self.consumed_wall_seconds += seconds
+        total = self.consumed_wall_seconds + seconds
+        if not isfinite(total):
+            raise ValueError("wall-clock consumption exceeds finite range")
+        self.consumed_wall_seconds = total
 
     def ratio(self) -> float:
         """Max consumption ratio across enabled dimensions (SearchOS convention)."""

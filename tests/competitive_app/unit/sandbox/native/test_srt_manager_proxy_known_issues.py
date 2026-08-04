@@ -3,9 +3,17 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+import pytest_asyncio
 
 from competitive_app.adapter.out.sandbox.native.srt import manager
 from competitive_app.adapter.out.sandbox.native.srt import proxy
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _reset_manager_state():
+    await manager.reset()
+    yield
+    await manager.reset()
 
 
 class _CaptureWriter:
@@ -130,6 +138,11 @@ async def test_http_connect_filters_and_dials_canonical_hostname() -> None:
         writer.write(f"CONNECT 127.1:{origin_port} HTTP/1.1\r\n\r\n".encode())
         await writer.drain()
         assert await reader.readline() == b"HTTP/1.1 200 Connection Established\r\n"
+        assert await reader.readexactly(2) == b"\r\n"
+        payload = b"origin echo payload"
+        writer.write(payload)
+        await writer.drain()
+        assert await reader.readexactly(len(payload)) == payload
         writer.close()
         await writer.wait_closed()
         assert seen == ["127.0.0.1"]
@@ -158,7 +171,7 @@ async def test_header_names_are_case_insensitive_for_body_and_response() -> None
 
 
 @pytest.mark.asyncio
-async def test_request_body_limit_covers_content_length_and_chunked() -> None:
+async def test_request_body_limit_covers_content_length_and_chunked(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(proxy.RequestBodyTooLarge):
         await proxy._read_body(
             _reader(b""), {"content-length": str(proxy.MAX_REQUEST_BODY_SIZE + 1)}
@@ -168,6 +181,15 @@ async def test_request_body_limit_covers_content_length_and_chunked() -> None:
             _reader(f"{proxy.MAX_REQUEST_BODY_SIZE + 1:x}\r\n".encode()),
             {"transfer-encoding": "chunked"},
         )
+
+    monkeypatch.setattr(proxy, "MAX_REQUEST_BODY_SIZE", 5)
+    with pytest.raises(proxy.RequestBodyTooLarge):
+        await proxy._read_body(
+            _reader(b"3\r\nabc\r\n3\r\ndef\r\n0\r\n\r\n"),
+            {"transfer-encoding": "chunked"},
+        )
+    with pytest.raises(asyncio.IncompleteReadError):
+        await proxy._read_body(_reader(b"4\r\nab"), {"transfer-encoding": "chunked"})
 
 
 @pytest.mark.asyncio

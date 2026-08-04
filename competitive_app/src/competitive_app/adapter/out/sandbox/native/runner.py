@@ -18,13 +18,13 @@ Host delta:
 - ``onData``/``onStdout``/``onStderr`` receive ``bytes``.
 """
 from __future__ import annotations
-
 import asyncio
 import json
 import os
 import signal
 import socket
 import inspect
+import stat
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +55,8 @@ class SandboxCommandOptions:
     on_start: Callable[[asyncio.StreamWriter], None] | None = None
     broker: dict | None = None
     platform: str | None = None
+    cwd_fd: int | None = None
+    pass_fds: tuple[int, ...] = ()
 
 
 def get_shell_config(
@@ -100,6 +102,18 @@ def kill_process_tree(proc: asyncio.subprocess.Process) -> None:
             pass
 
 
+def _validate_cwd_descriptor(path: str, descriptor: int) -> None:
+    try:
+        path_stat = os.stat(path, follow_symlinks=False)
+        fd_stat = os.fstat(descriptor)
+    except OSError as error:
+        raise RuntimeError("sandbox workspace descriptor is unavailable") from error
+    if not stat.S_ISDIR(path_stat.st_mode) or not stat.S_ISDIR(fd_stat.st_mode):
+        raise RuntimeError("sandbox workspace is not a directory")
+    if (path_stat.st_dev, path_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+        raise RuntimeError("sandbox workspace changed during execution")
+
+
 async def spawn_broker(
     options: SandboxCommandOptions,
 ) -> tuple[asyncio.subprocess.Process, socket.socket]:
@@ -111,19 +125,29 @@ async def spawn_broker(
     ipc_parent, ipc_child = socket.socketpair()
     env = dict(options.env) if options.env is not None else {}
     env["PI_SANDBOX_IPC_FD"] = str(ipc_child.fileno())
-    exec_argv = [str(arg) for arg in broker.get("exec_argv", [])]
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable,
-        *exec_argv,
-        broker["module_path"],
-        cwd=options.cwd,
-        env=env,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        pass_fds=(ipc_child.fileno(),),
-        start_new_session=True,
-    )
+    try:
+        if options.cwd_fd is not None:
+            _validate_cwd_descriptor(options.cwd, options.cwd_fd)
+            env["PI_SANDBOX_WORKSPACE_FD"] = str(options.cwd_fd)
+            env["PI_SANDBOX_WORKSPACE_PATH"] = options.cwd
+        exec_argv = [str(arg) for arg in broker.get("exec_argv", [])]
+        inherited_fds = tuple(dict.fromkeys((ipc_child.fileno(), *options.pass_fds)))
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            *exec_argv,
+            broker["module_path"],
+            cwd="/" if options.cwd_fd is not None else options.cwd,
+            env=env,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            pass_fds=inherited_fds,
+            start_new_session=True,
+        )
+    except BaseException:
+        ipc_child.close()
+        ipc_parent.close()
+        raise
     ipc_child.close()
     return proc, ipc_parent
 
@@ -216,6 +240,8 @@ async def run_sandboxed_command(
         raise RuntimeError(f"pi-sandbox does not support {platform}")
     if options.signal is not None and options.signal.done():
         raise RuntimeError("aborted")
+    if options.cwd_fd is not None:
+        _validate_cwd_descriptor(options.cwd, options.cwd_fd)
 
     invocation, command_from_stdin = command_invocation(options)
     policy = options.policy if options.policy is not None else create_default_policy(

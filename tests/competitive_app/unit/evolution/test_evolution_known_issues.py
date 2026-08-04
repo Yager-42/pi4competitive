@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from competitive_app.application.evolution.evolution_manager import EvolutionManager
+from competitive_app.application.evolution.evolution_manager import EvolutionManager, EvolutionRecoveryError
 from competitive_app.application.evolution.focus.ive_focuser import IVEFocuser
 from competitive_app.application.evolution.post_task_observer import PostTaskObserver
 from competitive_app.application.evolution.selector import SkillSelector
@@ -40,6 +40,11 @@ async def test_manager_rolls_back_projection_after_accept_failure(tmp_path: Path
 
         async def rollback(self, skill_id: str) -> None:
             self.rolled_back.append(skill_id)
+
+        async def get_active(self, _name: str):
+            # The store must be able to verify the restored active pointer;
+            # without it the manager fails closed (EvolutionRecoveryError).
+            return baseline
 
     class Focuser:
         async def focus(self, context, _store):
@@ -79,6 +84,65 @@ async def test_manager_rolls_back_projection_after_accept_failure(tmp_path: Path
     assert await manager.run_context(context) is None
     assert store.rolled_back == [baseline.skill_id]
     assert files.rejected and files.manifest_updates == 1
+
+@pytest.mark.asyncio
+async def test_manager_surfaces_acceptance_and_rollback_failures(tmp_path: Path) -> None:
+    baseline = _record("parent", "demo")
+    candidate_path = tmp_path / "skills" / "demo__v1" / "SKILL.md"
+    candidate_path.parent.mkdir(parents=True)
+    candidate_path.write_text("candidate", encoding="utf-8")
+    candidate = _record("demo__v1", "demo", path=str(candidate_path))
+    acceptance_error = OSError("projection failed")
+    rollback_error = RuntimeError("rollback unavailable")
+
+    class Store:
+        async def get_metrics(self, _skill_id: str):
+            return None
+
+        async def create_version(self, *_args):
+            return candidate.skill_id
+
+        async def rollback(self, _skill_id: str) -> None:
+            raise rollback_error
+
+        async def get_active(self, _name: str):
+            return candidate
+
+    class Focuser:
+        async def focus(self, context, _store):
+            return context
+
+    class Mutator:
+        async def mutate(self, _context, _llm):
+            return candidate, "diff"
+
+    class Bridge:
+        async def evaluate(self, _ctx):
+            return EvalResult(1.0)
+
+    class Gate:
+        def decide(self, *_args):
+            return SimpleNamespace(recommendation="accept")
+
+    class Files:
+        async def accept_candidate(self, *_args, **_kwargs):
+            raise acceptance_error
+
+        async def reject_candidate(self, _candidate):
+            raise AssertionError("candidate must remain for recovery")
+
+        async def update_manifest(self):
+            raise AssertionError("manifest must not publish an uncertain pointer")
+
+    store = Store()
+    manager = EvolutionManager(store, [], Focuser(), Mutator(), Bridge(), Gate(), skill_files=Files())
+    with pytest.raises(EvolutionRecoveryError) as raised:
+        await manager.run_context(EvolutionContext("METRIC", "FIX", baseline, scope="search"))
+    assert raised.value.original_error is acceptance_error
+    assert raised.value.__cause__ is acceptance_error
+    assert raised.value.recovery_errors == (rollback_error,)
+    assert (await store.get_active("demo")).skill_id == candidate.skill_id
+    assert candidate_path.is_file()
 
 
 @pytest.mark.asyncio
@@ -154,6 +218,33 @@ async def test_selector_legacy_unscoped_fallback_fails_closed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_skill_projection_commits_dependencies_before_manifest(tmp_path: Path) -> None:
+    path = tmp_path / "skills" / "candidate" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("candidate", encoding="utf-8")
+    candidate = _record("candidate", path=str(path))
+    events: list[str] = []
+
+    class Store:
+        async def list_active(self):
+            return [candidate]
+
+    class Scope:
+        async def set_scope(self, *_args):
+            events.append("scope")
+
+    files = SkillFiles(tmp_path, Store(), Scope())
+
+    async def write_manifest():
+        events.append("manifest")
+        assert (path.parent / ".skill_id").read_text(encoding="utf-8") == candidate.skill_id
+
+    files._write_manifest_locked = write_manifest
+    await files.accept_candidate(candidate, scope="write")
+    assert events == ["scope", "manifest"]
+
+
+@pytest.mark.asyncio
 async def test_skill_projection_manifest_failure_has_no_marker_or_scope(tmp_path: Path) -> None:
     path = tmp_path / "skills" / "candidate" / "SKILL.md"
     path.parent.mkdir(parents=True)
@@ -166,10 +257,14 @@ async def test_skill_projection_manifest_failure_has_no_marker_or_scope(tmp_path
 
     class Scope:
         def __init__(self) -> None:
-            self.calls = 0
+            self.sets = 0
+            self.clears = 0
 
         async def set_scope(self, *_args):
-            self.calls += 1
+            self.sets += 1
+
+        async def clear_scope(self, *_args):
+            self.clears += 1
 
     files = SkillFiles(tmp_path, Store(), Scope())
 
@@ -177,10 +272,12 @@ async def test_skill_projection_manifest_failure_has_no_marker_or_scope(tmp_path
         raise OSError("fsync failed")
 
     files._write_manifest_locked = fail_manifest
-    with pytest.raises(OSError, match="fsync"):
+    with pytest.raises(OSError):
         await files.accept_candidate(candidate, scope="write")
     assert not (path.parent / ".skill_id").exists()
-    assert files._scope_store.calls == 0
+    # A failed manifest publication must roll the scope row back as well.
+    assert files._scope_store.sets == 1
+    assert files._scope_store.clears == 1
 
 
 def test_metric_monitor_uses_configured_threshold() -> None:

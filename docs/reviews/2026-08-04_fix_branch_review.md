@@ -602,3 +602,128 @@ from earendil_works.pi_agent.harness.session import InMemorySessionRepo
 ---
 
 > 生成时间：2026-08-04T10:30:47
+
+## 第二轮修复状态（2026-08-04）
+
+> 本轮 89 条 finding 均已完成代码或回归测试修复；对应 focused verification 随 issue slice 执行，最终回归结果由本分支验证记录补充。
+
+### High（11/11）
+
+- [x] high-1 — capability module trusted-root validation
+- [x] high-2 — broker IPC drain
+- [x] high-3 — Linux policy deny-write compatibility
+- [x] high-4 — descriptor-relative manifest staging
+- [x] high-5 — ripgrep cancellation cleanup
+- [x] high-6 — workspace descriptor handoff and TOCTOU rejection
+- [x] high-7 — negative/malformed Content-Length rejection
+- [x] high-8 — evolution rollback recovery error
+- [x] high-9 — atomic skill projection publication
+- [x] high-10 — frontier superset target merge
+- [x] high-11 — explicit native allow-read configuration
+
+### Medium（56/56）
+
+- [x] medium-1 — medium-3 — complete redaction before bounding
+- [x] medium-2 — non-blocking SOCM cross-process lock
+- [x] medium-4 — medium-6 — SSE fanout/subscriber lifecycle and snapshot errors
+- [x] medium-7 — registry import failure fail-closed
+- [x] medium-8 — owner-aware extension runtime teardown
+- [x] medium-9 — medium-11 — sandbox approval/protocol input validation
+- [x] medium-12 — medium-13 — guarded session/task rollback
+- [x] medium-14 — stronger coverage provenance
+- [x] medium-15 — medium-16 — atomic query budget and failed-subagent propagation
+- [x] medium-17 — repeated-source evidence citation preservation
+- [x] medium-18 — cancellation-safe session lock release
+- [x] medium-19 — finite wall-budget overflow rejection
+- [x] medium-20 — medium-22 — bounded runtime stream lifecycle and abort handling
+- [x] medium-23 — composition-wide resource rollback
+- [x] medium-24 — medium-30 — frontend rejection, loading, freshness, and error handling
+- [x] medium-31 — medium-32 — cancellation propagation in agent loops
+- [x] medium-33 — silent EventSource watchdog
+- [x] medium-34 — package-entry symlink pattern matching
+- [x] medium-35 — deferred lazy stream startup
+- [x] medium-36 — nested provider-frame validation
+- [x] medium-37 — non-finite JSONL rejection
+- [x] medium-38 — Gemini thoughtSignature placement
+- [x] medium-39 — six-stage evidence collection path
+- [x] medium-40 — string-safe partial JSON repair
+- [x] medium-41 — Mistral URL normalization
+- [x] medium-42 — faux usage allocation
+- [x] medium-43 — atomic public resume preparation
+- [x] medium-44 — medium-45 — EventStream runner/result lifecycle
+- [x] medium-46 — medium-56 — deterministic regression-test hardening
+
+### Low（22/22）
+
+- [x] low-1 — low-3 — cleanup/evolution diagnostics
+- [x] low-4 — low-5 — frontend trace/stream error visibility
+- [x] low-6 — whitespace-tolerant skill front matter
+- [x] low-7 — JSONL content-block validation
+- [x] low-8 — public resume preparation API usage
+- [x] low-9 — unused import cleanup
+- [x] low-10 — low-12 — context/runtime/SRT fixture cleanup and path grounding
+- [x] low-13 — low-17 — deterministic competitive-app regression assertions
+- [x] low-18 — low-22 — deterministic agent/AI/harness regression assertions
+
+### 验证记录
+
+- `uv run pytest -q` focused OCR suites：**210 passed**
+- `uv run pytest -q -m 'not live'`：**1027 passed / 39 deselected**
+- native provider/runner/broker descriptor suites：**55 passed**；macOS real enforcement：**11 passed**
+- live research workflow + workflow skill evolution：**9 passed**
+- live packages/agent + packages/ai：**14 passed**
+- live search capability（不含 Grok）：**6 passed / 2 deselected**
+- frontend `npm run build`：**passed**（仅既有 chunk-size warning）
+- Python `compileall`、`git diff --check`：**passed**
+- Grok live：**2 failed — provider HTTP 503**；同一配置此前通过，当前判定为外部 provider 故障，不回退或吞错。
+
+high-6 采用 workspace/manifest descriptor 全链路传递、broker 最终 fd↔path identity 校验、`fchdir` 与 worker descriptor 读取；当前 SRT Seatbelt/bwrap policy API 本身仍以 path 表达 allowRead/cwd，无法改写为纯 descriptor policy。production broker 路径已 fail-closed；仅测试/legacy custom broker 保留 staged-path compatibility。
+
+## 第三轮 OpenCodeReview（2026-08-04）
+
+- raw：`docs/reviews/2026-08-04_round2_cr.json`
+- session：`35ec1563-9f35-4542-82ed-49774a025255`
+- 范围：当前工作区 77 files；OCR 结果 **54 comments**（10 high / 33 medium / 11 low）
+- 处理：**41 fixed / 13 accepted with rationale**
+
+### 已修复（41）
+
+- manifest fd 显式配置失败时 fail-closed；fake broker fixture 显式保留 fd
+- ripgrep timeout/abort/caller-cancel 全路径 kill + wait/reap，并恢复结果解析
+- coverage cancellation 清理并 await 全部 pending subagent
+- RuntimeRegistry done callback、terminal 去重、session lock timeout race
+- credential store typing/import 与 modify/write/delete 互斥
+- SOCM flock OSError fail-closed，lock file preparation 移入线程
+- native runtime/provider/runner descriptor 与 socketpair 异常路径清理
+- task rollback/resume CAS 加 `updated_at`
+- `from_manifest` capability target 重新做 trusted-root 校验
+- evolution active pointer 缺验证能力时 fail-closed
+- skill scope 快照/clear/恢复、rollback 日志、目录 fsync
+- frontier superset 合并保留 `blocked_by`
+- agent loop 非 `Exception` BaseException 唤醒 stream 后传播
+- late EventStream producer error 可见、SSE tool index 拒绝负数
+- SSE fanout teardown/subscribe 以锁串行；修复锁内递归死锁
+- Dashboard 独立加载、Library 成功重试清错、Report section-local refine error
+- 相关弱测试改为真实行为/spy/严格时序，新增 fd/CAS/fanout/frontier/credential 回归
+
+### 保留（13，非缺陷）
+
+- high-3：Linux 使用 concrete deny paths；Darwin glob 仅 Seatbelt，不能在 bwrap 复用。
+- high-4：subagent LLM failure 已 exception-log + `help.requested` journal；属于显式降级，不将单子任务 provider failure 扩大为整轮失败。取消泄漏另行修复。
+- high-10：`abort_task()` bool 表示 control-plane abort 是否命中；runner cleanup exception 被 await+log，不代表 persisted workflow 成功。
+- medium-12：subscriber queue 256 + drop-oldest 是有界 backpressure 策略，避免慢客户端制造无界内存。
+- medium-15：trusted-root/import broad catch 返回拒绝是安全边界的 fail-closed 行为。
+- medium-29/30/31：异常启动清理继续执行其他 best-effort cleanup；production store 使用 conditional/atomic API，fallback 仅窄 test double/legacy compatibility。
+- medium-33：composition 捕获 `BaseException` 仅用于 rollback resources，随后原样 re-raise；取消不会被吞。
+- medium-34：HTTP generation 在请求开始时递增实现 last-started-wins；`eventVersion` 阻止 SSE 后的 stale snapshot 覆盖。
+- medium-40：`EventStream.result()` 无 running loop 时返回 Awaitable，签名与 docstring 已声明 union。
+- low-50：Trace 条件 JSX 为展示风格，无状态或错误语义缺陷。
+- low-52：测试读取 provider 私有 fd map 是 ownership/close regression 的有意白盒断言。
+
+### 第三轮验证
+
+- 新增/修正 focused：**121 passed**（53 + 68）
+- SRT/native coverage regressions：**32 passed**
+- 非 live 全量：**1037 passed / 39 deselected / 2 existing warnings**
+- frontend `npm run build`：**passed**（仅既有 >500 kB chunk warning）
+- `git diff --check`：**passed**

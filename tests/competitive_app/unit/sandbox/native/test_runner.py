@@ -21,6 +21,7 @@ from competitive_app.adapter.out.sandbox.native.runner import (
     SandboxCommandOptions,
     command_invocation,
     run_sandboxed_command,
+    spawn_broker,
 )
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -194,6 +195,38 @@ def test_independent_concurrent_invocations() -> None:
 def test_unsupported_platform_raises() -> None:
     with pytest.raises(RuntimeError, match="does not support"):
         asyncio.run(run_sandboxed_command(_options(platform="win32")))
+
+
+def test_spawn_broker_inherits_workspace_descriptor(tmp_path: Path) -> None:
+    broker_script = tmp_path / "fd_broker.py"
+    broker_script.write_text(
+        "import os\n"
+        "fd = int(os.environ['PI_SANDBOX_WORKSPACE_FD'])\n"
+        "os.fstat(fd)\n"
+        "print('workspace-fd-inherited', flush=True)\n"
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    fd = os.open(workspace, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+
+    async def run() -> tuple[bytes, bytes]:
+        proc, parent_sock = await spawn_broker(
+            SandboxCommandOptions(
+                command="noop",
+                cwd=str(workspace),
+                cwd_fd=fd,
+                pass_fds=(fd,),
+                broker={"module_path": str(broker_script), "exec_argv": []},
+            )
+        )
+        parent_sock.close()
+        return await proc.communicate()
+
+    try:
+        output, _error = asyncio.run(run())
+    finally:
+        os.close(fd)
+    assert b"workspace-fd-inherited" in output
 
 
 def test_command_invocation_shapes() -> None:

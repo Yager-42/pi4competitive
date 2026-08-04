@@ -8,9 +8,15 @@ Feature F-A10/F-A11:
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
+_STREAM_QUEUE_MAXSIZE = 256
+_TERMINAL_STREAM_LIMIT = 256
 
 
 @dataclass(slots=True)
@@ -25,19 +31,36 @@ class _TaskStream:
 
     history: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=256))
     subscribers: set[asyncio.Queue[dict[str, Any]]] = field(default_factory=set)
+    terminal: dict[str, Any] | None = None
+
+    @staticmethod
+    def _enqueue(queue: asyncio.Queue[dict[str, Any]], event: dict[str, Any]) -> None:
+        if queue.full():
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+        queue.put_nowait(event)
 
     def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_STREAM_QUEUE_MAXSIZE)
         self.subscribers.add(queue)
         for event in self.history:
-            queue.put_nowait(event)
+            self._enqueue(queue, event)
         return queue
+
+    def unsubscribe(self, queue: asyncio.Queue[dict[str, Any]]) -> bool:
+        if queue not in self.subscribers:
+            return False
+        self.subscribers.remove(queue)
+        return True
 
     def publish(self, event: dict[str, Any]) -> None:
         self.history.append(event)
+        if event.get("type") in {"done", "error"}:
+            self.terminal = event
         for queue in tuple(self.subscribers):
-            queue.put_nowait(event)
-
+            self._enqueue(queue, event)
 
 class RuntimeRegistry:
     """Tracks live harnesses (per session) and workflow tasks (per task_id)."""
@@ -52,6 +75,12 @@ class RuntimeRegistry:
         # task_id → buffered fan-out stream. Kept after completion so a client
         # racing task completion can still subscribe to the terminal event.
         self._streams: dict[str, _TaskStream] = {}
+        # Startup owners are tracked by caller task so stale rollback cannot
+        # unregister a stream that a concurrent owner already started.
+        self._stream_owners: dict[str, set[int]] = {}
+        self._stream_owner_queues: dict[tuple[str, int], set[asyncio.Queue[dict[str, Any]]]] = {}
+        self._stream_started: set[str] = set()
+        self._terminal_streams: deque[str] = deque()
 
     # ---------------------------------------------------------------- harnesses
 
@@ -105,8 +134,6 @@ class RuntimeRegistry:
             waiter.cancel()
         return aborted_in_flight
 
-    # ------------------------------------------------------------------- tasks
-
     def task_active(self, task_id: str) -> bool:
         item = self._tasks.get(task_id)
         return item is not None and not item.task.done()
@@ -116,6 +143,8 @@ class RuntimeRegistry:
             raise RuntimeError("task is already running")
         task = asyncio.create_task(operation, name=f"task:{task_id}")
         self._tasks[task_id] = _ActiveTask(runner=runner, task=task)
+        self._stream_started.add(task_id)
+        self._release_stream_owners(task_id)
 
         def _forget(completed: asyncio.Task[Any]) -> None:
             current = self._tasks.get(task_id)
@@ -126,29 +155,78 @@ class RuntimeRegistry:
                 completed.exception()
 
         task.add_done_callback(_forget)
-        return task
 
+    def _release_stream_owners(self, task_id: str) -> None:
+        stream = self._streams.get(task_id)
+        owners = self._stream_owners.pop(task_id, set())
+        if stream is not None:
+            for owner in owners:
+                queues = self._stream_owner_queues.pop((task_id, owner), set())
+                for queue in queues:
+                    stream.unsubscribe(queue)
     # --------------------------------------------------- v0.3.1 SSE streams
 
+    @staticmethod
+    def _stream_owner() -> int:
+        try:
+            task = asyncio.current_task()
+        except RuntimeError:
+            task = None
+        return id(task)
+
     def register_stream(self, task_id: str) -> asyncio.Queue[dict[str, Any]]:
-        """Pre-register a buffered fan-out stream before runner startup."""
-        stream = _TaskStream()
-        self._streams[task_id] = stream
-        return stream.subscribe()
+        """Pre-register a buffered stream without replacing a live owner."""
+        stream = self._streams.get(task_id)
+        if stream is None or stream.terminal is not None:
+            stream = _TaskStream()
+            self._streams[task_id] = stream
+            self._stream_started.discard(task_id)
+        owner = self._stream_owner()
+        queue = stream.subscribe()
+        self._stream_owners.setdefault(task_id, set()).add(owner)
+        self._stream_owner_queues.setdefault((task_id, owner), set()).add(queue)
+        return queue
 
     def get_stream(self, task_id: str) -> asyncio.Queue[dict[str, Any]] | None:
         stream = self._streams.get(task_id)
         return stream.subscribe() if stream is not None else None
 
+    def unsubscribe_stream(self, task_id: str, queue: asyncio.Queue[dict[str, Any]]) -> bool:
+        """Detach one SSE source queue; safe when stream was replaced/removed."""
+        stream = self._streams.get(task_id)
+        if stream is None:
+            return False
+        return stream.unsubscribe(queue)
+
     def publish_stream(self, task_id: str, event: dict[str, Any]) -> None:
         stream = self._streams.get(task_id)
         if stream is not None:
             stream.publish(event)
+            if stream.terminal is not None and task_id not in self._terminal_streams:
+                self._terminal_streams.append(task_id)
+                while len(self._terminal_streams) > _TERMINAL_STREAM_LIMIT:
+                    old = self._terminal_streams.popleft()
+                    old_stream = self._streams.get(old)
+                    if old_stream is not None and old_stream.terminal is not None:
+                        self._streams.pop(old, None)
 
     def unregister_stream(self, task_id: str) -> None:
+        """Rollback only this caller's registration, never a live owner."""
+        owner = self._stream_owner()
+        owners = self._stream_owners.get(task_id)
+        if owners is not None:
+            owners.discard(owner)
+            queues = self._stream_owner_queues.pop((task_id, owner), set())
+            stream = self._streams.get(task_id)
+            if stream is not None:
+                for queue in queues:
+                    stream.unsubscribe(queue)
+            if owners:
+                return
+            self._stream_owners.pop(task_id, None)
+        if task_id in self._stream_started:
+            return
         self._streams.pop(task_id, None)
-
-
     async def abort_task(self, task_id: str, reason: str = "api_abort") -> bool:
         active = self._tasks.get(task_id)
         if active is None or active.task.done():
@@ -160,6 +238,10 @@ class RuntimeRegistry:
             await active.task
         except asyncio.CancelledError:
             pass
+        except Exception as exc:  # noqa: BLE001
+            # A runner that ignores cancellation may fail while abort waits;
+            # abort remains a boolean control-plane operation.
+            logger.warning("task abort runner failed task_id=%s: %s", task_id, exc)
         return True
 
     # ---------------------------------------------------------------- shutdown
@@ -173,25 +255,31 @@ class RuntimeRegistry:
             )
         self._tasks.clear()
 
-        async def _close(harness: Any) -> None:
+        async def _close(session_id: str, harness: Any) -> None:
             try:
                 harness.agent.abort()
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("runtime harness abort failed session_id=%s: %s", session_id, exc)
             try:
                 await harness.shutdown()
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("runtime harness shutdown failed session_id=%s: %s", session_id, exc)
 
         try:
             await asyncio.gather(
-                *(_close(h) for h in self._harnesses.values()), return_exceptions=True
+                *(_close(session_id, harness) for session_id, harness in self._harnesses.items()),
+                return_exceptions=True,
             )
+
         finally:
             self._harnesses.clear()
             self._locks.clear()
             self._queued.clear()
             self._streams.clear()
+            self._stream_owners.clear()
+            self._stream_owner_queues.clear()
+            self._stream_started.clear()
+            self._terminal_streams.clear()
 
 
 __all__ = ["RuntimeRegistry"]

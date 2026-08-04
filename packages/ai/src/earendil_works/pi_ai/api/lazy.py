@@ -53,22 +53,7 @@ def lazy_stream(
             outer.push({"type": "error", "reason": "error", "error": message})
             outer.end(message)
 
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(run())
-    except RuntimeError:
-        outer._pending_setup = run  # type: ignore[attr-defined]
-
-        original = outer._iterate
-
-        async def _iterate_with_setup():
-            if getattr(outer, "_setup_started", False) is False:
-                outer._setup_started = True  # type: ignore[attr-defined]
-                asyncio.create_task(run())
-            async for item in original():
-                yield item
-
-        outer._iterate = _iterate_with_setup  # type: ignore[method-assign]
+    outer.start(run)
 
     return outer
 

@@ -46,7 +46,7 @@ def load_skill_from_file(path: str | Path) -> Skill:
     content = text
     disable_model_invocation = False
     lines = text.splitlines(keepends=True)
-    if lines and lines[0].rstrip("\r\n") == "---":
+    if lines and lines[0].rstrip("\r\n").strip() == "---":
         closing_index = next(
             (i for i, line in enumerate(lines[1:], start=1) if line.rstrip("\r\n").strip() == "---"),
             None,

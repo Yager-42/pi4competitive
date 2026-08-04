@@ -82,12 +82,16 @@ def bind_runtime(
     token = _RUNTIME.set(values)
 
     def cleanup() -> None:
+        # A teardown callback may run in a different context or after a newer
+        # binding has replaced this one.  In either case it no longer owns the
+        # current value and must not clear another session's dependencies.
+        if _RUNTIME.get() is not values:
+            return
         try:
             _RUNTIME.reset(token)
         except ValueError:
             # ContextVar tokens cannot be reset from a different context.
-            _RUNTIME.set(None)
-
+            return
     return cleanup
 
 
