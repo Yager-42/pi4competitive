@@ -277,6 +277,9 @@ class ResearchRunner:
         t0 = time.monotonic()
         section_results: list[dict[str, Any]] = []
         for _sid, title, focus in sections_to_write:
+            await self._emit_event(
+                "subagent_start", {"entity": title, "task_id": self.task_id}
+            )
             prompt = self._build_section_prompt(title, focus, prior, memory_blob)
             try:
                 await self.harness.prompt(prompt)
@@ -284,6 +287,9 @@ class ResearchRunner:
             except Exception:  # noqa: BLE001 — best-effort: one section failure ≠ write failure
                 body, sources = "(本节生成失败)", []
             section_results.append({"title": title, "body": body, "sources": sources})
+            await self._emit_event(
+                "subagent_end", {"entity": title, "task_id": self.task_id}
+            )
         latency_ms = int((time.monotonic() - t0) * 1000)
         usage = last_usage(self.agent.state.messages)
         await self._emit_event(

@@ -99,6 +99,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         set({
           currentStage: stage,
           stages: stage ? { ...s.stages, [stage]: 'running' } : s.stages,
+          // clear per-stage chips so write sections don't mix with search sub-agents
+          subagents: [],
         })
         return
       }

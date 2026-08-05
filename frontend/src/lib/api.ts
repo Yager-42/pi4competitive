@@ -36,12 +36,12 @@ export async function createTask(query: string): Promise<CreateTaskResp> {
   })
 }
 
-/* POST /api/v2/tasks/{id}/clarify {answers} → 启动研究 */
+/* POST /api/v2/tasks/{id}/clarify {answers} → 202 + {task_id, session_id, status:"pending"} */
 export async function submitClarify(
   taskId: string,
   answers: ClarifyAnswer[],
-): Promise<{ ok: boolean; status?: string }> {
-  return safeJson<{ ok: boolean; status?: string }>(
+): Promise<{ status: string; task_id?: string; session_id?: string }> {
+  return safeJson<{ status: string; task_id?: string; session_id?: string }>(
     `/api/v2/tasks/${taskId}/clarify`,
     {
       method: 'POST',

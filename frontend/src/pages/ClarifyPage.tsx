@@ -64,7 +64,8 @@ export default function ClarifyPage() {
     try {
       const answersArr = Object.entries(answers).map(([id, value]) => ({ id, value }))
       const response = await submitClarify(taskId, answersArr)
-      if (!response.ok) {
+      // clarify 返回 202 + {status:"pending"}(无 ok 字段);safeJson 202 不 throw → 到这就成功
+      if (response.status !== 'pending') {
         setSubmitError('提交澄清失败，请稍后重试')
         return
       }

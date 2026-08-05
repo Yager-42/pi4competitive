@@ -59,6 +59,7 @@ export default function WorkspacePage() {
     finished,
     error,
     running,
+    currentStage,
   } = useTaskStore()
   const [aborting, setAborting] = useState(false)
   const [abortError, setAbortError] = useState('')
@@ -168,12 +169,16 @@ export default function WorkspacePage() {
           </div>
         </div>
 
-        {/* 右:evidence 流 + sub-agent */}
+        {/* 右:evidence 流 + sub-agent(write 阶段切"撰写 sections") */}
         <div className="min-w-0 flex-1 overflow-y-auto p-5">
-          <div className="text-tag font-semibold uppercase tracking-wider text-ink-3">搜索子任务</div>
+          <div className="text-tag font-semibold uppercase tracking-wider text-ink-3">
+            {currentStage === 'write' ? '撰写 sections' : '搜索子任务'}
+          </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {subagents.length === 0 && (
-              <span className="text-aux text-ink-3">等待派发…</span>
+              <span className="text-aux text-ink-3">
+                {currentStage === 'write' ? '正在撰写 sections…' : '等待派发…'}
+              </span>
             )}
             {subagents.map((n, i) => (
               <span
