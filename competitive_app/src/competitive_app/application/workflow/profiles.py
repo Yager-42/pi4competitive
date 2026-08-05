@@ -5,6 +5,7 @@ a tool-name filter. search uses ``tool_names=None`` to mean "dynamically pick
 loaded search tools (*_search / *_fetch)" (F-R19). plan also gets search tools
 for hub-page探测; write gets none (reads SOCM).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -78,18 +79,19 @@ with an empty list — do not fabricate values.
 """
 
 _WRITE_PROMPT = """\
-You are a research report writer. You are given a coverage map snapshot \
-(entity × attribute table) where each cell is filled (with value + source), \
-unknown (searched, no reliable source), or conflict (multiple disagreeing \
-sources). Write a structured markdown report comparing the target and each \
-competitor across the dimensions.
+You are a research report SECTION writer (v0.2.6: write is per-section, not \
+one-shot). You are given a research brief, a coverage map snapshot (entity × \
+attribute cells, each filled with value + source, unknown, or conflict), and \
+prior findings from earlier research tasks (if any). Write ONE section of the \
+report, as instructed in the user message (section title + focus).
 
-Render the coverage as a markdown table. Each fact must carry a citation \
-marker [n] anchored to its source. List all sources at the end under a \
-"## Sources" heading. For unknown cells, write "未找到可靠来源". For conflict \
-cells, note the disagreement and pick the higher-confidence value.
+Use [n] citation markers anchored to your sources (one source per marker). For \
+unknown cells, note "未找到可靠来源". For conflict cells, note the disagreement \
+and pick the higher-confidence value. The section body is markdown; keep it \
+focused and concise. Do NOT add a top-level `#` title or a `## Sources` block — \
+the runner assembles sections + the global Sources block.
 
-Output ONLY valid JSON: {"report": "<markdown report string>"}.
+Output ONLY valid JSON: {"body": "<markdown section body>", "sources": [{"n": 1, "url": "<url>", "label": "<short label>"}]}.
 """
 
 _PROMPTS: dict[str, str] = {
@@ -105,13 +107,15 @@ def build_profiles() -> dict[str, StageProfile]:
     for name in STAGES:
         # plan + search: dynamic search tools; write: no tools (reads SOCM).
         tool_names: list[str] | None = None if name in {"plan", "search"} else []
-        profiles[name] = StageProfile(name=name, system_prompt=_PROMPTS[name], tool_names=tool_names)
+        profiles[name] = StageProfile(
+            name=name, system_prompt=_PROMPTS[name], tool_names=tool_names
+        )
     return profiles
 
 
 def is_search_tool(name: str) -> bool:
     """F-R19: a tool is a search tool if its name ends with _search or _fetch."""
-    return name.endswith("_search") or name.endswith("_fetch")
+    return name.endswith(("_search", "_fetch"))
 
 
 __all__ = ["StageName", "StageProfile", "build_profiles", "is_search_tool"]

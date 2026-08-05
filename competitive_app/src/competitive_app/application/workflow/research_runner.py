@@ -203,11 +203,14 @@ class ResearchRunner:
         if name == "search":
             # search delegates to CoverageEngine (no single prompt; iterative loop).
             return await self._run_search_stage(profile)
+        if name == "write":
+            # v0.2.6: write is per-section (overview + per-dimension + conclusion).
+            return await self._run_write_stage(profile)
 
-        # plan / write: per-stage tool filter (F-R8) + single agent.prompt.
+        # plan: per-stage tool filter (F-R8) + single agent.prompt.
         self.agent.state.tools = self._select_tools(profile)
         prior = await collect_prior_outputs(self.session, STAGE_DEPENDENCIES[name])
-        if self._skill_snapshot is not None and name in {"plan", "write"}:
+        if self._skill_snapshot is not None:
             description = self.research_brief.model_dump_json()
             self._stage_skills[name] = await self._skill_snapshot.ensure_scope(
                 self.task_id, name, description
@@ -220,16 +223,7 @@ class ResearchRunner:
                     "task_id": self.task_id,
                 },
             )
-        memory_blob: str | None = None
-        if name == "write":
-            try:
-                memory_blob = await recall_prior_findings(
-                    self.store,
-                    [self.research_brief.target.name, *self.research_brief.competitors],
-                )
-            except Exception:  # noqa: BLE001 — best-effort recall; never fail the write stage
-                memory_blob = None
-        prompt = self._build_prompt(name, profile, prior, memory_blob=memory_blob)
+        prompt = self._build_prompt(name, profile, prior)
         t0 = time.monotonic()
         await self.harness.prompt(prompt)
         latency_ms = int((time.monotonic() - t0) * 1000)
@@ -252,11 +246,118 @@ class ResearchRunner:
         output = self._extract_output(name)
         result = validate_stage_output(name, output)
         if result.ok:
-            # v0.2.2: write stage — derive sections from the markdown (refine support).
-            if name == "write":
-                output["sections"] = _split_sections(output.get("report") or "")
             await append_stage_output(self.session, name, output)
         return result
+
+    async def _run_write_stage(self, profile: StageProfile) -> StageResult:
+        """v0.2.6: write per-section — overview + per-dimension + conclusion.
+
+        Replaces the one-shot harness.prompt with N+2 sequential harness.prompt
+        calls (one per section) on the main session (D24-persisted + SSE events).
+        Each section returns {body, sources}; best-effort per section. Assembles
+        {report, sections} preserving the v0.2.2 refine contract.
+        """
+        self.agent.state.tools = self._select_tools(profile)  # write: no tools
+        skills = self._stage_skills.get("write", [])
+        base = profile.system_prompt
+        if self._skill_composer is not None:
+            self.agent.state.systemPrompt = self._skill_composer.compose(base, skills, "write")
+        else:
+            self.agent.state.systemPrompt = base
+        prior = await collect_prior_outputs(self.session, STAGE_DEPENDENCIES["write"])
+        memory_blob: str | None = None
+        try:
+            memory_blob = await recall_prior_findings(
+                self.store,
+                [self.research_brief.target.name, *self.research_brief.competitors],
+            )
+        except Exception:  # noqa: BLE001 — best-effort recall; never fail write
+            memory_blob = None
+        sections_to_write = self._section_list()
+        t0 = time.monotonic()
+        section_results: list[dict[str, Any]] = []
+        for _sid, title, focus in sections_to_write:
+            prompt = self._build_section_prompt(title, focus, prior, memory_blob)
+            try:
+                await self.harness.prompt(prompt)
+                body, sources = self._extract_section_output()
+            except Exception:  # noqa: BLE001 — best-effort: one section failure ≠ write failure
+                body, sources = "(本节生成失败)", []
+            section_results.append({"title": title, "body": body, "sources": sources})
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        usage = last_usage(self.agent.state.messages)
+        await self._emit_event(
+            "span",
+            {
+                "kind": "write",
+                "stage": "write",
+                "task_id": self.task_id,
+                "entity": None,
+                "model": model_name(self.agent.state.model),
+                "prompt_tokens": int(usage.get("input", 0) or 0),
+                "completion_tokens": int(usage.get("output", 0) or 0),
+                "latency_ms": latency_ms,
+            },
+        )
+        if self.abort_signal.is_set():
+            return StageResult(stage="write", ok=False, output={}, error="aborted")
+        report_md, sections_out = _assemble_report(section_results)
+        output = {"report": report_md, "sections": sections_out}
+        result = validate_stage_output("write", output)
+        if result.ok:
+            await append_stage_output(self.session, "write", output)
+        return result
+
+    def _section_list(self) -> list[tuple[str, str, str]]:
+        """Sections to write (v0.2.6): overview + per-dimension + conclusion."""
+        dims = list(self.research_brief.dimensions or [])
+        sections: list[tuple[str, str, str]] = [
+            (
+                "overview",
+                "概述",
+                "Background + key findings summary across all entities/dimensions.",
+            )
+        ]
+        for d in dims:
+            sections.append((f"dim:{d}", d, f"Focus on cells relevant to the dimension 「{d}」."))
+        sections.append(
+            ("conclusion", "结论与建议", "Synthesize findings + give actionable recommendations.")
+        )
+        return sections
+
+    def _build_section_prompt(
+        self, title: str, focus: str, prior: dict[str, Any], memory_blob: str | None
+    ) -> str:
+        brief = self.research_brief.model_dump(mode="json")
+        parts: list[str] = [f"Research brief: {json.dumps(brief, ensure_ascii=False)}"]
+        for stage_name, output in prior.items():
+            parts.append(
+                f"Prior stage '{stage_name}' output: {json.dumps(output, ensure_ascii=False)}"
+            )
+        if memory_blob:
+            parts.append(memory_blob)
+        parts.append(f"Write the section: 「{title}」. {focus}")
+        parts.append(
+            'Output ONLY valid JSON: {"body": "<markdown section body>", '
+            '"sources": [{"n":1,"url":"<url>","label":"<short label>"}]}.'
+        )
+        return "\n\n".join(parts)
+
+    def _extract_section_output(self) -> tuple[str, list[dict[str, Any]]]:
+        """Parse {body, sources} from the last assistant message (tolerant fallback)."""
+        for message in reversed(self.agent.state.messages):
+            if isinstance(message, dict) and message.get("role") == "assistant":
+                text = _message_text(message)
+                if not text:
+                    continue
+                parsed = _try_parse_json(text)
+                if isinstance(parsed, dict) and str(parsed.get("body") or "").strip():
+                    sources = parsed.get("sources") or []
+                    if not isinstance(sources, list):
+                        sources = []
+                    return str(parsed["body"]).strip(), sources
+                return text.strip(), []  # fallback: raw text as body
+        return "", []
 
     async def _run_search_stage(self, profile: StageProfile) -> StageResult:
         """Run search via CoverageEngine, binding search + extraction once."""
@@ -530,6 +631,47 @@ def _finalize_section(lines: list[str]) -> dict[str, Any]:
     heading = lines[0].lstrip().lstrip("#").strip()
     body = "\n".join(lines).strip()
     return {"id": "", "title": heading, "body": body}
+
+
+def _assemble_report(
+    section_results: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
+    """v0.2.6: assemble per-section {title, body, sources} into (report, sections).
+
+    report = ``## {title}\\n{body}`` per section + a ``## Sources`` block grouped by
+    section (no global [n] renumber). sections = [{id, title, body}] with the
+    ``## {title}`` heading inside body (matches _split_sections shape so refine +
+    ReportPage work identically whether sections were split or generated).
+    """
+    report_parts: list[str] = []
+    sections: list[dict[str, Any]] = []
+    sources_parts: list[str] = []
+    idx = 0
+    for sr in section_results:
+        idx += 1
+        title = str(sr.get("title") or f"Section {idx}")
+        body = str(sr.get("body") or "")
+        section_md = f"## {title}\n{body}".strip()
+        report_parts.append(section_md)
+        sections.append({"id": str(idx), "title": title, "body": section_md})
+        srcs = sr.get("sources") or []
+        if isinstance(srcs, list) and srcs:
+            lines = [f"### {title}"]
+            for s in srcs:
+                if isinstance(s, dict):
+                    n = s.get("n", "")
+                    url = s.get("url", "")
+                    label = s.get("label", "")
+                    lines.append(f"[{n}] {url}" + (f" — {label}" if label else ""))
+                else:
+                    lines.append(str(s))
+            sources_parts.append("\n".join(lines))
+    idx += 1
+    sources_body = "\n\n".join(sources_parts) if sources_parts else "(无来源)"
+    sources_md = f"## Sources\n{sources_body}"
+    report_parts.append(sources_md)
+    sections.append({"id": str(idx), "title": "Sources", "body": sources_md})
+    return "\n\n".join(report_parts), sections
 
 
 async def _noop_emit(_event_type: str, _data: dict[str, Any]) -> None:

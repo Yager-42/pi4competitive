@@ -5,16 +5,15 @@ into SOCM) → write. Faux model scripts: plan JSON, sub-agent fetch tool_call +
 final message, judge JSON array, write report. A mock ``test_fetch`` tool
 returns pages with pricing so the judge has content to extract (offline).
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
 from earendil_works.pi_ai.providers.faux import faux_assistant_message, faux_tool_call
+from httpx import ASGITransport, AsyncClient
 
 
 def _plan_response(target: str = "ACME", competitor: str = "Beta") -> str:
@@ -74,7 +73,9 @@ async def _client(app_state):
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
-async def _wait_status(client: AsyncClient, task_id: str, terminal: set[str], timeout: float = 20.0):
+async def _wait_status(
+    client: AsyncClient, task_id: str, terminal: set[str], timeout: float = 20.0
+):
     deadline = asyncio.get_event_loop().time() + timeout
     status = "pending"
     while asyncio.get_event_loop().time() < deadline:
@@ -93,7 +94,9 @@ def _entity_responses(slug: str, price: str) -> list:
     each iteration consumes: sub-agent fetch(2 responses) + judge(1 response).
     """
     return [
-        faux_assistant_message([faux_tool_call("test_fetch", {"url": f"https://example.com/{slug}"})]),
+        faux_assistant_message(
+            [faux_tool_call("test_fetch", {"url": f"https://example.com/{slug}"})]
+        ),
         faux_assistant_message("done searching"),
         faux_assistant_message(_judge_response(price, slug)),
     ]
@@ -171,21 +174,33 @@ async def test_dependency_gate_failed(app_state, faux):
 
 @pytest.mark.asyncio
 async def test_abort_stops_runner(app_state, faux, mock_fetch_tool):
-    """Abort mid-search stops the runner."""
+    """Abort mid-search (sub-agent blocked on a slow tool) stops the runner.
+
+    v0.2.6: write is best-effort, so an incomplete-response queue no longer makes
+    the task fail. To genuinely test abort, slow the fetch tool so the search
+    sub-agent blocks → the abort fires mid-search → status=aborted.
+    """
+
+    async def _slow_execute(tool_call_id, params, signal=None, on_update=None):
+        await asyncio.sleep(30)  # blocks long enough for abort to fire mid-search
+        return {"content": [{"type": "text", "text": "slow fetch"}], "details": {}}
+
+    mock_fetch_tool.execute = _slow_execute  # type: ignore[attr-defined]
     faux["setResponses"](
         [
             faux_assistant_message(_plan_response()),
-            faux_assistant_message([faux_tool_call("test_fetch", {"url": "https://example.com/acme"})]),
-            # No final / judge / write responses → search hangs → abort.
+            faux_assistant_message(
+                [faux_tool_call("test_fetch", {"url": "https://example.com/acme"})]
+            ),
         ]
     )
     async with await _client(app_state) as client:
         task_id = (await client.post("/api/v2/tasks", json=_TASK_BODY)).json()["task_id"]
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.3)  # plan + search sub-agent starts + blocks on the slow tool
         abort = await client.post(f"/api/v2/tasks/{task_id}/abort")
         assert abort.status_code == 200
         status = await _wait_status(client, task_id, {"aborted", "failed", "completed"})
-        assert status in {"aborted", "failed"}
+        assert status == "aborted", f"expected aborted, got {status}"
 
 
 @pytest.mark.asyncio
@@ -283,7 +298,9 @@ async def test_search_termination_no_progress(app_state, faux, mock_fetch_tool, 
     # 2 iterations × 2 entities = 4 sub-agent rounds + 4 judge calls (all empty).
     responses = [faux_assistant_message(_plan_response())]
     for _ in range(4):
-        responses.append(faux_assistant_message([faux_tool_call("test_fetch", {"url": "https://x"})]))
+        responses.append(
+            faux_assistant_message([faux_tool_call("test_fetch", {"url": "https://x"})])
+        )
         responses.append(faux_assistant_message("done"))
         responses.append(faux_assistant_message(empty_judge))
     responses.append(faux_assistant_message(_write_response()))
@@ -299,7 +316,9 @@ async def test_search_termination_no_progress(app_state, faux, mock_fetch_tool, 
 
 
 @pytest.mark.asyncio
-async def test_resume_preserves_socm_partial_progress(app_state, faux, mock_fetch_tool, monkeypatch):
+async def test_resume_preserves_socm_partial_progress(
+    app_state, faux, mock_fetch_tool, monkeypatch
+):
     """F-R16: search aborted with partial progress → resume keeps filled cells."""
     monkeypatch.setenv("SEARCH_MAX_ITERATIONS", "1")
     monkeypatch.setenv("SEARCH_MAX_STALLED_ITERATIONS", "1")
@@ -308,14 +327,18 @@ async def test_resume_preserves_socm_partial_progress(app_state, faux, mock_fetc
     faux["setResponses"](
         [
             faux_assistant_message(_plan_response()),
-            faux_assistant_message([faux_tool_call("test_fetch", {"url": "https://example.com/acme"})]),
+            faux_assistant_message(
+                [faux_tool_call("test_fetch", {"url": "https://example.com/acme"})]
+            ),
             faux_assistant_message("done"),
             faux_assistant_message(_judge_response("$10/mo", "acme")),
         ]
     )
     async with await _client(app_state) as client:
         task_id = (await client.post("/api/v2/tasks", json=_TASK_BODY)).json()["task_id"]
-        session_id = (await client.get(f"/api/v2/tasks/{task_id}/sessions")).json()["sessions"][0]["session_id"]
+        session_id = (await client.get(f"/api/v2/tasks/{task_id}/sessions")).json()["sessions"][0][
+            "session_id"
+        ]
         await _wait_status(client, task_id, {"failed", "aborted", "completed"})
 
         socm = await app_state.socm_store.load(session_id)

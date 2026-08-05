@@ -116,7 +116,8 @@ async def test_live_memory_blob_reaches_write_prompt(
             session_id = create.json()["session_id"]
 
             # Poll until write stage starts (blob is in the prompt by then) or terminal.
-            deadline = asyncio.get_event_loop().time() + 300.0
+            # 480s margin: real-gateway search can take ~300s before write starts.
+            deadline = asyncio.get_event_loop().time() + 480.0
             reached_write = False
             t: dict = {}
             while asyncio.get_event_loop().time() < deadline:

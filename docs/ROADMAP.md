@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.49` |
+| **roadmap_version** | `0.1.50` |
 | **status** | active |
 | **updated** | 2026-08-03 |
 | **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.12** |
@@ -279,3 +279,4 @@ continue P4              保留既有实现；恢复依赖 AgentTool 的业务�
 | 0.1.47 | 2026-08-02 | **P3.3 native G0 complete**：feature v0.2.1 / plan v0.1.1 / G0 map v0.1.1；三 npm integrity + Git/license pin；SRT complete file/test map；apply-seccomp source/binary hashes；Docker migration map；CodeGraph impact；O/S/L/M/P/R test matrix/prerequisites；offline baseline 406 passed |
 | 0.1.48 | 2026-08-03 | **P3.3 done**：A–F + V1（offline 727）+ V3 macOS real gate（S1–S9 + e2e 11 tests green）+ V4 audits/closeout（baseline vs ADR 0013 Docker、license/CodeGraph、plan §7 全勾选）；**ADR 0014（Linux real 可选，未运行，Linux production 部署前必过）/ contract 0.3.11 / feature v0.2.2 / plan v0.1.6 complete**；Docker production 代码/依赖/镜像删除；P4 AgentTool-dependent expansion 恢复 |
 | 0.1.49 | 2026-08-03 | **P4 Multi-LLM Fallback + Observability（feature v0.2.1 frozen / plan v0.1.4 completed / ADR 0015 / contract 0.3.12）**：全局单降级链（`LLM_FALLBACK_PROVIDERS` env）+ 首包探测 + 全程缓冲批式交付 + `_active` 记忆（FallbackStream，poirot 链思想 + ragent 探测机制）；pi_ai 结构化错误透传（ADR 0015，`AssistantMessage.error`，0.81.3）；RunJournal 数据层 COPY poirot 100%（`data/runs/<task_id>/events.jsonl`，task 删除级联）；JournalBridge extension 事件 → journal；`_make_emit` 统一三写（span→SQLite、SSE→queue、journal→文件）；llm.request/response 经 JournalStream（stream_fn 单点，port 无 onPayload 钩子）；offline 444 passed + faux 集成 + live 降级切换/事件落盘 green；全量 580 passed / 0 failed；`packages/agent` 零 diff |
+| 0.1.50 | 2026-08-05 | **research-workflow v0.2.6：write 逐 section 多 call（A 路线）**：write 从 one-shot（1 call 整篇）→ 逐 section sequential（overview + per-dimension[brief.dimensions] + conclusion，N+2 call，主 session `harness.prompt` 串行——保 D24 session JSONL + SSE + v0.2.5 测试；parallel defer 因丢 session/SSE）。每 section call：brief + 整 coverage map + dimension 指令 + memory blob（v0.2.5 每 section 注入）；输出 `{body, sources}`（容错）；best-effort per section。`_assemble_report` 拼 `## title\n{body}` + `## Sources`（按 section 分组，无全局重编号）+ sections[] 顺序 id（refine/ReportPage 不变）。落点：`profiles._WRITE_PROMPT`（per-section，v0.2.6 re-grill locked）+ `research_runner._run_write_stage` + `_section_list`/`_build_section_prompt`/`_extract_section_output`/`_assemble_report`。**边界**：无 audit/rework（B deferred）、仍 markdown（非结构化组件，B deferred）、~N+2 call（3-5）。契约 0.3.12 不动（无 ADR）；http v0.3.4 不动；offline 7 测试 + live 真 run（443s 验 per-section 结构）+ v0.2.5 memory_inject live 回归（405s，blob 仍进 section prompt） |
