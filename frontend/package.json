@@ -13,6 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tailwindcss/typography": "^0.5.20",
     "@types/d3": "^7.4.3",
     "d3": "^7.9.0",
     "echarts": "^6.1.0",
@@ -24,6 +25,7 @@
     "react-markdown": "^9.0.0",
     "react-router-dom": "^7.17.0",
     "reactflow": "^11.11.4",
+    "remark-gfm": "^4.0.1",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

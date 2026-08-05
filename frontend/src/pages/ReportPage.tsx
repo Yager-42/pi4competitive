@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { ChevronLeft, Activity, Network, ShieldCheck, Sparkles, Loader2 } from 'lucide-react'
 import { fetchReport, refineSection, submitFeedback } from '../lib/api'
 import type { Report, ReportSection } from '../types'
@@ -160,7 +161,7 @@ export default function ReportPage() {
                       )}
                     </div>
                     <div className="prose prose-sm max-w-none text-body text-ink-2">
-                      <ReactMarkdown>{s.body}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.body}</ReactMarkdown>
                     </div>
                     {/* refine section 级 */}
                     <div className="mt-4 border-t border-line/60 pt-3">
@@ -184,7 +185,7 @@ export default function ReportPage() {
               </div>
             ) : (
               <div className="mt-6 prose prose-sm max-w-none text-body text-ink-2">
-                <ReactMarkdown>{report.markdown || '(无内容)'}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.markdown || '(无内容)'}</ReactMarkdown>
               </div>
             )}
           </div>
