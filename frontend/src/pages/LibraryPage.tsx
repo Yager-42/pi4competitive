@@ -57,6 +57,11 @@ export default function LibraryPage() {
     setActionError('')
     try {
       const r = await resumeTask(t.task_id)
+      // awaiting_clarify = task was aborted before clarify submitted → re-open it.
+      if (r.status === 'awaiting_clarify') {
+        navigate(`/clarify/${t.task_id}`, { state: { query: t.query } })
+        return
+      }
       // Only enter the workspace after the server confirms the resumed state.
       if (r.status === 'pending' || r.status === 'running') {
         const current = await fetchTask(t.task_id)

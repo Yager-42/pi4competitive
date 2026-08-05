@@ -470,6 +470,15 @@ class TaskService:
         start_stage = self._first_non_ok_stage(task.get("projection"))
         session_id = task.get("session_id")
         if not session_id:
+            # No session means the task was aborted before clarify was submitted
+            # (F-R14: session deferred to clarify). Flip back to awaiting_clarify
+            # so the user can re-submit the questionnaire — resume is not for
+            # re-running stages (there are none to re-run).
+            meta = task.get("metadata") or {}
+            clarify = meta.get("clarify") if isinstance(meta, dict) else None
+            if isinstance(clarify, dict) and clarify.get("status") == "awaiting":
+                await self._store.update_task_status(task_id, "awaiting_clarify")
+                return {"task_id": task_id, "status": "awaiting_clarify"}
             raise TaskConflictError(f"task {task_id} has no session to resume")
         research_brief = await self._load_research_brief(session_id)
         if research_brief is None:
