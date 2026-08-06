@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.3.4` |
+| **feature_contract_version** | `0.3.5` |
 | **status** | **frozen** |
 | **updated** | 2026-08-02 |
 | **feature_id** | `competitive-app-http-v1` |
@@ -89,7 +89,7 @@
 
 ### 3.2 接口清单（locked）—— 共 29 路由，前缀 `/api/v2`
 
-> v0.3.0 = 14 路由。v0.3.1 +3（reports×2 + SSE×1）。v0.3.2 +3（trace + refine + feedback）。v0.3.3 +7（clarify + evidences + dashboard + subscriptions×4）。v0.3.4 +2（llm/ping + meta）。不破坏 v0.3.0 路由。
+> v0.3.0 = 14 路由。v0.3.1 +3（reports×2 + SSE×1）。v0.3.2 +3（trace + refine + feedback）。v0.3.3 +7（clarify + evidences + dashboard + subscriptions×4）。v0.3.4 +2（llm/ping + meta）。v0.3.5 `POST /tasks` body 加可选 `search_overrides`（无新路由,29 不变）。不破坏 v0.3.0 路由。
 
 **B 组 — Agent 会话（5，🟢 真实）**
 
@@ -105,7 +105,7 @@
 
 | 方法 路径 | 作用 | 策略 |
 |----------|------|------|
-| `POST /tasks` | 建研究任务（**二选一**：`research_brief` 或 `query`，v0.3.3 重载） | `research_brief` 路径：三阶段 runner，202，status=pending，建 session（1:1，逐字节向后兼容）；`query` 路径：1 次 LLM 发现竞品 + 硬编码模板 3 问 → status=`awaiting_clarify`（不建 session，延迟到 clarify 完成）；两者都给/都不给 → 422 |
+| `POST /tasks` | 建研究任务（**二选一**：`research_brief` 或 `query`，v0.3.3 重载；v0.3.5 加可选 `search_overrides`） | `research_brief` 路径：三阶段 runner，202，status=pending，建 session（1:1，逐字节向后兼容）；`query` 路径：1 次 LLM 发现竞品 + 硬编码模板 3 问 → status=`awaiting_clarify`（不建 session，延迟到 clarify 完成）；两者都给/都不给 → 422。v0.3.5：可选 `search_overrides`（per-task 搜索超参覆盖,4 字段 `max_parallel/coverage_threshold/max_queries/max_wall_seconds`,越界 clamp + 类型错丢弃,不传=env 默认;存 `metadata.search_overrides` 供 resume F-R16 一致） |
 | `GET /tasks` | 列任务 | SQLite 投影 |
 | `GET /tasks/{id}` | 单任务 | SQLite 投影（stages 3 key + coverage） |
 | `POST /tasks/{id}/resume` | 恢复 | completed → 返回 completed；非终态 → 从第一个非 ok stage 继续 + 恢复 SOCM |

@@ -134,6 +134,7 @@ class TaskService:
         query: str | None = None,
         metadata: dict[str, Any] | None = None,
         skip_clarify: bool = False,
+        search_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """POST /tasks — create a research task.
 
@@ -141,8 +142,12 @@ class TaskService:
           - ``research_brief``: structured brief → run immediately (legacy path).
           - ``query``: free-form query → clarify flow (awaiting_clarify) unless
             ``skip_clarify`` (subscription run path: derive brief, run directly).
+        v0.3.5: optional ``search_overrides`` (per-task search hyperparameters).
+          Clamped + persisted in metadata["search_overrides"] for resume (F-R16).
         """
         metadata = dict(metadata or {})
+        if search_overrides:
+            metadata["search_overrides"] = _clamp_search_overrides(search_overrides)
         if research_brief is not None and query is not None:
             raise TaskInputError("provide exactly one of research_brief or query")
         if research_brief is None and not (query and query.strip()):
@@ -1094,6 +1099,10 @@ class TaskService:
             harness = self._registry.register_harness(session_id, harness)
             agent = harness.agent
             abort_signal = asyncio.Event()
+            # v0.3.5: read per-task search_overrides from metadata (resume-consistent, F-R16).
+            task = await self._store.get_task(task_id)
+            task_meta = task.get("metadata") or {} if task else {}
+            search_overrides = task_meta.get("search_overrides") if isinstance(task_meta, dict) else None
             runner = ResearchRunner(
                 task_id=task_id,
                 harness=harness,
@@ -1110,6 +1119,7 @@ class TaskService:
                 journal_append=self._journal_append(task_id),
                 skill_snapshot=self._skill_snapshot,
                 skill_composer=self._skill_composer,
+                search_overrides=search_overrides,
             )
             self._runners[task_id] = (runner, abort_signal, agent)
             result_status = await runner.run(
@@ -1303,6 +1313,41 @@ def _metadata_stop_after(metadata: dict[str, Any]) -> str | None:
     if not isinstance(raw, str) or not raw:
         return None
     return raw if raw in STAGES else None
+
+
+# v0.3.5: per-task search hyperparameter overrides (POST /tasks search_overrides).
+# Clamped to safe ranges; type errors → dropped (field omitted, uses env default).
+_SEARCH_OVERRIDES_RANGES = {
+    "max_parallel": (1, 16, int),
+    "coverage_threshold": (0.05, 1.0, float),
+    "max_queries": (1, 200, int),
+    "max_wall_seconds": (30, 3600, int),
+}
+
+
+def _clamp_search_overrides(raw: dict[str, Any]) -> dict[str, Any]:
+    """Clamp + validate search_overrides; drop type-errored fields (Q3).
+
+    Returns only fields with valid values clamped to range. Empty dict if none
+    valid → caller treats as "no overrides" (env defaults).
+    """
+    out: dict[str, Any] = {}
+    if not isinstance(raw, dict):
+        return out
+    for key, (lo, hi, typ) in _SEARCH_OVERRIDES_RANGES.items():
+        val = raw.get(key)
+        if val is None:
+            continue
+        try:
+            v = typ(val)
+        except (TypeError, ValueError):
+            continue  # type error → drop field
+        if v < lo:
+            v = lo
+        elif v > hi:
+            v = hi
+        out[key] = v
+    return out
 
 
 def _replace_section_body(

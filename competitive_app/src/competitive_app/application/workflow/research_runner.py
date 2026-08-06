@@ -60,7 +60,9 @@ class ResearchRunner:
         journal_append: Callable[[str, dict[str, Any]], None] | None = None,
         skill_snapshot: Any = None,
         skill_composer: Any = None,
+        search_overrides: dict[str, Any] | None = None,
     ) -> None:
+        self._search_overrides = search_overrides or {}
         self.task_id = task_id
         self.harness = harness
         self.agent = harness.agent
@@ -413,6 +415,11 @@ class ResearchRunner:
             search_skills=self._stage_skills.get("search", []),
             extraction_skills=self._stage_skills.get("extraction", []),
             skill_composer=self._skill_composer,
+            # v0.2.7: per-task search hyperparameter overrides (POST /tasks search_overrides).
+            max_parallel=self._search_overrides.get("max_parallel"),
+            coverage_threshold=self._search_overrides.get("coverage_threshold"),
+            max_queries=self._search_overrides.get("max_queries"),
+            max_wall_seconds=self._search_overrides.get("max_wall_seconds"),
         )
         search_output = await engine.run(plan_output)
         result = validate_stage_output("search", search_output)

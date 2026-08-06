@@ -30,6 +30,22 @@ class PromptRequest(BaseModel):
     content: Any
 
 
+class SearchOverrides(BaseModel):
+    """``POST /tasks`` optional per-task search hyperparameter overrides (v0.3.5).
+
+    All fields optional; omitted/None → use env default (backward compatible).
+    Out-of-range values are clamped by the service; type errors → ignored.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # No ge/le here — service clamps out-of-range (Q3); type errors ignored.
+    max_parallel: int | None = None
+    coverage_threshold: float | None = None
+    max_queries: int | None = None
+    max_wall_seconds: int | None = None
+
+
 class WorkflowTaskRequest(BaseModel):
     """``POST /tasks`` body (research-workflow-v1 F-A15 v0.2.0).
 
@@ -37,6 +53,8 @@ class WorkflowTaskRequest(BaseModel):
       - ``research_brief``: structured brief (legacy path, byte-identical behavior)
       - ``query``: free-form natural-language query → clarify flow
     The "exactly one" rule is enforced in the service (clearer error messages).
+    v0.3.5: optional ``search_overrides`` — per-task search hyperparameters
+    (override env SEARCH_* + Budget); persisted in metadata for resume (F-R16).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -44,6 +62,7 @@ class WorkflowTaskRequest(BaseModel):
     research_brief: ResearchBrief | None = None
     query: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    search_overrides: SearchOverrides | None = None
 
 
 class ClarifyAnswer(BaseModel):
@@ -92,7 +111,7 @@ class FeedbackRequest(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict, description="Extra feedback payload.")
 
     @model_validator(mode="after")
-    def validate_block_counts(self) -> "FeedbackRequest":
+    def validate_block_counts(self) -> FeedbackRequest:
         if self.edited_blocks > self.total_blocks:
             raise ValueError("edited_blocks cannot exceed total_blocks")
         return self
@@ -104,6 +123,7 @@ __all__ = [
     "FeedbackRequest",
     "PromptRequest",
     "RefineRequest",
+    "SearchOverrides",
     "SessionCreateRequest",
     "SubscriptionRequest",
     "WorkflowTaskRequest",

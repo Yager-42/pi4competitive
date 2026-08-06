@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.2.6` |
+| **feature_contract_version** | `0.2.7` |
 | **status** | **frozen** |
 | **updated** | 2026-08-05 |
 | **feature_id** | `research-workflow-v1` |

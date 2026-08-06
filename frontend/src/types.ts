@@ -18,6 +18,14 @@ export interface CreateTaskResp {
   questions?: ClarifyQuestion[]
 }
 
+/* v0.3.5: per-task 搜索超参覆盖(全可选,空=用默认) */
+export interface SearchOverrides {
+  max_parallel?: number | string  // 1-16,默认 4
+  coverage_threshold?: number | string  // 0.05-1.0,默认 0.8
+  max_queries?: number | string  // 1-200,默认 40
+  max_wall_seconds?: number | string  // 30-3600,默认 600
+}
+
 /* 澄清答案(POST /api/v2/tasks/{id}/clarify body) */
 export interface ClarifyAnswer {
   id: string

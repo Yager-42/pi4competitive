@@ -99,6 +99,9 @@ class CoverageEngine:
         max_parallel: int | None = None,
         max_cell_attempts: int | None = None,
         subtask_chunk: int | None = None,
+        # v0.2.7: per-task Budget overrides (POST /tasks search_overrides). None=env default.
+        max_queries: int | None = None,
+        max_wall_seconds: int | None = None,
         pause_event: asyncio.Event | None = None,
         subagent_factory: Any = None,
         judge_model: dict[str, Any] | None = None,
@@ -131,6 +134,9 @@ class CoverageEngine:
         # Tier-2b: split each entity's actionable cells into chunks of this size so
         # the parallel pool can fill max_parallel even with few entities.
         self._subtask_chunk = subtask_chunk or _env_int("SEARCH_SUBTASK_CHUNK", DEFAULT_SUBTASK_CHUNK)
+        # v0.2.7: per-task Budget overrides (None = use Budget default / env).
+        self._max_queries = max_queries
+        self._max_wall_seconds = max_wall_seconds
         # O6 test seam: if set, the engine pauses before the first search iteration.
         self._pause_event = pause_event
         # Factory for ephemeral sub-agent harnesses (PR4 parallel). If None,
@@ -172,6 +178,16 @@ class CoverageEngine:
             existing.intent = intent or existing.intent
             await self._socm_store.save(self._session_id, existing)
         await self._update_projection()
+
+        # v0.2.7: apply per-task Budget overrides (POST /tasks search_overrides).
+        # Applied to the persisted SOCM so both fresh + resume runs honor it.
+        if self._max_queries is not None or self._max_wall_seconds is not None:
+            state = await self._socm_store.load(self._session_id)
+            if self._max_queries is not None:
+                state.budget.max_queries = self._max_queries
+            if self._max_wall_seconds is not None:
+                state.budget.max_wall_seconds = self._max_wall_seconds
+            await self._socm_store.save(self._session_id, state)
 
         if self._pause_event is not None:
             await self._pause_event.wait()

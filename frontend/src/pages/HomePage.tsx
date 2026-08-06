@@ -5,10 +5,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowUp, Sparkles, Car, ShieldCheck, Layers, TrendingUp, Sprout } from 'lucide-react'
+import { ArrowUp, Sparkles, Car, ShieldCheck, Layers, TrendingUp, Sprout, SlidersHorizontal } from 'lucide-react'
 import { VSunGlow } from '../components/ui'
 import { fadeUp, stagger } from '../lib/motion'
 import { createTask } from '../lib/api'
+import type { SearchOverrides } from '../types'
 
 const EXAMPLES = [
   {
@@ -42,6 +43,16 @@ export default function HomePage() {
   const [text, setText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [ov, setOv] = useState({ max_parallel: '', coverage_threshold: '', max_queries: '', max_wall_seconds: '' })
+
+  function buildOverrides(): SearchOverrides | undefined {
+    const out: SearchOverrides = {}
+    for (const [k, v] of Object.entries(ov)) {
+      if (v !== '' && v !== null && v !== undefined) (out as Record<string, unknown>)[k] = v
+    }
+    return Object.keys(out).length ? out : undefined
+  }
 
   async function submit(q: string) {
     const query = q.trim()
@@ -49,7 +60,7 @@ export default function HomePage() {
     setSubmitting(true)
     setSubmitError('')
     try {
-      const resp = await createTask(query)
+      const resp = await createTask(query, buildOverrides())
       if (resp.status === 'awaiting_clarify' && resp.questions?.length) {
         navigate(`/clarify/${resp.task_id}`, { state: { query, clarify: resp.questions } })
       } else {
@@ -112,7 +123,12 @@ export default function HomePage() {
             className="w-full resize-none bg-transparent text-[15px] text-ink outline-none placeholder:text-ink-3"
           />
           <div className="mt-2 flex items-center justify-between">
-            <span className="text-tag text-ink-3">真实联网搜索 · judge 抽证据 · coverage 驱动</span>
+            <button
+              onClick={() => setShowAdvanced((s) => !s)}
+              className="inline-flex items-center gap-1 text-tag text-ink-3 transition-colors hover:text-ink-2"
+            >
+              <SlidersHorizontal size={13} /> 搜索调参(高级){showAdvanced ? ' ▲' : ' ▼'}
+            </button>
             <button
               onClick={() => submit(text)}
               disabled={!text.trim() || submitting}
@@ -121,6 +137,29 @@ export default function HomePage() {
               <ArrowUp size={20} />
             </button>
           </div>
+          {showAdvanced && (
+            <div className="mt-3 grid grid-cols-2 gap-3 border-t border-line/60 pt-3 sm:grid-cols-4">
+              {([
+                ['max_parallel', '并发数 1-16', '4'],
+                ['coverage_threshold', '早停阈值 0.05-1', '0.8'],
+                ['max_queries', '最多子代理 1-200', '40'],
+                ['max_wall_seconds', '搜索时限(秒) 30-3600', '600'],
+              ] as const).map(([key, label, def]) => (
+                <label key={key} className="flex flex-col gap-1">
+                  <span className="text-tag text-ink-3">{label}</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={ov[key as keyof typeof ov]}
+                    onChange={(e) => setOv((m) => ({ ...m, [key]: e.target.value }))}
+                    placeholder={def}
+                    className="h-9 rounded-btn border border-line bg-bg px-3 text-tag text-ink outline-none focus:border-primary"
+                  />
+                </label>
+              ))}
+              <span className="col-span-2 text-tag text-ink-3 sm:col-span-4">留空 = 用默认值;越界自动 clamp</span>
+            </div>
+          )}
         </motion.div>
         {submitError && <p className="mt-3 text-aux text-risk">{submitError}</p>}
 

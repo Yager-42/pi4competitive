@@ -27,12 +27,23 @@ async function safeJson<T>(path: string, init?: RequestInit, fallback?: T): Prom
   }
 }
 
-/* POST /api/v2/tasks {query} → {task_id, status, questions?} */
-export async function createTask(query: string): Promise<CreateTaskResp> {
+/* POST /api/v2/tasks {query, search_overrides?} → {task_id, status, questions?} */
+export async function createTask(
+  query: string,
+  searchOverrides?: SearchOverrides,
+): Promise<CreateTaskResp> {
+  const body: Record<string, unknown> = { query }
+  if (searchOverrides) {
+    const ov: Record<string, number> = {}
+    for (const [k, v] of Object.entries(searchOverrides)) {
+      if (v !== null && v !== undefined && v !== '') ov[k] = Number(v)
+    }
+    if (Object.keys(ov).length) body.search_overrides = ov
+  }
   return safeJson<CreateTaskResp>('/api/v2/tasks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify(body),
   })
 }
 

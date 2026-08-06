@@ -36,6 +36,9 @@ async def create_task(body: WorkflowTaskRequest, request: Request) -> dict:
             research_brief=body.research_brief,
             query=body.query,
             metadata=body.metadata,
+            search_overrides=body.search_overrides.model_dump(exclude_none=True)
+            if body.search_overrides
+            else None,
         )
     except TaskInputError as exc:
         raise HTTPException(
