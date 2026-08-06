@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import shutil
 import time
 import uuid
@@ -760,6 +761,11 @@ class TaskService:
             "subject (product/company/category full name); (2) its sub-domain/sector; (3) as many "
             "real direct competitors as possible (8-12, must be real searchable products/companies, "
             "ordered by popularity descending, do NOT include the subject itself).\n\n"
+            "IMPORTANT: If the user's request explicitly lists multiple products/companies to "
+            "compare (e.g. 'X、Y、Z 对比' / 'X vs Y vs Z' / 'X and Y' / '为 X、Y、Z 做 SWOT'), "
+            "those listed products MUST be included in competitors — they are the comparison "
+            "targets the user wants researched. subject = the shared category/sector they belong "
+            "to (e.g. '企业协作平台'), NOT the product list itself.\n\n"
             f"User request: {query}\n\n"
             'Return ONLY a JSON object: {"subject": "<subject>", "domain": "<domain>", '
             '"competitors": ["<comp1>", "<comp2>", ...]}. '
@@ -808,6 +814,16 @@ class TaskService:
         domain = discovered.get("domain") or ""
         discovered_comps = discovered.get("competitors") or []
         answers_blob = _format_clarify_answers(questions, answers)
+        # v0.2.8: user-selected competitors (from clarify "competitors" question).
+        user_brands: list[str] = []
+        by_id = {a.get("id"): a.get("value") for a in answers if isinstance(a, dict)}
+        cval = by_id.get("competitors")
+        if isinstance(cval, list):
+            user_brands = [str(b).strip() for b in cval if str(b).strip()]
+        elif isinstance(cval, str) and cval.strip():
+            user_brands = [cval.strip()]
+        # fallback_brands: user-selected, else regex-extracted from query (VerdaAI port).
+        fallback_brands = user_brands or _regex_brands(query)
         if self._models is not None and self._judge_model is not None:
             prompt = (
                 "You are a competitive-intelligence research director. Derive a structured "
@@ -818,11 +834,16 @@ class TaskService:
                 "(use the user's selected ones if any, else pick 1-3 from the candidates by "
                 "popularity, else recommend mainstream rivals for the domain); dimensions = the "
                 'user\'s selected dimensions, else default to ["功能对比", "定价策略"]; goal = expand '
-                "into one clear research objective sentence.\n\n"
+                "into one clear research objective sentence.\n"
+                "IMPORTANT: If the user's request explicitly lists multiple products/companies to "
+                "compare (e.g. 'X、Y、Z 对比' / 'X vs Y' / '为 X、Y、Z 做 SWOT'), those listed "
+                "products are the comparison targets and MUST be in competitors.\n\n"
                 f"Original request: {query}\n"
                 f"Subject: {subject}\n"
                 f"Domain: {domain}\n"
                 f"Candidate competitors: {', '.join(discovered_comps) or '(none)'}\n"
+                f"Must-include competitors (user-selected or query-listed): "
+                f"{', '.join(fallback_brands) or '(none)'}\n"
                 f"User answers:\n{answers_blob or '(none)'}\n\n"
                 'Return ONLY a JSON object: {"target": {"name": "", "category": ""}, '
                 '"goal": "", "competitors": [""], "dimensions": [""]}. '
@@ -850,7 +871,7 @@ class TaskService:
                             },
                             "goal": str(parsed.get("goal") or query),
                             "competitors": _coerce_competitors(
-                                parsed.get("competitors"), discovered_comps
+                                parsed.get("competitors"), discovered_comps, fallback_brands
                             ),
                             "dimensions": _coerce_dimensions(parsed.get("dimensions")),
                         }
@@ -862,7 +883,7 @@ class TaskService:
         return ResearchBrief(
             target={"name": subject[:120], "category": domain},
             goal=query,
-            competitors=_coerce_competitors(None, discovered_comps) or ["(待补充)"],
+            competitors=_coerce_competitors(None, discovered_comps, fallback_brands) or ["(待补充)"],
             dimensions=["功能对比", "定价策略"],
         )
 
@@ -1350,6 +1371,59 @@ def _clamp_search_overrides(raw: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# v0.2.8: query competitor extraction (VerdaAI _regex_brands port). Fallback when
+# the user submitted no selected competitors (skip-clarify) — pulls products the
+# user explicitly listed in the query ("X、Y、Z" / "X vs Y" / "X 与 Y") so they are
+# guaranteed to be searched. Mirrors VerdaAI fallback_brands = user_brands or _regex_brands(query).
+_REGEX_BRAND_STOPWORDS = {
+    # analysis/report verbs
+    "分析", "对比", "竞争", "格局", "调研", "报告", "研究", "评测", "拆解", "梳理",
+    # generic nouns
+    "产品", "定价", "策略", "市场", "行业", "赛道", "维度", "功能", "口碑", "份额",
+    # structural words (SWOT / 4P etc.)
+    "结构化", "swot", "4p", "stp", "bcg", "五力", "价值链",
+    # particles / fillers
+    "的", "与", "和", "为", "做", "一份", "这个", "这些", "及", "以及", "和与",
+    # common descriptive tails (not product names)
+    "竞争分析", "竞争格局", "市场分析", "产品力", "核心功能",
+}
+_REGEX_BRAND_MIN_LEN = 2
+_REGEX_BRAND_MAX_LEN = 8  # product names are 2-8 chars; longer = descriptive tail
+_REGEX_BRAND_LIMIT = 6
+# split on Chinese/English separators: 、,，/空格 + "vs"/"对比"/"与"/"和" (word-boundary)
+_REGEX_BRAND_SPLIT = re.compile(r"\s*(?:vs|vs\.|对比|与|和|、|,|，|/|，|\s)\s*", re.IGNORECASE)
+# leading/trailing filler chars to strip from each token (particles/verbs around the brand)
+_REGEX_BRAND_TRIM = "为做把被将让对在从和与及以及"
+
+
+def _regex_brands(query: str) -> list[str]:
+    """Extract product names explicitly listed in a query (v0.2.8 fallback).
+
+    Splits on 、/,/vs/对比/与/和 + trims filler particles + filters
+    stopwords/short/numeric tokens. Returns up to 6 candidates.
+    """
+    if not query:
+        return []
+    tokens = _REGEX_BRAND_SPLIT.split(query.strip())
+    out: list[str] = []
+    for t in tokens:
+        t = t.strip().strip(_REGEX_BRAND_TRIM).strip()
+        # A long token is usually "<brand> <descriptive tail>" (no separator
+        # between brand and the rest of the query) — take the leading chunk
+        # up to the first space, which is the brand name.
+        if len(t) > _REGEX_BRAND_MAX_LEN and " " in t:
+            t = t.split(" ", 1)[0].strip(_REGEX_BRAND_TRIM).strip()
+        if not t or len(t) < _REGEX_BRAND_MIN_LEN or len(t) > _REGEX_BRAND_MAX_LEN:
+            continue
+        if t.isdigit():
+            continue
+        if t.lower() in _REGEX_BRAND_STOPWORDS:
+            continue
+        if t not in out:
+            out.append(t)
+    return out[:_REGEX_BRAND_LIMIT]
+
+
 def _replace_section_body(
     report: str, sections: list[dict[str, Any]], section_id: str, new_body: str
 ) -> str:
@@ -1479,14 +1553,24 @@ def _format_clarify_answers(questions: list[dict[str, Any]], answers: list[dict[
     return "\n".join(lines)
 
 
-def _coerce_competitors(raw: Any, discovered: list[str]) -> list[str]:
-    """Ensure competitors is a non-empty list of non-empty strings (Q4)."""
+def _coerce_competitors(raw: Any, discovered: list[str], must_include: list[str] | None = None) -> list[str]:
+    """Ensure competitors is a non-empty list of non-empty strings (Q4).
+
+    v0.2.8: ``must_include`` (query-listed/user-selected brands) are prepended
+    if absent — guarantees the user's explicitly-listed products are searched
+    even when the LLM omits them. Dedup preserve-order, cap 6.
+    """
+    must_include = [str(b).strip() for b in (must_include or []) if str(b).strip()]
+    comps: list[str] = []
     if isinstance(raw, list):
         comps = [str(c).strip() for c in raw if str(c).strip()]
-        if comps:
-            return comps
-    if discovered:
-        return discovered[:3]
+    # merge: must_include first (user/query intent), then LLM comps, then discovered; dedup
+    merged: list[str] = []
+    for b in must_include + comps + discovered:
+        if b and b not in merged:
+            merged.append(b)
+    if merged:
+        return merged[:6]
     return []
 
 
