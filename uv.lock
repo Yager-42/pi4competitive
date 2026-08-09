@@ -103,7 +103,7 @@ requires-dist = [
 
 [[package]]
 name = "earendil-works-pi-agent"
-version = "0.81.1"
+version = "0.81.2"
 source = { editable = "packages/agent" }
 dependencies = [
     { name = "anyio" },

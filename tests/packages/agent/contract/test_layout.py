@@ -13,7 +13,7 @@ def test_import_name_earendil_works_pi_agent() -> None:
     import earendil_works.pi_agent as pi_agent
 
     assert pi_agent.__name__ == "earendil_works.pi_agent"
-    assert pi_agent.__version__ == "0.81.1"
+    assert pi_agent.__version__ == "0.81.2"
 
 
 def test_pi_ai_still_importable() -> None:

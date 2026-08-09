@@ -332,7 +332,6 @@ class _HarnessFactory(HarnessFactory):
         ExtensionRuntime is never attached.
         """
         from earendil_works.pi_agent.extensions import (
-            attach_extension_runtime,
             create_extension_runtime,
             load_extension_from_factory,
         )
@@ -373,11 +372,32 @@ class _HarnessFactory(HarnessFactory):
             )
             factory = make_extraction_extension_factory(intake)
             runtime = create_extension_runtime()
-            extension = await load_extension_from_factory(
+            extraction_ext = await load_extension_from_factory(
                 factory, "ephemeral", runtime, "<extraction>"
             )
-            result = LoadExtensionsResult(extensions=[extension], errors=[], runtime=runtime)
-            attach_extension_runtime(harness.agent, result, "ephemeral")
+            # A1 (research-workflow v0.2.9): mount reasonix alongside Extraction
+            # so the sub-agent can compact between rounds. Loaded FRESH per
+            # harness — reasonix ``_State`` (epoch/baseline/pending_auto) is
+            # per-session; reusing one cached Extension across parallel
+            # sub-agents would share compaction state and corrupt decisions.
+            extensions: list[Any] = [extraction_ext]
+            try:
+                reasonix_report = await load_capability_packages(
+                    enabled=["reasonix_prefix_cache"]
+                )
+            except Exception:  # noqa: BLE001 — capability load is best-effort
+                reasonix_report = None
+            if reasonix_report and reasonix_report.extension_result:
+                extensions.extend(reasonix_report.extension_result.extensions)
+            result = LoadExtensionsResult(
+                extensions=extensions, errors=[], runtime=runtime
+            )
+            # attach_extension_runtime_and_rebind (ADR 0016): attach the runner
+            # AND rebind context_actions (getContextUsage/compact) to it. A bare
+            # attach_extension_runtime leaves Agent.set_extension_runner's
+            # DEFAULTS in place (getContextUsage=lambda: None) → reasonix
+            # turn_end sees None → compaction never fires.
+            harness.attach_extension_runtime_and_rebind(result, "ephemeral")
         await self._attach_journal_extension(harness.agent)
         return harness, intake
 

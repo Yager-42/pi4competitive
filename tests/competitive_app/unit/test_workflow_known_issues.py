@@ -147,7 +147,7 @@ async def test_cancelled_prompt_still_flushes_intake() -> None:
     engine._journal_append = lambda *_args, **_kwargs: None
     engine._skill_composer = None
 
-    async def cancelled(self, *_args):
+    async def cancelled(self, *_args, **_kwargs):
         raise asyncio.CancelledError
 
     engine._run_subagent_prompt = MethodType(cancelled, engine)

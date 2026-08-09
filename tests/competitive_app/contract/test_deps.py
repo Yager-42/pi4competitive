@@ -94,6 +94,11 @@ def test_workflow_code_in_competitive_app_not_packages() -> None:
         "packages/agent/src/earendil_works/pi_agent/harness/agent_harness.py",
         "packages/agent/src/earendil_works/pi_agent/tool_execution.py",
         "packages/agent/src/earendil_works/pi_agent/types.py",
+        # ADR 0016 — AgentHarness.attach_extension_runtime_and_rebind (late-attach
+        # extension + rebind context_actions). pi_agent 0.81.1→0.81.2 (patch,
+        # additive public method). __init__.py (version) + agent_harness.py
+        # (method) are listed above; pyproject.toml carries the version bump.
+        "packages/agent/pyproject.toml",
         # Frozen package known-issues fixes (2026-08-04): local capability
         # collection/manifest containment, package loading, and association
         # hardening. These preserve the package API and host boundary.

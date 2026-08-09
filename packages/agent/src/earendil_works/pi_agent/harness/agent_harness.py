@@ -88,6 +88,30 @@ class AgentHarness:
             "compact": request_compaction,
         })
 
+    def attach_extension_runtime_and_rebind(
+        self, result: Any, cwd: str, *, replace: bool = False
+    ) -> Any:
+        """Attach one loaded extension runtime, then rebind core context_actions.
+
+        ADR 0016. Fixes ephemeral sub-agents that attach an extension AFTER
+        ``__init__``: ``_bind_extension_context`` runs in ``__init__`` while
+        ``extension_runner`` is still None (no ``capability_report`` applied yet)
+        → returns early → ``getContextUsage``/``compact`` are never bound → a
+        late-attached extension (e.g. reasonix on a sub-agent) calls
+        ``ctx.getContextUsage()`` and gets None → compaction never fires
+        (proven by experiment C).
+
+        This wraps ``attach_extension_runtime`` (attach a runner) +
+        ``_bind_extension_context`` (rebind context_actions to that runner) so a
+        late-attached runner is fully usable. ``attach_extension_runtime`` and
+        ``_bind_extension_context`` are unchanged.
+        """
+        from earendil_works.pi_agent.extensions import attach_extension_runtime
+
+        runner = attach_extension_runtime(self.agent, result, cwd, replace=replace)
+        self._bind_extension_context()
+        return runner
+
     async def _on_event(self, event: AgentEvent, signal: Any) -> None:
         if event.get("type") == "message_end":
             message = event.get("message")

@@ -30,6 +30,7 @@ from ...domain.socm import (
     EntityType,
     SOCMState,
 )
+from ...domain.socm.coverage import CellStatus
 from .extraction import current_subtask
 from .profiles import is_search_tool
 from .stage_outputs import last_usage, model_name
@@ -452,7 +453,7 @@ class CoverageEngine:
             # ContextVar: tell the Extraction extension which entity to extract for.
             current_subtask.set(subtask)
             try:
-                await self._run_subagent_prompt(harness, agent, state, subtask)
+                await self._run_subagent_prompt(harness, agent, state, subtask, intake=intake)
             finally:
                 # Drain even when the prompt is cancelled or raises, so fetched
                 # observations are never silently discarded.
@@ -475,7 +476,9 @@ class CoverageEngine:
                 pass
 
     async def _run_subagent_prompt(
-        self, harness: Any, agent: Any, state: SOCMState, subtask: dict[str, Any]
+        self, harness: Any, agent: Any, state: SOCMState, subtask: dict[str, Any],
+        *,
+        intake: Any = None,
     ) -> None:
         base_prompt = _SEARCH_RUNTIME_PROMPT
         if self._skill_composer is not None:
@@ -486,36 +489,77 @@ class CoverageEngine:
             )
         else:
             agent.state.systemPrompt = base_prompt
-        prompt = _build_subagent_prompt(state, subtask)
         entity_id = subtask.get("entity_id", "")
+
+        # Round 1: search all target cells (single ReAct prompt — ≈ v0.2.8).
+        if not await self._prompt_once(harness, agent, state, subtask, entity_id, round_no=1):
+            return
+        if intake is None:
+            return
+
+        # research-workflow v0.2.9 (A1): round 2 supplements cells round 1 left
+        # EMPTY. A second ``harness.prompt`` appends a second user message so the
+        # session is no longer single-turn — reasonix now sees an active turn
+        # (round 2) with an older turn (round 1) it can fold, which is what lets
+        # compaction produce an entry on a sub-agent (previously
+        # activeTurnEntryIds=ALL → fold=∅ → no compaction entry). Flush round-1
+        # findings into SOCM first so the empty-cell check reflects them.
+        try:
+            await intake.flush()
+        except Exception:  # noqa: BLE001
+            _log.exception("round-1 intake flush failed for subtask %s", subtask.get("question"))
+            return
+        after = await self._socm_store.load(self._session_id)
+        empty_cells = _empty_target_cells(after, subtask.get("target_cells", []))
+        if not empty_cells:
+            # All target cells filled/terminal — skip round 2 (single-turn).
+            return
+        subtask2 = {
+            **subtask,
+            "target_cells": empty_cells,
+            "question": f"Supplement empty cells for {entity_id}: {', '.join(empty_cells)}",
+        }
+        await self._prompt_once(harness, agent, after, subtask2, entity_id, round_no=2)
+
+    async def _prompt_once(
+        self, harness: Any, agent: Any, state: SOCMState, subtask: dict[str, Any],
+        entity_id: str, *, round_no: int,
+    ) -> bool:
+        """Run one ``harness.prompt`` + emit a trace span. Returns True on success."""
+        prompt = _build_subagent_prompt(state, subtask)
         t0 = time.monotonic()
         try:
             await harness.prompt(prompt)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
-            _log.exception("sub-agent prompt failed for subtask %s", subtask.get("question"))
+            _log.exception(
+                "sub-agent prompt failed (round %d) for subtask %s",
+                round_no, subtask.get("question"),
+            )
             self._journal_append(
                 "help.requested",
                 {
-                    "reason": "subagent_llm_failure",
-                    "entity": subtask.get("entity_id", ""),
+                    "reason": f"subagent_llm_failure_round{round_no}",
+                    "entity": entity_id,
                     "task_id": self._task_id,
                 },
             )
-            return
+            return False
         # v0.2.2 trace: record a span for the sub-agent LLM call.
         usage = last_usage(agent.state.messages)
         await self._emit_event(
             "span",
             {
                 "kind": "subagent", "stage": "search", "task_id": self._task_id,
-                "entity": entity_id, "model": model_name(getattr(agent.state, "model", {})),
+                "entity": entity_id, "round": round_no,
+                "model": model_name(getattr(agent.state, "model", {})),
                 "prompt_tokens": int(usage.get("input", 0) or 0),
                 "completion_tokens": int(usage.get("output", 0) or 0),
                 "latency_ms": int((time.monotonic() - t0) * 1000),
             },
         )
+        return True
     async def _update_projection(self) -> None:
         state = await self._socm_store.load(self._session_id)
         task = await self._store.get_task(self._task_id)
@@ -658,6 +702,21 @@ def _build_subagent_prompt(state: SOCMState, subtask: dict[str, Any]) -> str:
         f"Return JSON: {{\"evidence\": [{{\"source\": \"<url>\", \"content\": \"<finding>\"}}]}}. "
         f"If no evidence found for a cell, return {{\"evidence\": []}} — do NOT fabricate values."
     )
+
+
+def _empty_target_cells(state: SOCMState, target_cells: list[str]) -> list[str]:
+    """Target cells still EMPTY after a round (research-workflow v0.2.9 round-2 set).
+
+    UNKNOWN/CONFLICT/FILLED are terminal (don't re-search — matches the engine's
+    ``actionable_cells`` dispatch policy). Only never-attempted EMPTY cells get a
+    round-2 supplement. ``target_cells`` are ``entity.attribute`` keys.
+    """
+    out: list[str] = []
+    for key in target_cells:
+        cell = state.coverage_map.cells.get(key)
+        if cell is None or cell.status == CellStatus.EMPTY:
+            out.append(key)
+    return out
 
 
 _SEARCH_RUNTIME_PROMPT = "You are a search sub-agent. Find pages and fetch them to fill coverage cells."

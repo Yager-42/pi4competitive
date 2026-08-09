@@ -150,4 +150,4 @@ __all__ = [
     "wrap_registered_tools",
 ]
 
-__version__ = "0.81.1"
+__version__ = "0.81.2"
