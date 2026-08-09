@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ..exceptions import SandboxCommandError, SandboxRuntimeError
+from .network_policy import validate_public_hostname
 from ..protocol import (
     FrameSequence,
     MAX_DIAGNOSTIC_BYTES,
@@ -102,6 +103,30 @@ def _additional_allow_read(env: dict[str, str] | None) -> list[str]:
             continue  # interpreter root is already allow-read
         roots.append(entry)
     return roots
+
+
+async def _public_host_review_domain(endpoint: Any, resolve: Any = None) -> str:
+    """Network approval gate for sandboxed workers (FIX: search provider calls).
+
+    The runner's default action is ``deny`` when ``review_domain`` is unset,
+    which blocks all outbound provider calls (tavily/anysearch/grok) with SRT
+    proxy 403. Allow any host that resolves to a public address; deny private
+    / mixed / unresolvable (fail closed). Search provider domains are public.
+
+    ``resolve`` is injectable for tests (defaults to real DNS).
+    """
+    hostname = ""
+    if isinstance(endpoint, dict):
+        hostname = str(endpoint.get("hostname", "") or "")
+    else:
+        hostname = str(getattr(endpoint, "hostname", "") or "")
+    if not hostname:
+        return "deny"
+    try:
+        normalized = await validate_public_hostname(hostname, resolve)
+    except Exception:  # noqa: BLE001 — fail closed
+        return "deny"
+    return "allow" if normalized else "deny"
 
 
 class NativeRuntime:
@@ -270,6 +295,7 @@ class NativeRuntime:
                     on_stderr=consume_stderr,
                     broker=self._broker,
                     policy=policy,
+                    review_domain=_public_host_review_domain,
                     pass_fds=tuple(
                         fd for fd in (self._workspace_fd, self._manifest_fd)
                         if fd is not None
