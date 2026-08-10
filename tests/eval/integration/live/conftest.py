@@ -4,6 +4,7 @@ Reuses tests/live_env.py for env-gating (L2) + creds. Live tests need both a
 provider key (OPENAI_API_KEY) and competitive_app running on :8000 — otherwise
 they skip. TAVILY_API_KEY gates the search-backed cases (D8).
 """
+
 from __future__ import annotations
 
 import os
@@ -53,7 +54,7 @@ def app_running():
                 "competitive_app not healthy on :8000 "
                 "(start with: uv run competitive_app serve --port 8000)"
             )
-    except Exception:
+    except httpx.HTTPError:
         pytest.skip(
             "competitive_app not running on :8000 "
             "(start with: uv run competitive_app serve --port 8000)"

@@ -1,10 +1,10 @@
 """http_client: W1 POST /tasks + poll + GET report (D4)."""
+
 from __future__ import annotations
 
-import pytest
 import httpx
-
-from eval.runner.http_client import CompetitiveAppClient, TaskResult
+import pytest
+from eval.runner.http_client import CompetitiveAppClient
 
 
 @pytest.mark.asyncio

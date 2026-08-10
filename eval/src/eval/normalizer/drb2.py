@@ -1,4 +1,5 @@
 """DRB II normalizer (D1 C2-wide: reserved shape, not wired)."""
+
 from __future__ import annotations
 
 

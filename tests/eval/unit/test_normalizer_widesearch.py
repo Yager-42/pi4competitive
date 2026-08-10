@@ -1,4 +1,5 @@
 """WideSearch normalizer: report.md -> WideSearchResponse JSONL (D10 N1)."""
+
 from __future__ import annotations
 
 import json

@@ -14,6 +14,7 @@ the real API as read from:
   - packages/agent/.../agent.py Agent.prompt / wait_for_idle / state.messages
   - packages/agent/.../package_manager load_capability_packages → LoadReport.tools
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -89,7 +90,9 @@ def create_single_agent_app() -> FastAPI:
     return app
 
 
-async def _run_single_agent(task_id: str, brief: _Brief, overrides: dict[str, Any]) -> dict[str, Any]:
+async def _run_single_agent(
+    task_id: str, brief: _Brief, overrides: dict[str, Any]
+) -> dict[str, Any]:
     """Build harness via _HarnessFactory + search_tavily, run bare agent_loop.
 
     D6 闸1: only search_tavily loaded, no coding tools.
@@ -129,9 +132,7 @@ async def _wired_run(brief: _Brief, max_search: int, max_fetch: int, max_wall: i
     from earendil_works.pi_ai.providers.openai import openai_provider
 
     # D6 闸1: only search_tavily, no coding tools (create_read_tool etc.)
-    cap_root = os.environ.get(
-        "CAPABILITY_PACKAGES_ROOT", "capability_packages"
-    )
+    cap_root = os.environ.get("CAPABILITY_PACKAGES_ROOT", "capability_packages")
     report = await load_capability_packages(root=cap_root, enabled=["search_tavily"])
     tools: list[Any] = list(getattr(report, "tools", []) or [])
 
@@ -146,18 +147,22 @@ async def _wired_run(brief: _Brief, max_search: int, max_fetch: int, max_wall: i
     if model_id:
         # resolve via the static catalog if present
         candidates = [m for m in models.getModels() if m.get("id") == model_id]
-        model: dict[str, Any] = candidates[0] if candidates else {
-            "id": model_id,
-            "name": model_id,
-            "api": "openai-completions",
-            "provider": "openai",
-            "baseUrl": os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1",
-            "reasoning": False,
-            "input": ["text", "image"],
-            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-            "contextWindow": int(os.environ.get("MODEL_CONTEXT_WINDOW_TOKENS") or "128000"),
-            "maxTokens": 8192,
-        }
+        model: dict[str, Any] = (
+            candidates[0]
+            if candidates
+            else {
+                "id": model_id,
+                "name": model_id,
+                "api": "openai-completions",
+                "provider": "openai",
+                "baseUrl": os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1",
+                "reasoning": False,
+                "input": ["text", "image"],
+                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                "contextWindow": int(os.environ.get("MODEL_CONTEXT_WINDOW_TOKENS") or "128000"),
+                "maxTokens": 8192,
+            }
+        )
     else:
         # fall back to the first catalog model (Task 13 will pin a real id)
         catalog = models.getModels()

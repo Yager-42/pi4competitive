@@ -3,6 +3,7 @@
 orchestrator 起独立 competitive_app 进程, 本 client 打 POST /tasks + poll
 GET /tasks/{id} + GET /reports/{id}. 总 wall-clock guard 到 timeout abort.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -85,9 +86,7 @@ class CompetitiveAppClient:
             except httpx.HTTPError:
                 pass
 
-            failure_stage = (
-                projection.get("first_non_ok_stage") if status != "completed" else None
-            )
+            failure_stage = projection.get("first_non_ok_stage") if status != "completed" else None
             return TaskResult(
                 task_id=task_id,
                 terminal_status=status,

@@ -1,8 +1,8 @@
 """budget_guard: wrap search/fetch tools, count + reject over budget (D7)."""
+
 from __future__ import annotations
 
 import pytest
-
 from eval.runner.budget_guard import BudgetGuard, wrap_tools_with_budget
 
 

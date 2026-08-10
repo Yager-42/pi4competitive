@@ -3,6 +3,7 @@
 wrap tavily_search/tavily_fetch, 计 search_count/fetch_count, 超额返回
 budget_exhausted error (让 agent 收手). 其他工具 (echo 等) 原样透传.
 """
+
 from __future__ import annotations
 
 import copy
@@ -66,9 +67,14 @@ def _wrap_tool(tool: Any, guard: BudgetGuard, *, is_search: bool) -> Any:
 
 def _budget_exhausted_result(kind: str, guard: BudgetGuard) -> dict[str, Any]:
     return {
-        "content": [{"type": "text", "text": f"budget_exhausted: {kind} limit reached "
-                                             f"(search={guard.search_count}/{guard.max_search}, "
-                                             f"fetch={guard.fetch_count}/{guard.max_fetch})"}],
+        "content": [
+            {
+                "type": "text",
+                "text": f"budget_exhausted: {kind} limit reached "
+                f"(search={guard.search_count}/{guard.max_search}, "
+                f"fetch={guard.fetch_count}/{guard.max_fetch})",
+            }
+        ],
         "details": {"budget_exhausted": True, "kind": kind},
     }
 

@@ -1,4 +1,5 @@
 """DRB II input adapter (D1 C2-wide: reserved shape, not wired)."""
+
 from __future__ import annotations
 
 

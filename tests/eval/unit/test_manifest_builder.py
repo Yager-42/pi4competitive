@@ -1,10 +1,11 @@
 """manifest_builder: hand-curated manifest + candidate helper (D5 S4 adjusted)."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from eval.manifest_builder import load_smoke_manifest, list_candidate_cases
+from eval.manifest_builder import list_candidate_cases, load_smoke_manifest
 
 
 def _ws_jsonl(path: Path, rows: list[dict]):
@@ -37,16 +38,20 @@ def test_load_smoke_manifest_returns_5_curated_cases():
 
 def test_list_candidate_cases_finds_multi_entity_queries(tmp_path: Path):
     src = tmp_path / "widesearch.jsonl"
-    _ws_jsonl(src, [
-        _row(
-            "ws_en_001",
-            "Map portfolios of Johnnie Walker, Chivas Regal, Smirnoff brands.",
-            ["brand"],
-        ),
-        _row("ws_en_002", "List the top universities by ranking.", ["name"]),  # few proper nouns
-    ])
+    _ws_jsonl(
+        src,
+        [
+            _row(
+                "ws_en_001",
+                "Map portfolios of Johnnie Walker, Chivas Regal, Smirnoff brands.",
+                ["brand"],
+            ),
+            _row(
+                "ws_en_002", "List the top universities by ranking.", ["name"]
+            ),  # few proper nouns
+        ],
+    )
     candidates = list_candidate_cases(src, min_proper=3)
-    ids = [c["instance_id"] for c in candidates]
     # ws_en_001 has 3+ proper nouns (Johnnie Walker, Chivas Regal, Smirnoff); ws_en_002 has few
     # Note: heuristic is loose — just verify it returns a list of dicts with instance_id
     assert isinstance(candidates, list)
@@ -57,8 +62,11 @@ def test_list_candidate_cases_finds_multi_entity_queries(tmp_path: Path):
 
 def test_list_candidate_cases_skips_non_english(tmp_path: Path):
     src = tmp_path / "widesearch.jsonl"
-    _ws_jsonl(src, [
-        _row("ws_zh_001", "Johnnie Walker Chivas Regal Smirnoff brands", ["brand"], lang="zh"),
-    ])
+    _ws_jsonl(
+        src,
+        [
+            _row("ws_zh_001", "Johnnie Walker Chivas Regal Smirnoff brands", ["brand"], lang="zh"),
+        ],
+    )
     candidates = list_candidate_cases(src)
     assert len(candidates) == 0  # zh skipped

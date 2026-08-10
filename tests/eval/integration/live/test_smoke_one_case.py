@@ -18,10 +18,10 @@ To run locally:
     # shell 2
     uv run pytest tests/eval/integration/live/test_smoke_one_case.py -v -m live
 """
+
 from __future__ import annotations
 
 import pytest
-
 from eval.runner.http_client import CompetitiveAppClient
 
 

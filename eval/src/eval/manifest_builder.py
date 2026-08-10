@@ -6,6 +6,7 @@ human curation aligns with benchmark doc §3.2 'versioned manifest, no ad-hoc
 case changes'). This module loads the curated manifest and provides a helper
 to list candidate cases for future Pilot/Business subset curation.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,12 +18,46 @@ from eval.manifest import CaseManifest, load_manifest
 
 _PROPER_NOUN = re.compile(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\b")
 _STOP = {
-    "I", "Could", "Please", "The", "My", "We", "Our", "This", "That",
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    "US", "UK", "EU", "NY", "LA",
-    "January", "February", "March", "April", "June", "July", "August", "September",
-    "October", "November", "December",
-    "Markdown", "Note", "Notes",
+    "I",
+    "Could",
+    "Please",
+    "The",
+    "My",
+    "We",
+    "Our",
+    "This",
+    "That",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+    "US",
+    "UK",
+    "EU",
+    "NY",
+    "LA",
+    "January",
+    "February",
+    "March",
+    "April",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+    "Markdown",
+    "Note",
+    "Notes",
 }
 
 
@@ -54,12 +89,14 @@ def list_candidate_cases(src: Path | str, *, min_proper: int = 3) -> list[dict[s
             proper = [m for m in matches if m.split()[0] not in _STOP and len(m) >= 3]
             unique = list(dict.fromkeys(proper))
             if len(unique) >= min_proper:
-                candidates.append({
-                    "instance_id": row["instance_id"],
-                    "proper_nouns": unique[:8],
-                    "query_preview": q[:120],
-                })
+                candidates.append(
+                    {
+                        "instance_id": row["instance_id"],
+                        "proper_nouns": unique[:8],
+                        "query_preview": q[:120],
+                    }
+                )
     return candidates
 
 
-__all__ = ["load_smoke_manifest", "list_candidate_cases"]
+__all__ = ["list_candidate_cases", "load_smoke_manifest"]

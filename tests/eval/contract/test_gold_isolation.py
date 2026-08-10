@@ -4,6 +4,7 @@
 import widesearch_gold 路径或含 data/benchmarks gold 路径字符串. evaluator 独立,
 允许调官方 scorer (subprocess), 但不直接 open() gold CSV.
 """
+
 from __future__ import annotations
 
 import ast
@@ -89,7 +90,11 @@ def test_evaluator_does_not_open_gold_csv():
         return  # not built yet; skip
     tree = ast.parse(ev.read_text(encoding="utf-8"), filename=str(ev))
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open":
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "open"
+        ):
             for arg in node.args:
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     assert "widesearch_gold" not in arg.value, "evaluator opens gold CSV directly"

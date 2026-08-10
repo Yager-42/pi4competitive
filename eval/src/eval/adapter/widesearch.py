@@ -4,6 +4,7 @@
 (公开要求), 不读 gold CSV cell. competitors 从 query 文本启发式抽取明确点名
 的实体 (S4 规则: 必须 >=1, 否则 raise).
 """
+
 from __future__ import annotations
 
 import json
@@ -71,4 +72,4 @@ def build_case_manifest(row: dict[str, Any], benchmark_revision: str) -> CaseMan
     )
 
 
-__all__ = ["parse_widesearch_row", "build_case_manifest"]
+__all__ = ["build_case_manifest", "parse_widesearch_row"]

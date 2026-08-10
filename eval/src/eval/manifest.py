@@ -7,6 +7,7 @@ ManifestResearchBrief 镜像 competitive_app.domain.research_brief.ResearchBrief
 (target/goal/competitors/dimensions, min_length 约束对齐), 但为 eval 包自有类型,
 不 import competitive_app.domain, 避免跨包耦合。
 """
+
 from __future__ import annotations
 
 import json

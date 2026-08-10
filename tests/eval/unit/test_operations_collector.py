@@ -1,10 +1,11 @@
 """operations_collector: events.jsonl + projection + SOCM -> operations.json (D11)."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from eval.operations.collector import collect_operations, OperationsResult
+from eval.operations.collector import collect_operations
 
 
 def _events_jsonl(path: Path, events: list[dict]):
@@ -24,6 +25,7 @@ def test_collect_counts_search_fetch_calls():
         {"event_type": "agent.finished"},
     ]
     import tempfile
+
     with tempfile.TemporaryDirectory() as d:
         ej = Path(d) / "events.jsonl"
         _events_jsonl(ej, events)
@@ -42,6 +44,7 @@ def test_collect_counts_search_fetch_calls():
 
 def test_collect_handles_missing_socm():
     import tempfile
+
     with tempfile.TemporaryDirectory() as d:
         ej = Path(d) / "events.jsonl"
         _events_jsonl(ej, [{"event_type": "agent.started"}])
@@ -52,11 +55,21 @@ def test_collect_handles_missing_socm():
 
 def test_collect_distinct_domains():
     events = [
-        {"event_type": "tool.finished", "payload": {"name": "tavily_fetch", "url": "https://a.com/x"}},
-        {"event_type": "tool.finished", "payload": {"name": "tavily_fetch", "url": "https://a.com/y"}},
-        {"event_type": "tool.finished", "payload": {"name": "tavily_fetch", "url": "https://b.com/z"}},
+        {
+            "event_type": "tool.finished",
+            "payload": {"name": "tavily_fetch", "url": "https://a.com/x"},
+        },
+        {
+            "event_type": "tool.finished",
+            "payload": {"name": "tavily_fetch", "url": "https://a.com/y"},
+        },
+        {
+            "event_type": "tool.finished",
+            "payload": {"name": "tavily_fetch", "url": "https://b.com/z"},
+        },
     ]
     import tempfile
+
     with tempfile.TemporaryDirectory() as d:
         ej = Path(d) / "events.jsonl"
         _events_jsonl(ej, events)

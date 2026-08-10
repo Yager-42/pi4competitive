@@ -1,4 +1,5 @@
 """CLI entry: uv run python -m eval --stage smoke (D12)."""
+
 from __future__ import annotations
 
 import argparse
@@ -23,10 +24,14 @@ def main() -> int:
         return 2
 
     variants = args.variants.split(",")
-    run_id = asyncio.run(run_smoke(
-        manifest_path=args.manifest, variants=variants,
-        app_url=args.app_url, a1_url=args.a1_url,
-    ))
+    run_id = asyncio.run(
+        run_smoke(
+            manifest_path=args.manifest,
+            variants=variants,
+            app_url=args.app_url,
+            a1_url=args.a1_url,
+        )
+    )
     print(f"run complete: {run_id}")
     print(f"  data/evaluations/{run_id}/scores/widesearch.jsonl")
     print(f"  data/evaluations/{run_id}/scores/paired_deltas.json")

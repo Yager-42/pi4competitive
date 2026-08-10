@@ -1,13 +1,13 @@
 """CaseManifest schema + loader tests (D5)."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
 from eval.manifest import CaseManifest, load_manifest
+from pydantic import ValidationError
 
 
 def _sample_case(case_id: str = "ws_en_001") -> dict:
@@ -55,8 +55,7 @@ def test_case_manifest_rejects_unknown_benchmark():
 def test_load_manifest_reads_jsonl(tmp_path: Path):
     p = tmp_path / "manifest.jsonl"
     content = (
-        json.dumps(_sample_case("ws_en_001")) + "\n"
-        + json.dumps(_sample_case("ws_en_002")) + "\n"
+        json.dumps(_sample_case("ws_en_001")) + "\n" + json.dumps(_sample_case("ws_en_002")) + "\n"
     )
     p.write_text(content, encoding="utf-8")
     cases = load_manifest(p)

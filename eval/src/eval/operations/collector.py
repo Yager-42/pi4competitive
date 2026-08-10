@@ -4,10 +4,11 @@
 产 operations.json: search/fetch 数, fallback 次数, terminal status,
 coverage cells, distinct domains, evidence count, 失败阶段.
 """
+
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -71,7 +72,7 @@ def collect_operations(
                 if url:
                     try:
                         domains.add(urlparse(url).netloc)
-                    except Exception:
+                    except (ValueError, TypeError):
                         pass
             elif et.startswith("llm.fallback"):
                 if et in ("llm.fallback_switch", "llm.fallback_start"):

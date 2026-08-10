@@ -4,6 +4,7 @@ report.md -> 确定性 Markdown table 提取 -> WideSearchResponse JSONL.
 规则 (基准文档 §5.3): 找含 required headers 的表; 多候选取 header 覆盖最高;
 找不到留空 response (F5 -> scorer 0 分); 禁 LLM 修复.
 """
+
 from __future__ import annotations
 
 import json

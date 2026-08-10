@@ -9,13 +9,14 @@ Flow (基准文档 §10):
 4. all runs done -> start evaluator (D6 闸3, §10.2.6)
 5. parse scores -> paired deltas -> summary
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import os
 import subprocess
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -61,21 +62,45 @@ def run_id_for_stage(*, stage: str, benchmark: str, manifest_revision: str, shor
 
 
 def build_run_manifest(
-    *, stage, benchmark, repo_commit, repo_dirty, benchmark_revision, manifest_revision,
-    model, provider, base_url, eval_model_config_name, search_provider, budget,
-    variants, repetitions,
+    *,
+    stage,
+    benchmark,
+    repo_commit,
+    repo_dirty,
+    benchmark_revision,
+    manifest_revision,
+    model,
+    provider,
+    base_url,
+    eval_model_config_name,
+    search_provider,
+    budget,
+    variants,
+    repetitions,
 ) -> RunManifest:
     return RunManifest(
-        stage=stage, benchmark=benchmark, repo_commit=repo_commit, repo_dirty=repo_dirty,
-        benchmark_revision=benchmark_revision, manifest_revision=manifest_revision,
-        model=model, provider=provider, base_url=base_url,
-        eval_model_config_name=eval_model_config_name, search_provider=search_provider,
-        budget=budget, variants=variants, repetitions=repetitions,
+        stage=stage,
+        benchmark=benchmark,
+        repo_commit=repo_commit,
+        repo_dirty=repo_dirty,
+        benchmark_revision=benchmark_revision,
+        manifest_revision=manifest_revision,
+        model=model,
+        provider=provider,
+        base_url=base_url,
+        eval_model_config_name=eval_model_config_name,
+        search_provider=search_provider,
+        budget=budget,
+        variants=variants,
+        repetitions=repetitions,
     )
 
 
 def compute_paired_deltas(
-    *, a1_rows: list, a2_rows: list, metric: str,
+    *,
+    a1_rows: list,
+    a2_rows: list,
+    metric: str,
 ) -> list[PairedDelta]:
     """A2 - A1 per case (基准文档 §2.1). null (F6) -> delta None."""
     a1_by = {r.instance_id: r for r in a1_rows}
@@ -108,19 +133,24 @@ async def run_smoke(
     Integration: drives A2 (competitive_app) + A1 (single_agent service) over HTTP,
     normalizes reports, runs evaluator, computes paired deltas + summary.
     """
+    from eval.evaluator.widesearch import build_scorer_command, parse_scores, run_scorer
     from eval.manifest import load_manifest
-    from eval.runner.http_client import CompetitiveAppClient
     from eval.normalizer.widesearch import normalize_report
-    from eval.evaluator.widesearch import build_scorer_command, run_scorer, parse_scores
+    from eval.runner.http_client import CompetitiveAppClient
 
     budget = budget or {"max_queries": 20, "max_fetches": 40, "max_wall_seconds": 720}
     cases = load_manifest(manifest_path)
-    repo_sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode().strip()
-    manifest_rev = subprocess.check_output(
-        ["git", "hash-object", str(manifest_path)]
-    ).decode().strip()[:7]
-    run_id = run_id_for_stage(stage="smoke", benchmark="widesearch",
-                              manifest_revision=manifest_rev, short_sha=repo_sha)
+    repo_sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode().strip()  # noqa: ASYNC221
+    manifest_rev = (
+        subprocess.check_output(  # noqa: ASYNC221
+            ["git", "hash-object", str(manifest_path)]
+        )
+        .decode()
+        .strip()[:7]
+    )
+    run_id = run_id_for_stage(
+        stage="smoke", benchmark="widesearch", manifest_revision=manifest_rev, short_sha=repo_sha
+    )
     run_dir = Path(out_root) / run_id
     (run_dir / "raw" / "widesearch").mkdir(parents=True, exist_ok=True)
     (run_dir / "normalized" / "widesearch_predictions").mkdir(parents=True, exist_ok=True)
@@ -136,8 +166,10 @@ async def run_smoke(
                 if variant == "a2":
                     result = await app_client.run_task(
                         research_brief=case.research_brief.model_dump(),
-                        search_overrides={"max_queries": budget["max_queries"],
-                                           "max_wall_seconds": budget["max_wall_seconds"]},
+                        search_overrides={
+                            "max_queries": budget["max_queries"],
+                            "max_wall_seconds": budget["max_wall_seconds"],
+                        },
                         timeout=900,
                     )
                     markdown = result.report_markdown
@@ -146,10 +178,13 @@ async def run_smoke(
                     terminal = result.terminal_status
                 else:  # a1
                     async with httpx.AsyncClient(base_url=a1_url, timeout=900) as ac:
-                        r = await ac.post("/eval/run", json={
-                            "research_brief": case.research_brief.model_dump(),
-                            "search_overrides": budget,
-                        })
+                        r = await ac.post(
+                            "/eval/run",
+                            json={
+                                "research_brief": case.research_brief.model_dump(),
+                                "search_overrides": budget,
+                            },
+                        )
                         task_id = r.json()["task_id"]
                         deadline = asyncio.get_event_loop().time() + 900
                         terminal = "running"
@@ -166,23 +201,37 @@ async def run_smoke(
                 # write raw (基准文档 §10.2.3)
                 raw_dir = run_dir / "raw" / "widesearch" / case.case_id / variant / "0"
                 raw_dir.mkdir(parents=True, exist_ok=True)
-                (raw_dir / "request.json").write_text(case.model_dump_json() + "\n", encoding="utf-8")
+                (raw_dir / "request.json").write_text(
+                    case.model_dump_json() + "\n", encoding="utf-8"
+                )
                 (raw_dir / "task_projection.json").write_text(
-                    json.dumps({"task_id": task_id, "status": terminal}) + "\n", encoding="utf-8")
+                    json.dumps({"task_id": task_id, "status": terminal}) + "\n", encoding="utf-8"
+                )
                 (raw_dir / "report.md").write_text(markdown, encoding="utf-8")
                 (raw_dir / "socm.json").write_text(
-                    json.dumps(socm) if socm else '{"variant": "%s", "note": "no SOCM"}' % variant,
-                    encoding="utf-8")
+                    json.dumps(socm) if socm else f'{{"variant": "{variant}", "note": "no SOCM"}}',
+                    encoding="utf-8",
+                )
 
     # 2. normalize (基准文档 §10.2.4)
     for case in cases:
         for variant in variants:
-            md = (run_dir / "raw" / "widesearch" / case.case_id / variant / "0" / "report.md").read_text(encoding="utf-8")
-            out = run_dir / "normalized" / "widesearch_predictions" / f"competitorlens_{variant}_{case.source_task_id}_0_response.jsonl"
+            md = (
+                run_dir / "raw" / "widesearch" / case.case_id / variant / "0" / "report.md"
+            ).read_text(encoding="utf-8")
+            out = (
+                run_dir
+                / "normalized"
+                / "widesearch_predictions"
+                / f"competitorlens_{variant}_{case.source_task_id}_0_response.jsonl"
+            )
             normalize_report(
-                report_md=md, required_headers=case.research_brief.dimensions,
-                instance_id=case.source_task_id, model_config_name=f"competitorlens_{variant}",
-                trial_idx=0, out_path=out,
+                report_md=md,
+                required_headers=case.research_brief.dimensions,
+                instance_id=case.source_task_id,
+                model_config_name=f"competitorlens_{variant}",
+                trial_idx=0,
+                out_path=out,
             )
 
     # 3. evaluator (基准文档 §10.3, all runs done first §10.2.6)
@@ -198,8 +247,11 @@ async def run_smoke(
             trial_num=1,
         )
         rc = run_scorer(cmd)
-        rows = parse_scores(raw_dir=run_dir / "scores" / "widesearch_raw",
-                            model_config_name=f"competitorlens_{variant}", trial_num=1)
+        rows = parse_scores(
+            raw_dir=run_dir / "scores" / "widesearch_raw",
+            model_config_name=f"competitorlens_{variant}",
+            trial_num=1,
+        )
         all_rows.extend(rows)
         last_cmd = cmd
         last_rc = rc
@@ -210,9 +262,12 @@ async def run_smoke(
     deltas = compute_paired_deltas(a1_rows=a1_rows, a2_rows=a2_rows, metric="f1_by_item")
 
     (run_dir / "scores" / "paired_deltas.json").write_text(
-        json.dumps([asdict(d) for d in deltas], ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps([asdict(d) for d in deltas], ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     (run_dir / "scores" / "widesearch.jsonl").write_text(
-        "\n".join(json.dumps(asdict(r), ensure_ascii=False) for r in all_rows) + "\n", encoding="utf-8")
+        "\n".join(json.dumps(asdict(r), ensure_ascii=False) for r in all_rows) + "\n",
+        encoding="utf-8",
+    )
 
     # summary (mean@1, 基准文档 §12.3)
     a1_valid = [r.f1_by_item for r in a1_rows if r.f1_by_item is not None]
@@ -227,32 +282,41 @@ async def run_smoke(
         "paired_delta_mean": sum(deltas_valid) / max(1, len(deltas_valid)),
     }
     (run_dir / "summary" / "metrics.json").write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     # manifest (基准文档 §12.7)
     manifest = build_run_manifest(
-        stage="smoke", benchmark="widesearch",
+        stage="smoke",
+        benchmark="widesearch",
         repo_commit=repo_sha,
-        repo_dirty=bool(subprocess.check_output(["git", "status", "--porcelain"]).decode().strip()),
+        repo_dirty=bool(subprocess.check_output(["git", "status", "--porcelain"]).decode().strip()),  # noqa: ASYNC221
         benchmark_revision=_read_ws_sha(),
         manifest_revision=manifest_rev,
-        model="deepseek-v4-flash", provider="openai",
+        model="deepseek-v4-flash",
+        provider="openai",
         base_url=os.environ.get("OPENAI_BASE_URL", ""),
-        eval_model_config_name="deepseek-v4-flash", search_provider="tavily",
-        budget=budget, variants=variants, repetitions=1,
+        eval_model_config_name="deepseek-v4-flash",
+        search_provider="tavily",
+        budget=budget,
+        variants=variants,
+        repetitions=1,
     )
     manifest.scorer_command = last_cmd
     manifest.scorer_exit_code = last_rc
     (run_dir / "manifest.json").write_text(
-        json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     return run_id
 
 
 def _read_ws_sha() -> str:
     """Read WideSearch repo SHA from REVISION.txt or WS_REPO_SHA.txt."""
-    for p in ("data/benchmarks/widesearch/WS_REPO_SHA.txt",
-              "data/benchmarks/widesearch/REVISION.txt"):
+    for p in (
+        "data/benchmarks/widesearch/WS_REPO_SHA.txt",
+        "data/benchmarks/widesearch/REVISION.txt",
+    ):
         try:
             text = Path(p).read_text(encoding="utf-8").strip()
             if "SHA:" in text:
@@ -265,5 +329,11 @@ def _read_ws_sha() -> str:
     return ""
 
 
-__all__ = ["RunManifest", "PairedDelta", "run_id_for_stage", "build_run_manifest",
-           "compute_paired_deltas", "run_smoke"]
+__all__ = [
+    "PairedDelta",
+    "RunManifest",
+    "build_run_manifest",
+    "compute_paired_deltas",
+    "run_id_for_stage",
+    "run_smoke",
+]
