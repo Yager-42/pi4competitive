@@ -32,8 +32,15 @@ live-3stage/
 sq-t1-3stage/
 sq-t2-3stage/
 
-# Vendor upstream checkout (fetched locally for port)
-vendor/
+# Vendor upstream checkout (fetched locally for port).
+# Use `vendor/*` (not `vendor/`) so specific subdirs can be whitelisted below —
+# git cannot descend into a fully-ignored directory to evaluate `!` exceptions.
+vendor/*
+# Exception: WideSearch benchmark code (sparse-checkout, Task 0 / eval harness).
+!vendor/widesearch/
+# Keep the nested WideSearch .git (its own object store) out of our repo.
+vendor/widesearch/.git/
+# Exception: sandbox native seccomp vendor
 !competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/
 competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/*
 !competitive_app/src/competitive_app/adapter/out/sandbox/native/vendor/**/
