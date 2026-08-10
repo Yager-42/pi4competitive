@@ -1,6 +1,8 @@
 # Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
 # SPDX-License-Identifier: MIT
 
+import os
+
 model_config = {
     "model_config_name": {
         "model_name": "MODEL_NAME",
@@ -31,6 +33,12 @@ model_config = {
         "generate_kwargs": {
             "max_tokens": 65535,
         },
+    },
+    "deepseek-v4-flash": {
+        "model_name": os.environ.get("OPENAI_MODEL", "deepseek-v4-flash"),
+        "base_url": os.environ.get("OPENAI_BASE_URL", "https://api.chatanywhere.tech") + "/v1",
+        "api_key": os.environ.get("OPENAI_API_KEY", ""),
+        "generate_kwargs": {"max_tokens": 65535},
     },
     "doubao-1.6-non-thinking": {  # for eval
         "model_name": "doubao-seed-1-6-250615",
@@ -82,9 +90,9 @@ model_config = {
         },
     },
     "default_eval_config": {
-        "model_name": "gpt-4.1-2025-04-14",
-        "base_url": "",
-        "api_key": "",
+        "model_name": os.environ.get("OPENAI_MODEL", "deepseek-v4-flash"),
+        "base_url": os.environ.get("OPENAI_BASE_URL", "https://api.chatanywhere.tech") + "/v1",
+        "api_key": os.environ.get("OPENAI_API_KEY", ""),
         "generate_kwargs": {
             "max_tokens": 10240,
         },
