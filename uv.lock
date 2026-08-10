@@ -7,6 +7,7 @@ members = [
     "competitive-app",
     "earendil-works-pi-agent",
     "earendil-works-pi-ai",
+    "eval",
     "pi4competitive",
 ]
 
@@ -136,6 +137,29 @@ requires-dist = [
 ]
 
 [[package]]
+name = "eval"
+version = "0.0.1"
+source = { editable = "eval" }
+dependencies = [
+    { name = "competitive-app" },
+    { name = "earendil-works-pi-agent" },
+    { name = "earendil-works-pi-ai" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "competitive-app", editable = "competitive_app" },
+    { name = "earendil-works-pi-agent", editable = "packages/agent" },
+    { name = "earendil-works-pi-ai", editable = "packages/ai" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pydantic", specifier = ">=2.9" },
+]
+
+[[package]]
 name = "fastapi"
 version = "0.140.0"
 source = { registry = "https://pypi.org/simple" }
@@ -223,6 +247,7 @@ dependencies = [
     { name = "competitive-app" },
     { name = "earendil-works-pi-agent" },
     { name = "earendil-works-pi-ai" },
+    { name = "eval" },
 ]
 
 [package.dev-dependencies]
@@ -237,6 +262,7 @@ requires-dist = [
     { name = "competitive-app", editable = "competitive_app" },
     { name = "earendil-works-pi-agent", editable = "packages/agent" },
     { name = "earendil-works-pi-ai", editable = "packages/ai" },
+    { name = "eval", editable = "eval" },
 ]
 
 [package.metadata.requires-dev]

@@ -1,0 +1,23 @@
+[project]
+name = "eval"
+version = "0.0.1"
+description = "CompetitorLens benchmark evaluation harness (WideSearch + DRB II)"
+requires-python = ">=3.12"
+dependencies = [
+  "httpx>=0.27",
+  "fastapi>=0.115",
+  "pydantic>=2.9",
+  "competitive_app",
+  "earendil-works-pi-agent",
+  "earendil-works-pi-ai",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/eval"]
+
+[tool.hatch.build]
+dev-mode-dirs = ["src"]
