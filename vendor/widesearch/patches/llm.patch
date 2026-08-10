@@ -1,0 +1,80 @@
+diff --git a/vendor/widesearch/src/utils/llm.py b/vendor/widesearch/src/utils/llm.py
+index cf4cb76..54766c4 100644
+--- a/vendor/widesearch/src/utils/llm.py
++++ b/vendor/widesearch/src/utils/llm.py
+@@ -4,7 +4,7 @@
+ from typing import Any, Iterable, List, Optional, Union
+ 
+ from loguru import logger
+-from openai import AzureOpenAI
++from openai import AzureOpenAI, OpenAI
+ from openai.types.chat.chat_completion_message import ChatCompletionMessage
+ from tenacity import retry, stop_after_attempt, wait_incrementing
+ from volcenginesdkarkruntime import Ark
+@@ -136,6 +136,48 @@ def claude_complete(
+         return None
+ 
+ 
++@retry(stop=stop_after_attempt(8), wait=wait_incrementing(8, 8))
++def deepseek_complete(
++    base_url: str,
++    api_key: Optional[str],
++    messages: Iterable[dict],
++    tools: Optional[Iterable[dict]] = None,
++    model_name: str = "deepseek-v4-flash",
++    **generate_kwargs,
++) -> Optional[ChatCompletionMessage]:
++    """Complete a prompt with a standard OpenAI-compatible endpoint (non-Azure).
++
++    deepseek-v4-flash and other OpenAI-compatible chat-anywhere gateways cannot
++    use AzureOpenAI(azure_endpoint=...) — they need a plain OpenAI client bound
++    to ``base_url`` + ``api_key`` from model_config (env-backed, D23).
++    """
++
++    def create_openai_compat_client(base_url, api_key):
++        return OpenAI(
++            base_url=base_url,
++            api_key=api_key,
++            timeout=300,
++        )
++
++    openai_compat_client = create_openai_compat_client(base_url, api_key)
++    logger.debug(f"messages: {messages}")
++    logger.debug(f"tools: {tools}")
++    logger.debug(generate_kwargs)
++
++    completion = openai_compat_client.chat.completions.create(
++        messages=messages,  # type: ignore
++        model=model_name,
++        tools=tools,  # type: ignore
++        **generate_kwargs,
++    )
++    try:
++        message = completion.choices[0].message  # type: ignore
++        return message  # type: ignore
++    except Exception as e:
++        logger.warning(f"Error during completion: {e}")
++        return None
++
++
+ def get_is_claude_thinking(model_config_name: str) -> bool:
+     assert (
+         model_config_name in model_config
+@@ -203,6 +245,17 @@ def llm_completion(
+             model_name=model_name,
+             **generate_kwargs,
+         )
++    elif "deepseek" in model_name.lower():
++        # deepseek-v4-flash and other OpenAI-compatible chat-anywhere gateways
++        # need a standard OpenAI client (non-Azure) bound to base_url (D23).
++        response = deepseek_complete(
++            base_url=base_url,
++            api_key=api_key,
++            messages=messages,
++            tools=tools,
++            model_name=model_name,
++            **generate_kwargs,
++        )
+     else:
+         raise ValueError(f"model_name {model_name} not supported")
+ 
