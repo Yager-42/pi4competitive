@@ -23,8 +23,9 @@ RUNNER_PATHS = [
     EVAL_SRC / "operations",
 ]
 
-# gold 相关字符串 (出现在 import 或字符串字面量里 = 泄漏)
-GOLD_MARKERS = ["widesearch_gold", "data/benchmarks", "tasks_and_rubrics", "rubric"]
+# gold 真正的路径标记 (不含 data/benchmarks —— 它太宽, orchestrator 合法读 REVISION.txt 版本 pin,
+# evaluator 合法发 HF_DATASETS_CACHE=data/benchmarks/hf_cache; 这些不是 gold)
+GOLD_MARKERS = ["widesearch_gold", "tasks_and_rubrics", "rubric"]
 
 
 def _import_roots(path: Path) -> list[str]:
@@ -98,3 +99,22 @@ def test_evaluator_does_not_open_gold_csv():
             for arg in node.args:
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     assert "widesearch_gold" not in arg.value, "evaluator opens gold CSV directly"
+
+
+def test_orchestrator_does_not_open_gold_csv():
+    """orchestrator (顶层 driver) 合法读 REVISION.txt/SHA (版本 pin), 但不直接 open() gold CSV."""
+    orch = EVAL_SRC / "orchestrator.py"
+    if not orch.is_file():
+        return
+    tree = ast.parse(orch.read_text(encoding="utf-8"), filename=str(orch))
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "open"
+        ):
+            for arg in node.args:
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    assert "widesearch_gold" not in arg.value, (
+                        "orchestrator opens gold CSV directly"
+                    )

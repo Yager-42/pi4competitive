@@ -239,3 +239,27 @@ def _last_assistant_text(messages: list[Any]) -> str:
 
 
 __all__ = ["create_single_agent_app"]
+
+
+def main() -> int:
+    """CLI launcher: uv run python -m eval.runner.single_agent_app --port 8001 (D9)."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="eval.runner.single_agent_app")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8001)
+    args = parser.parse_args()
+
+    try:
+        import uvicorn
+    except ImportError as exc:
+        print(f"uvicorn not installed: {exc}", file=__import__("sys").stderr)
+        return 1
+
+    app = create_single_agent_app()
+    uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
