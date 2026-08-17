@@ -14,14 +14,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from competitive_app.adapter.out.sandbox.exceptions import (
     SandboxCommandError,
-    SandboxPermissionError,
     SandboxRuntimeError,
 )
 from competitive_app.adapter.out.sandbox.native.native_runtime import (
-    MANIFEST_ENV,
     NativeRuntime,
     _additional_allow_read,
 )

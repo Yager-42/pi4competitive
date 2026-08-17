@@ -138,6 +138,7 @@ class CoverageEngine:
         # v0.2.7: per-task Budget overrides (None = use Budget default / env).
         self._max_queries = max_queries
         self._max_wall_seconds = max_wall_seconds
+        self._wall_deadline: float | None = None
         # O6 test seam: if set, the engine pauses before the first search iteration.
         self._pause_event = pause_event
         # Factory for ephemeral sub-agent harnesses (PR4 parallel). If None,
@@ -190,12 +191,28 @@ class CoverageEngine:
                 state.budget.max_wall_seconds = self._max_wall_seconds
             await self._socm_store.save(self._session_id, state)
 
+        # Wall-clock deadline: search loop must self-terminate at max_wall_seconds.
+        # ``Budget.consume_wall`` was never wired into the engine, so without this
+        # the loop only stops on query-budget exhaustion / stall / coverage threshold
+        # / external abort — an A2 case with a slow model ran to the 900s eval abort.
+        self._wall_deadline: float | None = (
+            time.monotonic() + self._max_wall_seconds
+            if self._max_wall_seconds is not None
+            else None
+        )
+
         if self._pause_event is not None:
             await self._pause_event.wait()
 
         stalled = 0
         for iteration in range(1, self._max_iterations + 1):
             if self._abort.is_set():
+                break
+            if self._wall_deadline is not None and time.monotonic() > self._wall_deadline:
+                _log.info(
+                    "search stage: wall-clock budget (%ss) exhausted, terminating",
+                    self._max_wall_seconds,
+                )
                 break
 
             state = await self._socm_store.load(self._session_id)
@@ -295,6 +312,12 @@ class CoverageEngine:
             "coverage": final.coverage_map.to_projection(),
         }
 
+    def _wall_remaining(self) -> float | None:
+        """Seconds until the wall-clock deadline (None when no deadline set)."""
+        if self._wall_deadline is None:
+            return None
+        return max(0.0, self._wall_deadline - time.monotonic())
+
     async def _dispatch_parallel(self, state: SOCMState, subtasks: list[dict[str, Any]]) -> None:
         """Spawn sub-agents in parallel (PR4) — up to max_parallel concurrent.
 
@@ -355,9 +378,22 @@ class CoverageEngine:
                 await asyncio.gather(*pool.values(), return_exceptions=True)
                 pool.clear()
                 break
+            remaining = self._wall_remaining()
             done, _pending = await asyncio.wait(
-                pool.values(), return_when=asyncio.FIRST_COMPLETED
+                pool.values(),
+                return_when=asyncio.FIRST_COMPLETED,
+                timeout=remaining,
             )
+            if self._wall_deadline is not None and not done:
+                # Wall-clock exhausted mid-dispatch: cancel in-flight sub-agents,
+                # keep the evidence already gathered, and end the search stage.
+                for t in pool.values():
+                    if not t.done():
+                        t.cancel()
+                await asyncio.gather(*pool.values(), return_exceptions=True)
+                pool.clear()
+                _log.info("search stage: wall-clock deadline reached mid-dispatch")
+                break
             # Re-check abort after reaping (observe promptly when a sub-agent finishes).
             if self._abort.is_set():
                 for t in pool.values():
@@ -382,7 +418,7 @@ class CoverageEngine:
                     await asyncio.gather(*pool.values(), return_exceptions=True)
                     pool.clear()
                     raise
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     # A completed sub-agent that failed before evidence is an
                     # incomplete search round, not a successful no-op.
                     _log.exception("search sub-agent failed (%s)", lbl)
