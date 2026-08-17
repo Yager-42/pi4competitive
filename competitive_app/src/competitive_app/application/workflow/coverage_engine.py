@@ -318,6 +318,18 @@ class CoverageEngine:
             return None
         return max(0.0, self._wall_deadline - time.monotonic())
 
+    async def _cancel_pool(self, pool: dict[str, Any], timeout: float = 15.0) -> None:
+        """Cancel in-flight sub-agents and wait for them to stop, bounded.
+
+        A sub-agent mid-deepseek-stream may not honour cancellation promptly; an
+        unbounded gather here delayed the wall-clock deadline by tens of seconds.
+        """
+        for t in pool.values():
+            if not t.done():
+                t.cancel()
+        if pool:
+            await asyncio.wait(pool.values(), timeout=timeout)
+
     async def _dispatch_parallel(self, state: SOCMState, subtasks: list[dict[str, Any]]) -> None:
         """Spawn sub-agents in parallel (PR4) — up to max_parallel concurrent.
 
@@ -375,7 +387,7 @@ class CoverageEngine:
                     t.cancel()
                 # Await cancellation so a sub-agent mid-atomic_update finishes
                 # its RMW before the engine moves on (no post-abort SOCM writes).
-                await asyncio.gather(*pool.values(), return_exceptions=True)
+                await self._cancel_pool(pool)
                 pool.clear()
                 break
             remaining = self._wall_remaining()
@@ -390,7 +402,7 @@ class CoverageEngine:
                 for t in pool.values():
                     if not t.done():
                         t.cancel()
-                await asyncio.gather(*pool.values(), return_exceptions=True)
+                await self._cancel_pool(pool)
                 pool.clear()
                 _log.info("search stage: wall-clock deadline reached mid-dispatch")
                 break
@@ -399,7 +411,7 @@ class CoverageEngine:
                 for t in pool.values():
                     if not t.done():
                         t.cancel()
-                await asyncio.gather(*pool.values(), return_exceptions=True)
+                await self._cancel_pool(pool)
                 pool.clear()
                 break
             finished_labels = [lbl for lbl, t in pool.items() if t.done()]
@@ -415,7 +427,7 @@ class CoverageEngine:
                     for pending in pool.values():
                         if not pending.done():
                             pending.cancel()
-                    await asyncio.gather(*pool.values(), return_exceptions=True)
+                    await self._cancel_pool(pool)
                     pool.clear()
                     raise
                 except Exception as exc:
@@ -425,14 +437,14 @@ class CoverageEngine:
                     for pending in pool.values():
                         if not pending.done():
                             pending.cancel()
-                    await asyncio.gather(*pool.values(), return_exceptions=True)
+                    await self._cancel_pool(pool)
                     pool.clear()
                     raise RuntimeError(f"search sub-agent incomplete ({lbl})") from exc
                 except BaseException:
                     for pending in pool.values():
                         if not pending.done():
                             pending.cancel()
-                    await asyncio.gather(*pool.values(), return_exceptions=True)
+                    await self._cancel_pool(pool)
                     pool.clear()
                     raise
             # Refill from queue.

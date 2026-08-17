@@ -30,6 +30,34 @@ from earendil_works.pi_ai.types import (
 from earendil_works.pi_ai.utils.event_stream import AssistantMessageEventStream
 
 _TERMINAL_EVENTS = frozenset({"done", "error"})
+_OPTIONS_TO_STRIP = frozenset({"signal", "sessionId", "transport"})
+
+
+def _sanitize_options(options: SimpleStreamOptions | None) -> SimpleStreamOptions | None:
+    """剥离 harness 注入的 signal/sessionId/transport。
+
+    实测（deepseek-v3.2 via chatanywhere）：这些字段经 harness 传入时会让流变慢
+    甚至不产出 toolcall（A1/A2 search 都受影响）；剥离后 streamSimple 稳定调工具。
+    """
+    if not options:
+        return options
+    return {k: v for k, v in options.items() if k not in _OPTIONS_TO_STRIP}
+
+
+def _sanitize_context(context: Context) -> Context:
+    """消息里的 ``timestamp`` 字段（pi Message 附带）可能干扰工具调用，转发前剥掉。"""
+    messages = context.get("messages")
+    if not isinstance(messages, list) or not any(
+        isinstance(m, dict) and "timestamp" in m for m in messages
+    ):
+        return context
+    return {
+        **context,
+        "messages": [
+            {k: v for k, v in m.items() if k != "timestamp"} if isinstance(m, dict) else m
+            for m in messages
+        ],
+    }
 
 
 class JournalStream:
@@ -108,7 +136,9 @@ class _JournalCall(AssistantMessageEventStream):
         status = "ok"
         try:
             stream = await self._maybe_await(
-                self._owner._stream_fn(model, self._context, self._options)
+                self._owner._stream_fn(
+                    model, _sanitize_context(self._context), _sanitize_options(self._options)
+                )
             )
             async for event in stream:
                 event_type = event.get("type")
