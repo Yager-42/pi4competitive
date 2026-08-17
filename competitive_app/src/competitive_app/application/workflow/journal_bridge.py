@@ -46,6 +46,26 @@ def _tool_text(content: Any) -> str:
     return str(content)
 
 
+def _extract_urls(details: Any) -> list[str]:
+    """tool_result ``details``（search_result.v1 / fetch_result.v1）→ 来源 URL 列表。
+
+    A2 journal 用与 A1 相同结构（payload.urls），让 operations collector 的
+    distinct_domains / evidence_count 在两个 variant 上统一可测。
+    """
+    if not isinstance(details, dict):
+        return []
+    urls: list[str] = []
+    hits = details.get("hits")
+    if isinstance(hits, list):
+        for hit in hits:
+            if isinstance(hit, dict) and isinstance(hit.get("url"), str) and hit["url"]:
+                urls.append(hit["url"])
+    url = details.get("url")
+    if isinstance(url, str) and url:
+        urls.append(url)
+    return urls
+
+
 def make_journal_extension_factory(journal: RunJournal | None = None):
     """Build an extension factory hooking harness lifecycle events → journal.
 
@@ -113,6 +133,7 @@ def make_journal_extension_factory(journal: RunJournal | None = None):
                     "tool_name": event.get("toolName"),
                     "output": _tool_text(event.get("content"))[:_TOOL_OUTPUT_LIMIT],
                     "status": status,
+                    "urls": _extract_urls(event.get("details")),
                 },
             )
 

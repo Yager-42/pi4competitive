@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import fcntl
+import sys
 
 import pytest
+
+if sys.platform == "win32":
+    # fcntl.flock 是 Unix-only；SocmStore 锁行为在 Windows 上不可测（此前全绿在 Linux）。
+    pytest.skip("fcntl.flock is Unix-only; SOCM flock behavior not testable on Windows", allow_module_level=True)
+
+import fcntl  # noqa: E402 — after the platform guard
 
 from competitive_app.adapter.out.persistence.socm_store import SocmStore
 from competitive_app.application.workflow.coverage_engine import CoverageEngine

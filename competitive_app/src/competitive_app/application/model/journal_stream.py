@@ -126,16 +126,18 @@ class _JournalCall(AssistantMessageEventStream):
             final_message = error_message(model, exc)
             buffer = [{"type": "error", "reason": "error", "error": final_message}]
         finally:
-            self._owner._append(
-                "llm.response",
-                {
-                    "model": model.get("id"),
-                    "status": status,
-                    "errorType": (final_message.get("error") or {}).get("type")
-                    if final_message is not None
-                    else None,
-                },
-            )
+            usage = (final_message or {}).get("usage") if final_message is not None else None
+            payload: dict[str, Any] = {
+                "model": model.get("id"),
+                "status": status,
+                "errorType": (final_message.get("error") or {}).get("type")
+                if final_message is not None
+                else None,
+            }
+            if isinstance(usage, dict) and usage:
+                # operations collector 据此汇总 prompt/completion tokens 与 cost
+                payload["usage"] = usage
+            self._owner._append("llm.response", payload)
         if final_message is not None:
             for event in buffer:
                 self.push(event)

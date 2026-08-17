@@ -18,18 +18,29 @@ the real API as read from:
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..operations.collector import extract_urls_from_details
 from .budget_guard import BudgetGuard, wrap_tools_with_budget
+from .journal_stream import EvalJournalStream
+from .run_journal import RunJournal
 
 app_state: dict[str, Any] = {"tasks": {}}
+
+
+def _journal_path(task_id: str) -> Path:
+    """A1 run journal 路径（与 A2 同根：``RUNS_ROOT``/``data/runs`` 默认）。"""
+    runs_root = os.environ.get("RUNS_ROOT", "data/runs")
+    return Path(runs_root) / task_id / "events.jsonl"
 
 
 class _Brief(BaseModel):
@@ -112,13 +123,25 @@ async def _run_single_agent(
     max_fetch = int(overrides.get("max_fetches", 40))
     max_wall = int(overrides.get("max_wall_seconds", 720))
 
-    markdown = await _wired_run(brief, max_search, max_fetch, max_wall)
-    app_state["tasks"][task_id]["status"] = "completed"
+    # Run-level journal: same schema as A2's RunJournal, so the operations
+    # collector reads both variants from data/runs/<task_id>/events.jsonl.
+    journal = RunJournal(task_id, _journal_path(task_id))
+    journal.append_safe("agent.started", {"run_id": task_id})
+    try:
+        markdown = await _wired_run(brief, max_search, max_fetch, max_wall, journal)
+        status = "completed"
+    except BaseException:
+        journal.append_safe("agent.finished", {"run_id": task_id, "status": "failed"})
+        raise
+    journal.append_safe("agent.finished", {"run_id": task_id, "status": status})
+    app_state["tasks"][task_id]["status"] = status
     app_state["tasks"][task_id]["markdown"] = markdown
-    return {"markdown": markdown, "status": "completed"}
+    return {"markdown": markdown, "status": status}
 
 
-async def _wired_run(brief: _Brief, max_search: int, max_fetch: int, max_wall: int) -> str:
+async def _wired_run(
+    brief: _Brief, max_search: int, max_fetch: int, max_wall: int, journal: RunJournal
+) -> str:
     """Real wiring: assemble harness + search_tavily + budget guard + agent loop.
 
     Mirrors ``_HarnessFactory.build_ephemeral`` (wiring.py:311) but standalone:
@@ -148,6 +171,8 @@ async def _wired_run(brief: _Brief, max_search: int, max_fetch: int, max_wall: i
     # D7: wrap search/fetch tools with budget guard (other tools pass through)
     guard = BudgetGuard(max_search=max_search, max_fetch=max_fetch)
     tools = wrap_tools_with_budget(tools, guard)
+    # journal: emit tool.called/tool.finished (status + source URLs) per invocation
+    tools = _wrap_tools_with_journal(tools, journal)
 
     # model: OpenAI provider (env OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL)
     models = create_models()
@@ -187,7 +212,8 @@ async def _wired_run(brief: _Brief, max_search: int, max_fetch: int, max_wall: i
     system_prompt = _build_system_prompt(brief, max_search, max_fetch, max_wall)
     harness = AgentHarness(
         session=session,
-        stream_fn=models.streamSimple,
+        # journal: emit llm.request/llm.response (with usage) per LLM call
+        stream_fn=EvalJournalStream(models.streamSimple, journal),
         model=model,
         tools=tools,
         system_prompt=system_prompt,
@@ -205,6 +231,68 @@ async def _wired_run(brief: _Brief, max_search: int, max_fetch: int, max_wall: i
     if not markdown:
         markdown = "# (no output)\n"
     return markdown
+
+
+def _wrap_tools_with_journal(tools: list[Any], journal: RunJournal) -> list[Any]:
+    """Wrap each tool to emit ``tool.called`` / ``tool.finished`` journal events.
+
+    - tool.called: tool_name + input params;
+    - tool.finished: tool_name + status (ok/error) + source ``urls`` extracted
+      from the result ``details`` (search_result.v1 hits / fetch_result.v1 url);
+    - budget guard 超额返回（details.budget_exhausted）→ 额外 ``budget`` 事件。
+    """
+    wrapped: list[Any] = []
+    for tool in tools:
+        name = getattr(tool, "name", "")
+        original_execute = tool.execute
+
+        async def _execute(
+            tool_call_id: str,
+            params: dict[str, Any],
+            signal: Any = None,
+            on_update: Any = None,
+            *,
+            _name: str = name,
+            _orig: Any = original_execute,
+        ) -> Any:
+            journal.append_safe("tool.called", {"tool_name": _name, "tool_input": params or {}})
+            try:
+                result = await _orig(tool_call_id, params, signal, on_update)
+            except Exception as exc:
+                journal.append_safe(
+                    "tool.finished",
+                    {"tool_name": _name, "status": "error", "error": str(exc)},
+                )
+                raise
+            details = (result or {}).get("details") or {}
+            if details.get("budget_exhausted"):
+                journal.append_safe(
+                    "budget",
+                    {"tool_name": _name, "kind": details.get("kind"), "exhausted": True},
+                )
+                journal.append_safe(
+                    "tool.finished",
+                    {
+                        "tool_name": _name,
+                        "status": "error",
+                        "error": "budget_exhausted",
+                    },
+                )
+            else:
+                journal.append_safe(
+                    "tool.finished",
+                    {
+                        "tool_name": _name,
+                        "status": "ok",
+                        "urls": extract_urls_from_details(details),
+                    },
+                )
+            return result
+
+        tw = copy.copy(tool)
+        tw.execute = _execute  # type: ignore[attr-defined]
+        wrapped.append(tw)
+    return wrapped
 
 
 def _build_system_prompt(brief: _Brief, max_search: int, max_fetch: int, max_wall: int) -> str:

@@ -11,7 +11,7 @@ from eval.evaluator.widesearch import build_scorer_command, parse_scores
 def test_build_command_includes_env_and_paths():
     cmd = build_scorer_command(
         model_config_name="competitorlens_a2",
-        eval_model_config_name="deepseek-v4-flash",
+        eval_model_config_name="deepseek-v3.2",
         response_root="data/evaluations/run1/normalized/widesearch_predictions",
         result_save_root="data/evaluations/run1/scores/widesearch_raw",
         trial_num=1,
@@ -19,9 +19,11 @@ def test_build_command_includes_env_and_paths():
     assert "run_infer_and_eval_batching.py" in cmd
     assert "--stage=eval" in cmd
     assert "competitorlens_a2" in cmd
-    assert "deepseek-v4-flash" in cmd
-    assert "HF_HUB_OFFLINE=1" in cmd
+    assert "deepseek-v3.2" in cmd
+    assert "HF_HUB_OFFLINE=0" in cmd
     assert "HF_DATASETS_CACHE=data/benchmarks/hf_cache" in cmd
+    # scorer 需要 import src.* → 命令必须带 vendor/widesearch 的 PYTHONPATH
+    assert "PYTHONPATH=" in cmd and "vendor/widesearch" in cmd
 
 
 def test_parse_scores_reads_eval_result_json(tmp_path: Path):

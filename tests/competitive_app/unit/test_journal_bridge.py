@@ -102,7 +102,44 @@ async def test_tool_call_result_mapping() -> None:
     )
     assert journal.events == [
         ("tool.called", {"run_id": "run-1", "tool_name": "search", "tool_input": {"q": "x"}}),
-        ("tool.finished", {"run_id": "run-1", "tool_name": "search", "output": "found", "status": "ok"}),
+        (
+            "tool.finished",
+            {"run_id": "run-1", "tool_name": "search", "output": "found", "status": "ok", "urls": []},
+        ),
+    ]
+
+
+async def test_tool_result_mapping_extracts_urls() -> None:
+    api, journal = _make_bridge(_RecordingJournal())
+    await _fire(
+        api,
+        "tool_call",
+        _typed("tool_call", toolCallId="t1", toolName="tavily_search", input={"query": "x"}),
+    )
+    await _fire(
+        api,
+        "tool_result",
+        _typed(
+            "tool_result",
+            toolCallId="t1",
+            toolName="tavily_search",
+            content=[{"type": "text", "text": "..."}],
+            isError=False,
+            details={"hits": [{"url": "https://a.com/1"}, {"url": "https://b.com/2"}]},
+        ),
+    )
+    assert journal.events == [
+        ("tool.called", {"run_id": "run-1", "tool_name": "tavily_search", "tool_input": {"query": "x"}}),
+        (
+            "tool.finished",
+            {
+                "run_id": "run-1",
+                "tool_name": "tavily_search",
+                "output": "...",
+                "status": "ok",
+                "urls": ["https://a.com/1", "https://b.com/2"],
+            },
+        ),
     ]
 
 

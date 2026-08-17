@@ -38,9 +38,13 @@ def build_scorer_command(
     scorer_script: str = "vendor/widesearch/scripts/run_infer_and_eval_batching.py",
 ) -> str:
     """构造官方 scorer 命令串 (原样进 run manifest, 基准文档 §10.3)."""
+    # scorer 脚本 import src.*，必须让 vendor/widesearch 在 PYTHONPATH 上；
+    # 否则子进程 `No module named src` → exit 1（evaluator_failures）。
+    scorer_pythonpath = str(Path(scorer_script).resolve().parent.parent)
     return (
         f"HF_DATASETS_CACHE=data/benchmarks/hf_cache "
         f"HF_HUB_OFFLINE=0 "
+        f"PYTHONPATH={scorer_pythonpath} "
         f"/usr/bin/python3 {scorer_script} "  # system python3 (scorer deps), not uv venv
         f"--trial_num={trial_num} "
         f"--model_config_name={model_config_name} "

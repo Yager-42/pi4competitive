@@ -119,6 +119,36 @@ def compute_paired_deltas(
     return deltas
 
 
+def _aggregate_operations(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """运行指标汇总（基准文档 §7.3）：按 variant 聚合 operations_rows。
+
+    token/cost 是全量求和（每 case 独立计费），比率与耗时取均值。
+    """
+
+    def _per_variant(variant: str) -> dict[str, Any]:
+        rs = [r for r in rows if r.get("variant") == variant]
+        n = max(1, len(rs))
+        return {
+            "count": len(rs),
+            "mean_search_calls": sum(r.get("search_calls", 0) for r in rs) / n,
+            "mean_fetch_calls": sum(r.get("fetch_calls", 0) for r in rs) / n,
+            "mean_tool_calls": sum(r.get("tool_calls_total", 0) for r in rs) / n,
+            "mean_tool_success_rate": sum(r.get("tool_success_rate", 0.0) for r in rs) / n,
+            "total_prompt_tokens": sum(r.get("prompt_tokens", 0) for r in rs),
+            "total_completion_tokens": sum(r.get("completion_tokens", 0) for r in rs),
+            "total_tokens": sum(r.get("total_tokens", 0) for r in rs),
+            "total_cost": round(sum(r.get("cost", 0.0) for r in rs), 6),
+            "mean_duration_seconds": round(
+                sum(r.get("duration_seconds", 0.0) for r in rs) / n, 3
+            ),
+            "mean_distinct_domains": sum(r.get("distinct_domains", 0) for r in rs) / n,
+            "mean_evidence_count": sum(r.get("evidence_count", 0) for r in rs) / n,
+            "mean_fallback_count": sum(r.get("fallback_count", 0) for r in rs) / n,
+        }
+
+    return {v: _per_variant(v) for v in ("a1", "a2")}
+
+
 def synthesize_missing_rows(
     *,
     cases: list,
@@ -413,6 +443,7 @@ async def run_smoke(
         "mean_f1_a1": sum(a1_valid) / max(1, len(a1_valid)),
         "mean_f1_a2": sum(a2_valid) / max(1, len(a2_valid)),
         "paired_delta_mean": sum(deltas_valid) / max(1, len(deltas_valid)),
+        "operations": _aggregate_operations(operations_rows),
     }
     (run_dir / "summary" / "metrics.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
