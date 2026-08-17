@@ -142,12 +142,12 @@ def deepseek_complete(
     api_key: Optional[str],
     messages: Iterable[dict],
     tools: Optional[Iterable[dict]] = None,
-    model_name: str = "deepseek-v4-flash",
+    model_name: str = "deepseek-v3.2",
     **generate_kwargs,
 ) -> Optional[ChatCompletionMessage]:
     """Complete a prompt with a standard OpenAI-compatible endpoint (non-Azure).
 
-    deepseek-v4-flash and other OpenAI-compatible chat-anywhere gateways cannot
+    deepseek-v3.2 and other OpenAI-compatible chat-anywhere gateways cannot
     use AzureOpenAI(azure_endpoint=...) — they need a plain OpenAI client bound
     to ``base_url`` + ``api_key`` from model_config (env-backed, D23).
     """
@@ -246,7 +246,7 @@ def llm_completion(
             **generate_kwargs,
         )
     elif "deepseek" in model_name.lower():
-        # deepseek-v4-flash and other OpenAI-compatible chat-anywhere gateways
+        # deepseek-v3.2 and other OpenAI-compatible chat-anywhere gateways
         # need a standard OpenAI client (non-Azure) bound to base_url (D23).
         response = deepseek_complete(
             base_url=base_url,

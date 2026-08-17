@@ -40,8 +40,8 @@ def build_scorer_command(
     """构造官方 scorer 命令串 (原样进 run manifest, 基准文档 §10.3)."""
     return (
         f"HF_DATASETS_CACHE=data/benchmarks/hf_cache "
-        f"HF_HUB_OFFLINE=1 "
-        f"python3 {scorer_script} "
+        f"HF_HUB_OFFLINE=0 "
+        f"/usr/bin/python3 {scorer_script} "  # system python3 (scorer deps), not uv venv
         f"--trial_num={trial_num} "
         f"--model_config_name={model_config_name} "
         f"--eval_model_config_name={eval_model_config_name} "

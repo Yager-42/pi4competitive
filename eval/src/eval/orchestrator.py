@@ -353,7 +353,7 @@ async def run_smoke(
     for variant in variants:
         cmd = build_scorer_command(
             model_config_name=f"competitorlens_{variant}",
-            eval_model_config_name="deepseek-v4-flash",
+            eval_model_config_name="deepseek-v3.2",
             response_root=str(run_dir / "normalized" / "widesearch_predictions"),
             result_save_root=str(run_dir / "scores" / "widesearch_raw"),
             trial_num=1,
@@ -426,10 +426,10 @@ async def run_smoke(
         repo_dirty=bool(subprocess.check_output(["git", "status", "--porcelain"]).decode().strip()),  # noqa: ASYNC221
         benchmark_revision=_read_ws_sha(),
         manifest_revision=manifest_rev,
-        model="deepseek-v4-flash",
+        model="deepseek-v3.2",
         provider="openai",
         base_url=os.environ.get("OPENAI_BASE_URL", ""),
-        eval_model_config_name="deepseek-v4-flash",
+        eval_model_config_name="deepseek-v3.2",
         search_provider="tavily",
         budget=budget,
         variants=variants,

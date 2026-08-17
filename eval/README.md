@@ -46,7 +46,7 @@ eval/src/eval/
   operations/              # events.jsonl + projection + SOCM -> operations.json
   evaluator/               # 调官方 WideSearch scorer (widesearch 实装, drb2 空壳)
   orchestrator.py          # CLI driver: eval.run --stage smoke
-vendor/widesearch/         # 官方 scorer (patch config.py + llm.py 注册 deepseek-v4-flash)
+vendor/widesearch/         # 官方 scorer (patch config.py + llm.py 注册 deepseek-v3.2)
 data/benchmarks/widesearch/  # gold + HF cache (gitignored, 运行进程不可见 D6)
 data/evaluations/<run_id>/  # 结果产物 (gitignored)
 ```

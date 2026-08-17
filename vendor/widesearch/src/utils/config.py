@@ -34,8 +34,8 @@ model_config = {
             "max_tokens": 65535,
         },
     },
-    "deepseek-v4-flash": {
-        "model_name": os.environ.get("OPENAI_MODEL", "deepseek-v4-flash"),
+    "deepseek-v3.2": {
+        "model_name": os.environ.get("OPENAI_MODEL", "deepseek-v3.2"),
         "base_url": os.environ.get("OPENAI_BASE_URL", "https://api.chatanywhere.tech") + "/v1",
         "api_key": os.environ.get("OPENAI_API_KEY", ""),
         "generate_kwargs": {"max_tokens": 65535},
@@ -90,7 +90,7 @@ model_config = {
         },
     },
     "default_eval_config": {
-        "model_name": os.environ.get("OPENAI_MODEL", "deepseek-v4-flash"),
+        "model_name": os.environ.get("OPENAI_MODEL", "deepseek-v3.2"),
         "base_url": os.environ.get("OPENAI_BASE_URL", "https://api.chatanywhere.tech") + "/v1",
         "api_key": os.environ.get("OPENAI_API_KEY", ""),
         "generate_kwargs": {
