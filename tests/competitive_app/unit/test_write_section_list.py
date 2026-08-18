@@ -8,8 +8,10 @@ v0.2.10: DRB II 报告轨按任务 prompt 明确指定的结构判分（精确�
 from __future__ import annotations
 
 from competitive_app.application.workflow.research_runner import (
+    _COST_TABLE_STUDY_RULE,
     ResearchRunner,
     _extract_report_structure_from_brief,
+    _is_cost_table_title,
 )
 from competitive_app.domain.research_brief import ResearchBrief
 
@@ -97,3 +99,33 @@ def test_section_list_falls_back_to_brief_structure():
     sections = runner._section_list({"plan": "no report_structure here"})  # type: ignore[attr-defined]
     assert sections[0][1] == "Cost Data Compilation for Different Vehicle Models"
     assert sections[-1][1] == "Summary of Incentive Policies by Country"
+
+
+# ------------------------------------------------- cost-table write rule (v0.2.12)
+
+
+def test_is_cost_table_title():
+    assert _is_cost_table_title("Cost Data Compilation for Different Vehicle Models") is True
+    assert _is_cost_table_title("Life Cycle Cost Comparison by Vehicle") is True
+    assert _is_cost_table_title("Comprehensive Analysis") is False
+    assert _is_cost_table_title("Summary of Incentive Policies by Country") is False
+    assert _is_cost_table_title("概述") is False
+
+
+def test_cost_section_prompt_includes_study_rule():
+    runner = _runner()
+    prompt = runner._build_section_prompt(  # type: ignore[attr-defined]
+        "Cost Data Compilation for Different Vehicle Models",
+        "cost table",
+        {"plan": {"coverage_schema": {"entities": []}}},
+        None,
+    )
+    assert _COST_TABLE_STUDY_RULE in prompt
+    # non-cost sections must NOT carry the study rule
+    prompt2 = runner._build_section_prompt(  # type: ignore[attr-defined]
+        "Comprehensive Analysis",
+        "synthesis",
+        {"plan": {}},
+        None,
+    )
+    assert _COST_TABLE_STUDY_RULE not in prompt2

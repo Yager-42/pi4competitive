@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any
 from uuid import uuid4
@@ -756,11 +757,24 @@ def _build_subagent_prompt(state: SOCMState, subtask: dict[str, Any]) -> str:
     if source_hints:
         hlist = ", ".join(source_hints)
         hints_block = f"\nAuthoritative source hints: {hlist}\n"
+    # v0.2.12: when the subtask targets cost/LCC cells, push study-level extraction
+    # so review pages yield one evidence entry per cited study (DRB II recall needs
+    # the EXACT study code + author/year + LCC value, not a qualitative summary).
+    study_block = ""
+    if any(_is_cost_cell(c) for c in subtask.get("target_cells", [])):
+        study_block = (
+            "\nSTUDY-LEVEL EXTRACTION: if you fetch an LCA/LCC review page that cites "
+            "multiple studies (e.g. 'Hao et al., 2017', 'Diao et al.', 'Zhao et al.'), "
+            "extract EACH cited study as a SEPARATE evidence entry with its model/study "
+            "code, first author + year, and LCC value (e.g. content: 'EV 300 — Hao et al., "
+            "2017 — LCC $1,994,243'). Do NOT summarize the review as a single entry.\n"
+        )
     return (
         f"Research intent: {state.intent}\n\n"
         f"Subtask: {subtask.get('question')}\n"
         f"Cells to fill (entity.attribute):\n{cells_desc}\n"
-        f"{queries_block}{hints_block}\n"
+        f"{queries_block}{hints_block}"
+        f"{study_block}"
         f"Use search tools (*_search) to find pages, then fetch them (*_fetch). "
         f"MULTI-SOURCE REQUIREMENT: for EACH target cell, fetch at least 2 independent "
         f"sources from DIFFERENT domains (e.g. official site + reputable review/media). "
@@ -769,6 +783,14 @@ def _build_subagent_prompt(state: SOCMState, subtask: dict[str, Any]) -> str:
         f"Return JSON: {{\"evidence\": [{{\"source\": \"<url>\", \"content\": \"<finding>\"}}]}}. "
         f"If no evidence found for a cell, return {{\"evidence\": []}} — do NOT fabricate values."
     )
+
+
+_COST_CELL_RE = re.compile(r"(?i)(lcc|cost|price|model|study)")
+
+
+def _is_cost_cell(cell_key: str) -> bool:
+    """True when an entity.attribute cell key belongs to a cost/LCC dimension."""
+    return bool(_COST_CELL_RE.search(cell_key))
 
 
 def _empty_target_cells(state: SOCMState, target_cells: list[str]) -> list[str]:

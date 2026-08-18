@@ -8,6 +8,7 @@ deterministically expands them into per-item entities scoped to policy attribute
 from __future__ import annotations
 
 from competitive_app.application.workflow.plan_normalize import (
+    _COST_ROW_TYPES,
     _extract_enumerated_items,
     normalize_plan_output,
 )
@@ -142,7 +143,13 @@ def test_extract_items_ignores_blocked_reference_json():
 def test_noop_without_enumerated_items():
     plan = {"plan": "x", "coverage_schema": _schema(_policy_attrs())}
     out = normalize_plan_output(plan, "Just write a report about EV life cycle cost.")
-    assert out is plan  # identical object — untouched
+    # content unchanged: same entities, no item_/cost_ expansion
+    assert out["plan"] == "x"
+    assert len(out["coverage_schema"]["entities"]) == 2
+    assert not any(
+        e["id"].startswith(("item_", "cost_"))
+        for e in out["coverage_schema"]["entities"]
+    )
 
 
 def test_noop_without_policy_attrs():
@@ -179,4 +186,63 @@ def test_single_item_is_not_expanded():
     # "such as" with one item is an example, not an enumeration → don't expand.
     plan = {"plan": "x", "coverage_schema": _schema(_policy_attrs())}
     out = normalize_plan_output(plan, "Research policies such as Canada.")
+    assert len(out["coverage_schema"]["entities"]) == 2
+
+
+# ------------------------------------------------------------------ cost rows
+
+
+def _cost_schema(entities: list[dict] | None = None) -> dict:
+    return {
+        "table_id": "t",
+        "entities": entities
+        or [
+            {"id": "e_topic", "name": "EV LCC", "kind": "target"},
+            {"id": "e_cat", "name": "Electric Vehicles", "kind": "competitor"},
+        ],
+        "attributes": [
+            {"id": "a_model", "name": "Vehicle Model/Study Code", "type": "text"},
+            {"id": "a_source", "name": "Research Source (First Author, Year)", "type": "text"},
+            {"id": "a_lcc", "name": "LCC (USD)", "type": "money_usd"},
+        ],
+        "queries": [],
+    }
+
+
+def test_cost_study_rows_expanded_when_aggregate():
+    plan = {"plan": "x", "coverage_schema": _cost_schema()}
+    out = normalize_plan_output(plan, "Research EV life cycle cost.")
+    schema = out["coverage_schema"]
+    names = [e["name"] for e in schema["entities"]]
+    assert "Compact electric vehicle" in names
+    assert "Heavy-duty truck electric vehicle" in names
+    assert len(names) == 2 + len(_COST_ROW_TYPES)
+    # cost rows scoped to the cost attributes
+    scope = schema["entity_attributes"]
+    compact = next(e["id"] for e in schema["entities"] if e["name"] == "Compact electric vehicle")
+    assert set(scope[compact]) == {"a_model", "a_source", "a_lcc"}
+    # per-type academic-LCA queries appended
+    assert any("life cycle cost" in q["queries"][0] for q in schema["queries"])
+    assert len(schema["queries"]) == len(_COST_ROW_TYPES)
+
+
+def test_cost_expansion_skipped_when_rows_already_concrete():
+    entities = [
+        {"id": "e_ev300", "name": "EV 300", "kind": "competitor"},
+        {"id": "e_ev200", "name": "EV 200", "kind": "competitor"},
+        {"id": "e_ev100", "name": "EV 100", "kind": "competitor"},
+        {"id": "e_topic", "name": "EV LCC", "kind": "target"},
+    ]
+    plan = {"plan": "x", "coverage_schema": _cost_schema(entities)}
+    out = normalize_plan_output(plan, "Research EV life cycle cost.")
+    assert len(out["coverage_schema"]["entities"]) == 4  # unchanged
+
+
+def test_cost_expansion_skipped_without_study_signature():
+    schema = _cost_schema()
+    schema["attributes"] = [
+        {"id": "a_model", "name": "Vehicle Model/Study Code", "type": "text"},
+        {"id": "a_lcc", "name": "LCC (USD)", "type": "money_usd"},
+    ]  # no "Research Source (First Author, Year)" → not a study table
+    out = normalize_plan_output({"plan": "x", "coverage_schema": schema}, "Research EV LCC.")
     assert len(out["coverage_schema"]["entities"]) == 2

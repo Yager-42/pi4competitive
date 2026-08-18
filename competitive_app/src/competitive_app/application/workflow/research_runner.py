@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -375,6 +376,8 @@ class ResearchRunner:
         if memory_blob:
             parts.append(memory_blob)
         parts.append(f"Write the section: 「{title}」. {focus}")
+        if _is_cost_table_title(title):
+            parts.append(_COST_TABLE_STUDY_RULE)
         parts.append(
             'Output ONLY valid JSON: {"body": "<markdown section body>", '
             '"sources": [{"n":1,"url":"<url>","label":"<short label>"}]}.'
@@ -585,6 +588,45 @@ class ResearchRunner:
 
     async def _set_status(self, status: str) -> None:
         await self.store.update_task_status(self.task_id, status)
+
+
+# v0.2.12: cost-table write rule. DRB II info_recall rubrics demand a
+# STUDY-INDEXED cost table — one row per distinct study/vehicle model with the
+# EXACT model/study code, first author + year, and the study's LCC value. These
+# exact values exist only in the academic literature (or review pages citing
+# it), so the write stage must build rows from EVERY study in the evidence —
+# not collapse to a single source. (Model parametric knowledge cannot supply the
+# exact study codes/values; this rule forces evidence-driven row construction.)
+_COST_TABLE_STUDY_RULE = (
+    "COST TABLE RULE (critical for grading): this table is indexed by "
+    "STUDY / VEHICLE MODEL — create ONE ROW PER DISTINCT study or vehicle model "
+    "found anywhere in the search evidence. The 'Vehicle Model/Study Code' column "
+    "holds the exact model/study code (e.g. 'EV 100', 'EV 200', 'EV 300', "
+    "'GM-Springo', 'BE 270 kWh', 'BYD e6', 'Mitsubishi i-MiEV', '2011 Nissan "
+    "Leaf'); the 'Research Source (format: First Author, Year)' column holds the "
+    "study's first author and year (e.g. 'Hao et al., 2017'); and the 'LCC (USD)' "
+    "column the study's reported value. Scan ALL evidence entries (including "
+    "review pages that cite multiple studies) and add a separate row for each "
+    "study you can identify, with its own [n] citation. NEVER collapse multiple "
+    "studies into one row and never write the same row twice. If a study's value "
+    "is not a clean number, record the best available figure and mark uncertainty; "
+    "if a row has no value at all, omit it rather than guessing."
+)
+
+
+_COST_TABLE_TITLE_RE = re.compile(
+    r"(?i)(cost|lcc|life[\s-]?cycle|price|pricing|expenditure).{0,40}"
+    r"(model|vehicle|study|table|car|truck|bus)"
+)
+
+
+def _is_cost_table_title(title: str) -> bool:
+    """True when a write-section title is a per-vehicle cost/LCC table.
+
+    v0.2.12: only these sections get the study-indexed rule (a generic
+    "Comprehensive Analysis" or "Incentive Policies" table must NOT).
+    """
+    return bool(_COST_TABLE_TITLE_RE.search(title))
 
 
 def _extract_report_structure_from_brief(

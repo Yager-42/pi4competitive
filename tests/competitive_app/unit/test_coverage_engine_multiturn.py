@@ -168,3 +168,15 @@ async def test_round1_failure_skips_round2_and_flush() -> None:
 
     assert len(fail_harness.prompts) == 1  # round 1 attempted
     assert intake.flushed == 0  # flush only runs after a successful round 1
+
+
+def test_is_cost_cell():
+    """v0.2.12: cost/LCC cells trigger study-level extraction in sub-agents."""
+    from competitive_app.application.workflow.coverage_engine import _is_cost_cell
+
+    assert _is_cost_cell("e_topic.a_lcc_usd") is True
+    assert _is_cost_cell("e_topic.a_vehicle_model_study_code") is True
+    assert _is_cost_cell("cost_compact_electric_vehicle.a_lcc") is True
+    assert _is_cost_cell("item_canada.a_policy_name") is False
+    assert _is_cost_cell("item_canada.a_policy_brief") is False
+    assert _is_cost_cell("e_topic.a_research_source") is False  # not cost/LCC-keyworded
