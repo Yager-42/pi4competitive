@@ -167,6 +167,44 @@ def test_coverage_to_projection():
     assert proj == {"filled": 1, "total": 1, "pending_cells": 0, "ratio": 1.0}
 
 
+def test_from_schema_entity_scoping_limits_cells():
+    """v0.2.11: entity_attributes restricts each entity to its scoped columns."""
+    cm = CoverageMap.from_schema(
+        table_id="t",
+        entities=[Entity(id="e_a", name="A"), Entity(id="e_b", name="B")],
+        attributes=[
+            Attribute(id="a_cost", name="Cost", dimension="pricing"),
+            Attribute(id="a_policy", name="Policy", dimension="policy"),
+        ],
+        entity_attributes={"e_a": ["a_cost"], "e_b": ["a_policy"]},
+    )
+    assert set(cm.cells.keys()) == {"e_a.a_cost", "e_b.a_policy"}
+    # scoped cells are empty and fillable
+    assert cm.get_cell("e_a", "a_cost").status == CellStatus.EMPTY
+    cm.fill("e_b", "a_policy", value="EV credit", source="u", confidence=0.9)
+    assert cm.get_cell("e_b", "a_policy").status == CellStatus.FILLED
+    # unknown attr ids are skipped, entities omitted from the map get no cells
+    cm2 = CoverageMap.from_schema(
+        table_id="t",
+        entities=[Entity(id="e_a", name="A")],
+        attributes=[Attribute(id="a_cost", name="Cost", dimension="pricing")],
+        entity_attributes={"e_a": ["a_cost", "a_missing"], "e_ghost": ["a_cost"]},
+    )
+    assert set(cm2.cells.keys()) == {"e_a.a_cost"}
+
+
+def test_from_schema_without_scoping_stays_cross_product():
+    cm = CoverageMap.from_schema(
+        table_id="t",
+        entities=[Entity(id="e_a", name="A"), Entity(id="e_b", name="B")],
+        attributes=[
+            Attribute(id="a_cost", name="Cost", dimension="pricing"),
+            Attribute(id="a_policy", name="Policy", dimension="policy"),
+        ],
+    )
+    assert set(cm.cells.keys()) == {"e_a.a_cost", "e_a.a_policy", "e_b.a_cost", "e_b.a_policy"}
+
+
 # ---------------------------------------------------------------- evidence graph
 
 

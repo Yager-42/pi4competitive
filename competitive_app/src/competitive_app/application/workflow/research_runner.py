@@ -30,6 +30,7 @@ from ...domain.stage import (
 )
 from .coverage_engine import CoverageEngine
 from .memory_inject import recall_prior_findings
+from .plan_normalize import normalize_plan_output
 from .profiles import StageProfile, build_profiles, is_search_tool
 from .stage_outputs import append_stage_output, collect_prior_outputs, last_usage, model_name
 
@@ -246,6 +247,11 @@ class ResearchRunner:
         if self.abort_signal.is_set():
             return StageResult(stage=name, ok=False, output={}, error="aborted")
         output = self._extract_output(name)
+        # v0.2.11: deterministic guardrail — expand aggregate rows into per-item
+        # entities (brief-enumerated items), so e.g. per-country policy cells are
+        # searched instead of crammed into an umbrella row.
+        if name == "plan":
+            output = normalize_plan_output(output, self.research_brief.goal or "")
         result = validate_stage_output(name, output)
         if result.ok:
             await append_stage_output(self.session, name, output)

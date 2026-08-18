@@ -139,13 +139,31 @@ class CoverageMap(BaseModel):
         table_id: str,
         entities: list[Entity],
         attributes: list[Attribute],
+        entity_attributes: dict[str, list[str]] | None = None,
     ) -> CoverageMap:
-        """Build an empty coverage map from plan's coverage_schema (all empty)."""
+        """Build an empty coverage map from plan's coverage_schema (all empty).
+
+        ``entity_attributes`` (v0.2.11): optional per-entity attribute scoping —
+        ``{entity_id: [attribute_id, ...]}``. When present, ONLY the scoped
+        entity×attribute combinations become cells (enables heterogeneous
+        tables: e.g. per-country rows scoped to policy columns, while the
+        aggregate rows keep only cost columns). When absent, every entity ×
+        every attribute becomes a cell (backward-compatible homogeneous table).
+        Attribute ids not present in ``attributes`` are skipped.
+        """
         cells: dict[str, Cell] = {}
-        for entity in entities:
-            for attr in attributes:
-                key = cls.cell_key(entity.id, attr.id)
-                cells[key] = Cell(entity_id=entity.id, attribute_id=attr.id)
+        if entity_attributes:
+            attr_ids = {a.id for a in attributes}
+            for entity in entities:
+                for aid in entity_attributes.get(entity.id, []):
+                    if aid in attr_ids:
+                        key = cls.cell_key(entity.id, aid)
+                        cells[key] = Cell(entity_id=entity.id, attribute_id=aid)
+        else:
+            for entity in entities:
+                for attr in attributes:
+                    key = cls.cell_key(entity.id, attr.id)
+                    cells[key] = Cell(entity_id=entity.id, attribute_id=attr.id)
         return cls(table_id=table_id, entities=list(entities), attributes=list(attributes), cells=cells)
 
     def get_cell(self, entity_id: str, attribute_id: str) -> Cell | None:

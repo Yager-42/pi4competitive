@@ -683,7 +683,14 @@ def _coverage_map_from_schema(schema: dict[str, Any]) -> CoverageMap:
                 validation=a.get("validation") or "non_empty",
             )
         )
-    return CoverageMap.from_schema(table_id=table_id, entities=entities, attributes=attributes)
+    # v0.2.11: optional per-entity attribute scoping (plan_normalize guardrail).
+    entity_attributes = schema.get("entity_attributes")
+    return CoverageMap.from_schema(
+        table_id=table_id,
+        entities=entities,
+        attributes=attributes,
+        entity_attributes=entity_attributes if isinstance(entity_attributes, dict) else None,
+    )
 
 
 def _build_subtasks(
