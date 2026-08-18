@@ -90,6 +90,55 @@ def test_extract_items_drb2_22_style():
     ]
 
 
+def test_extract_items_ignores_column_specs_and_sections():
+    """A full DRB-II-style brief mixes column specs, section lists and a country
+    list. Only the country enumeration must be extracted — table headers and
+    section titles are attributes/structure, not row entities."""
+    goal = (
+        "I need you to organize this data into a table, with columns including: "
+        "'Vehicle Model/Study Code', 'Research Source (format: First Author, "
+        "Year)', and 'LCC (USD)'. Please present this in a table format, with "
+        "columns including: 'Country', 'Policy/Regulation Name', 'Year', and "
+        "'Policy Brief'. Please cover at least Canada, the United States, Spain, "
+        "the Netherlands, Italy, Switzerland, Turkey, Denmark, France, Germany, "
+        "Portugal, and Belgium."
+    )
+    items = _extract_enumerated_items(goal)
+    assert items == [
+        "Canada", "United States", "Spain", "Netherlands", "Italy",
+        "Switzerland", "Turkey", "Denmark", "France", "Germany", "Portugal",
+        "Belgium",
+    ]
+
+
+def test_extract_items_ignores_following_sections():
+    goal = (
+        "Please complete the following sections:\n"
+        "1. **Cost Data Compilation for Different Vehicle Models**: collect costs.\n"
+        "2. **Summary of Incentive Policies by Country**: list policies.\n"
+        "Please cover at least Canada and Spain."
+    )
+    items = _extract_enumerated_items(goal)
+    assert "Cost Data Compilation for Different Vehicle Models" not in items
+    assert items == ["Canada", "Spain"]
+
+
+def test_extract_items_ignores_blocked_reference_json():
+    """The DRB II blocked-reference block ("the following article and urls:
+    {'title': ...}") must never leak title fragments or author names as items."""
+    goal = (
+        "During the research process, you are not allowed to view the following "
+        "article and urls: {'title': 'Life Cycle Cost Assessment of Electric "
+        "Vehicles: A Review and Bibliometric Analysis', 'authors': ['Bamidele "
+        "Victor Ayodele', 'Siti Indati Mustapa'], 'urls': ['https://www.mdpi.com/"
+        "2071-1050/12/6/2387']}. Please cover at least Canada, Spain, and Belgium."
+    )
+    items = _extract_enumerated_items(goal)
+    assert "A Review" not in items
+    assert "Bamidele Victor Ayodele" not in items
+    assert items == ["Canada", "Spain", "Belgium"]
+
+
 def test_noop_without_enumerated_items():
     plan = {"plan": "x", "coverage_schema": _schema(_policy_attrs())}
     out = normalize_plan_output(plan, "Just write a report about EV life cycle cost.")

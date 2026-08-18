@@ -36,6 +36,21 @@ _TRIGGERS = re.compile(
     r"(?i)(?:at least|such as|including|namely|the following|each of)\b"
 )
 
+# Words that mark a trigger as a COLUMN/ATTRIBUTE spec rather than a row-entity
+# enumeration — e.g. "with columns including: 'Vehicle Model/Study Code', ...".
+# The items after those are table headers (attributes), not rows to expand.
+# ("rows" is deliberately absent: "rows including: X, Y" IS a row enumeration.)
+_SPEC_WORDS = re.compile(
+    r"(columns?|fields?|attributes?|properties?|parameters?|metrics?|headers?|keys?|schemas?|formats?|sections?|articles?|papers?|urls?)",
+    re.IGNORECASE,
+)
+
+# Clause terminator: a trigger's list ends at a sentence boundary OR the start
+# of a structured block ("{...}" / "[...]" — e.g. the DRB II blocked-reference
+# JSON: "the following article and urls: {'title': ...}"), which must never be
+# scanned for entity names.
+_CLAUSE_END = re.compile(r"[.!?\n{\[]")
+
 # A capitalized phrase that looks like a concrete named item (allows spaces,
 # hyphens, parentheses, dots, apostrophes). Requires at least one lowercase
 # letter so pure acronyms (US, EU, LED) don't register as items.
@@ -54,13 +69,24 @@ def _extract_enumerated_items(goal: str) -> list[str]:
     """
     items: list[str] = []
     for m in _TRIGGERS.finditer(goal or ""):
+        # Skip column/attribute specs: "columns including: 'A', 'B'" introduces
+        # table headers (attributes), not rows. A spec word (column/field/...)
+        # immediately before or after the trigger marks such a list.
+        pre = goal[max(0, m.start() - 24):m.start()]
+        post = goal[m.end():m.end() + 24]
+        if _SPEC_WORDS.search(pre) or _SPEC_WORDS.search(post):
+            continue
         rest = goal[m.end():]
-        clause_end = re.search(r"[.!?\n]", rest)
+        clause_end = _CLAUSE_END.search(rest)
         clause = rest if clause_end is None else rest[: clause_end.start()]
         for p in _PHRASE.finditer(clause):
-            phrase = p.group().strip()
-            if 2 <= len(phrase) <= 45 and any(ch.islower() for ch in phrase):
-                items.append(phrase)
+            phrase = p.group().strip().strip("'\"()").strip()
+            # "and"/"or" joins items ("Canada and Spain") — split into parts so
+            # each country is its own entity, not one combined item.
+            for sub in re.split(r"\s+(?:and|or)\s+", phrase):
+                sub = sub.strip()
+                if 2 <= len(sub) <= 45 and any(ch.islower() for ch in sub):
+                    items.append(sub)
             if len(items) >= _MAX_ITEMS:
                 break
     return list(dict.fromkeys(items))
