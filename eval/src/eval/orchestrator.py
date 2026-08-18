@@ -18,7 +18,7 @@ import os
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 @dataclass
@@ -156,6 +156,7 @@ def synthesize_missing_rows(
     existing_rows: list,
     projection_by_key: dict[tuple[str, str], dict[str, Any]],
     evaluator_failed_keys: set[tuple[str, str]],
+    row_factory: Callable[[str, str, int, str | None, bool], Any],
 ) -> list:
     """Synthesize ScoreRows for cases the scorer didn't score (D13).
 
@@ -164,16 +165,24 @@ def synthesize_missing_rows(
     - F1-F5 (terminal_status != completed, or completed but no scorer output)
       → ScoreRow all-0.0 + failure_stage from terminal_status (zero, in all-case denominator)
 
+    ``row_factory(instance_id, variant, trial_idx, failure_stage, is_evaluator_failure)``
+    builds the benchmark's ScoreRow (widesearch vs drb2 differ in fields).
+
     Returns the synthesized rows (existing_rows unchanged). Guarantees every
     (case, variant) has a row — no silent drop (基准文档 §8.3).
     """
-    from eval.evaluator.widesearch import ScoreRow
-
     existing_keys = {(r.instance_id, r.variant) for r in existing_rows}
-    synthesized: list[ScoreRow] = []
+    synthesized: list[Any] = []
+    stage_map = {
+        "failed": "system_failed",
+        "aborted": "timeout",
+        "timeout": "timeout",
+        "unknown": "no_output",
+    }
     for case in cases:
         for variant in variants:
-            key = (case.source_task_id, f"competitorlens_{variant}")
+            variant_name = f"competitorlens_{variant}"
+            key = (case.source_task_id, variant_name)
             if key in existing_keys:
                 continue
             projection = projection_by_key.get(key, {})
@@ -181,44 +190,52 @@ def synthesize_missing_rows(
             if key in evaluator_failed_keys:
                 # F6: evaluator crashed, no score (null, separate count)
                 synthesized.append(
-                    ScoreRow(
-                        instance_id=case.source_task_id,
-                        variant=f"competitorlens_{variant}",
-                        trial_idx=0,
-                        score=None,
-                        precision_by_item=None,
-                        recall_by_item=None,
-                        f1_by_item=None,
-                        precision_by_line=None,
-                        recall_by_line=None,
-                        f1_by_line=None,
-                        failure_stage="evaluator",
-                    )
+                    row_factory(case.source_task_id, variant_name, 0, "evaluator", True)
                 )
             else:
                 # F1-F5: system failure → score 0 (in all-case denominator, 基准文档 §8.3)
-                stage_map = {
-                    "failed": "system_failed",
-                    "aborted": "timeout",
-                    "timeout": "timeout",
-                    "unknown": "no_output",
-                }
                 synthesized.append(
-                    ScoreRow(
-                        instance_id=case.source_task_id,
-                        variant=f"competitorlens_{variant}",
-                        trial_idx=0,
-                        score=0.0,
-                        precision_by_item=0.0,
-                        recall_by_item=0.0,
-                        f1_by_item=0.0,
-                        precision_by_line=0.0,
-                        recall_by_line=0.0,
-                        f1_by_line=0.0,
-                        failure_stage=stage_map.get(terminal, "no_output"),
+                    row_factory(
+                        case.source_task_id, variant_name, 0,
+                        stage_map.get(terminal, "no_output"), False,
                     )
                 )
     return synthesized
+
+
+def _widesearch_row_factory(
+    instance_id: str, variant: str, trial_idx: int,
+    failure_stage: str | None, is_evaluator_failure: bool,
+) -> Any:
+    from eval.evaluator.widesearch import ScoreRow
+
+    if is_evaluator_failure:
+        return ScoreRow(
+            instance_id=instance_id, variant=variant, trial_idx=trial_idx,
+            score=None, precision_by_item=None, recall_by_item=None, f1_by_item=None,
+            precision_by_line=None, recall_by_line=None, f1_by_line=None,
+            failure_stage=failure_stage,
+        )
+    return ScoreRow(
+        instance_id=instance_id, variant=variant, trial_idx=trial_idx,
+        score=0.0, precision_by_item=0.0, recall_by_item=0.0, f1_by_item=0.0,
+        precision_by_line=0.0, recall_by_line=0.0, f1_by_line=0.0,
+        failure_stage=failure_stage,
+    )
+
+
+def _drb2_row_factory(
+    instance_id: str, variant: str, trial_idx: int,
+    failure_stage: str | None, is_evaluator_failure: bool,
+) -> Any:
+    from eval.evaluator.drb2 import ScoreRow
+
+    nulls = {"info_recall": None, "analysis": None, "presentation": None, "total": None}
+    zeros = {"info_recall": 0.0, "analysis": 0.0, "presentation": 0.0, "total": 0.0}
+    return ScoreRow(
+        instance_id=instance_id, variant=variant, trial_idx=trial_idx,
+        failure_stage=failure_stage, **(nulls if is_evaluator_failure else zeros),
+    )
 
 
 async def run_smoke(
@@ -229,16 +246,28 @@ async def run_smoke(
     a1_url: str = "http://127.0.0.1:8001",
     out_root: Path | str = "data/evaluations",
     budget: dict[str, Any] | None = None,
+    benchmark: str = "widesearch",
 ) -> str:
     """Full smoke run (基准文档 §10.2). Returns run_id.
 
     Integration: drives A2 (competitive_app) + A1 (single_agent service) over HTTP,
-    normalizes reports, runs evaluator, computes paired deltas + summary.
+    normalizes reports, runs the benchmark evaluator (WideSearch table scorer or
+    DRB II rubric judge), computes paired deltas + summary.
+
+    ``benchmark`` ∈ {"widesearch", "drb2"}: selects raw/normalized/scores dir
+    names + the evaluator. WideSearch = table F1 (official scorer); DRB II =
+    rubric judge (info_recall/analysis/presentation proportions).
     """
-    from eval.evaluator.widesearch import build_scorer_command, parse_scores, run_scorer
     from eval.manifest import load_manifest
-    from eval.normalizer.widesearch import normalize_report
     from eval.runner.http_client import CompetitiveAppClient
+
+    is_drb2 = benchmark == "drb2"
+    raw_bench = "drb2" if is_drb2 else "widesearch"
+    norm_dir_name = "drb2_reports" if is_drb2 else "widesearch_predictions"
+    scores_raw_name = "drb2_raw" if is_drb2 else "widesearch_raw"
+    scores_file_name = "drb2.jsonl" if is_drb2 else "widesearch.jsonl"
+    # DRB II 打分侧数据集 (rubric gold): 仅 evaluator 读, runner 不碰 (gold 隔离)
+    drb2_dataset = os.environ.get("DRB2_DATASET", "data/benchmarks/drb2/tasks_and_rubrics.jsonl")
 
     budget = budget or {"max_queries": 20, "max_fetches": 40, "max_wall_seconds": 720}
     cases = load_manifest(manifest_path)
@@ -251,11 +280,11 @@ async def run_smoke(
         .strip()[:7]
     )
     run_id = run_id_for_stage(
-        stage="smoke", benchmark="widesearch", manifest_revision=manifest_rev, short_sha=repo_sha
+        stage="smoke", benchmark=benchmark, manifest_revision=manifest_rev, short_sha=repo_sha
     )
     run_dir = Path(out_root) / run_id
-    (run_dir / "raw" / "widesearch").mkdir(parents=True, exist_ok=True)
-    (run_dir / "normalized" / "widesearch_predictions").mkdir(parents=True, exist_ok=True)
+    (run_dir / "raw" / raw_bench).mkdir(parents=True, exist_ok=True)
+    (run_dir / "normalized" / norm_dir_name).mkdir(parents=True, exist_ok=True)
     (run_dir / "scores").mkdir(parents=True, exist_ok=True)
     (run_dir / "summary").mkdir(parents=True, exist_ok=True)
 
@@ -303,7 +332,7 @@ async def run_smoke(
                         socm = None  # A1 no SOCM
 
                 # write raw (基准文档 §10.2.3)
-                raw_dir = run_dir / "raw" / "widesearch" / case.case_id / variant / "0"
+                raw_dir = run_dir / "raw" / raw_bench / case.case_id / variant / "0"
                 raw_dir.mkdir(parents=True, exist_ok=True)
                 projection = {"task_id": task_id, "status": terminal}
                 projection_by_key[(case.source_task_id, f"competitorlens_{variant}")] = projection
@@ -319,26 +348,40 @@ async def run_smoke(
                     encoding="utf-8",
                 )
 
-    # 2. normalize (基准文档 §10.2.4)
+    # 2. normalize (基准文档 §10.2.4 / §10.2.5)
     for case in cases:
         for variant in variants:
             md = (
-                run_dir / "raw" / "widesearch" / case.case_id / variant / "0" / "report.md"
+                run_dir / "raw" / raw_bench / case.case_id / variant / "0" / "report.md"
             ).read_text(encoding="utf-8")
-            out = (
-                run_dir
-                / "normalized"
-                / "widesearch_predictions"
-                / f"competitorlens_{variant}_{case.source_task_id}_0_response.jsonl"
-            )
-            normalize_report(
-                report_md=md,
-                required_headers=case.research_brief.dimensions,
-                instance_id=case.source_task_id,
-                model_config_name=f"competitorlens_{variant}",
-                trial_idx=0,
-                out_path=out,
-            )
+            norm_prefix = f"competitorlens_{variant}_{case.source_task_id}_0"
+            if is_drb2:
+                # DRB II: 只做编码/文件名规范化 (写 .md)
+                from eval.normalizer.drb2 import normalize_report as drb2_normalize
+
+                drb2_normalize(
+                    report_md=md,
+                    instance_id=case.source_task_id,
+                    model_config_name=f"competitorlens_{variant}",
+                    trial_idx=0,
+                    out_path=run_dir / "normalized" / norm_dir_name / f"{norm_prefix}.md",
+                )
+            else:
+                from eval.normalizer.widesearch import normalize_report
+
+                normalize_report(
+                    report_md=md,
+                    required_headers=case.research_brief.dimensions,
+                    instance_id=case.source_task_id,
+                    model_config_name=f"competitorlens_{variant}",
+                    trial_idx=0,
+                    out_path=(
+                        run_dir
+                        / "normalized"
+                        / norm_dir_name
+                        / f"{norm_prefix}_response.jsonl"
+                    ),
+                )
 
     # 2.5 operations (基准文档 §12.5: 三源汇总)
     from eval.operations.collector import collect_operations
@@ -346,7 +389,7 @@ async def run_smoke(
     operations_rows: list[dict[str, Any]] = []
     for case in cases:
         for variant in variants:
-            raw_dir = run_dir / "raw" / "widesearch" / case.case_id / variant / "0"
+            raw_dir = run_dir / "raw" / raw_bench / case.case_id / variant / "0"
             projection_file = raw_dir / "task_projection.json"
             projection = {}
             if projection_file.is_file():
@@ -381,27 +424,46 @@ async def run_smoke(
     last_rc = 0
     evaluator_failed_keys: set[tuple[str, str]] = set()
     for variant in variants:
-        cmd = build_scorer_command(
-            model_config_name=f"competitorlens_{variant}",
-            eval_model_config_name="deepseek-v3.2",
-            response_root=str(run_dir / "normalized" / "widesearch_predictions"),
-            result_save_root=str(run_dir / "scores" / "widesearch_raw"),
-            trial_num=1,
-        )
-        rc = run_scorer(cmd)
-        rows = parse_scores(
-            raw_dir=run_dir / "scores" / "widesearch_raw",
-            model_config_name=f"competitorlens_{variant}",
-            trial_num=1,
-        )
-        # F6: scorer crashed (rc != 0) AND a case has no output file → evaluator failure
-        if rc != 0:
+        variant_name = f"competitorlens_{variant}"
+        if is_drb2:
+            # DRB II: rubric judge (in-process; rubric gold 只在此读取)
+            from eval.evaluator.drb2 import run_drb2_evaluation
+
+            rows = await run_drb2_evaluation(
+                response_root=run_dir / "normalized" / norm_dir_name,
+                result_save_root=run_dir / "scores" / scores_raw_name,
+                dataset_path=drb2_dataset,
+                model_config_name=variant_name,
+                trial_num=1,
+            )
+            rc = 0
             scored_ids = {r.instance_id for r in rows}
             for case in cases:
                 if case.source_task_id not in scored_ids:
-                    evaluator_failed_keys.add((case.source_task_id, f"competitorlens_{variant}"))
+                    evaluator_failed_keys.add((case.source_task_id, variant_name))
+        else:
+            from eval.evaluator.widesearch import build_scorer_command, parse_scores, run_scorer
+
+            cmd = build_scorer_command(
+                model_config_name=variant_name,
+                eval_model_config_name="deepseek-v3.2",
+                response_root=str(run_dir / "normalized" / norm_dir_name),
+                result_save_root=str(run_dir / "scores" / scores_raw_name),
+                trial_num=1,
+            )
+            rc = run_scorer(cmd)
+            rows = parse_scores(
+                raw_dir=run_dir / "scores" / scores_raw_name,
+                model_config_name=variant_name,
+                trial_num=1,
+            )
+            # F6: scorer crashed (rc != 0) AND a case has no output file → evaluator failure
+            if rc != 0:
+                scored_ids = {r.instance_id for r in rows}
+                for case in cases:
+                    if case.source_task_id not in scored_ids:
+                        evaluator_failed_keys.add((case.source_task_id, variant_name))
         all_rows.extend(rows)
-        last_cmd = cmd
         last_rc = rc
 
     # D13 §14.2-14.3: synthesize rows for unscored cases (F1-F5 → 0, F6 → null)
@@ -412,39 +474,51 @@ async def run_smoke(
             existing_rows=all_rows,
             projection_by_key=projection_by_key,
             evaluator_failed_keys=evaluator_failed_keys,
+            row_factory=_drb2_row_factory if is_drb2 else _widesearch_row_factory,
         )
     )
 
     # 4. paired deltas + summary (基准文档 §10.4)
     a1_rows = [r for r in all_rows if r.variant == "competitorlens_a1"]
     a2_rows = [r for r in all_rows if r.variant == "competitorlens_a2"]
-    deltas = compute_paired_deltas(a1_rows=a1_rows, a2_rows=a2_rows, metric="f1_by_item")
+    delta_metric = "total" if is_drb2 else "f1_by_item"
+    deltas = compute_paired_deltas(a1_rows=a1_rows, a2_rows=a2_rows, metric=delta_metric)
 
     (run_dir / "scores" / "paired_deltas.json").write_text(
         json.dumps([asdict(d) for d in deltas], ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    (run_dir / "scores" / "widesearch.jsonl").write_text(
+    (run_dir / "scores" / scores_file_name).write_text(
         "\n".join(json.dumps(asdict(r), ensure_ascii=False) for r in all_rows) + "\n",
         encoding="utf-8",
     )
 
     # summary (mean@1, 基准文档 §12.3; D13 失败口径 §14.3)
-    a1_valid = [r.f1_by_item for r in a1_rows if r.f1_by_item is not None]
-    a2_valid = [r.f1_by_item for r in a2_rows if r.f1_by_item is not None]
     deltas_valid = [d.delta for d in deltas if d.delta is not None]
     # completed = 被测系统跑完 (failure_stage None) 且 evaluator 出分 (排除 F6 evaluator)
     completed = [r for r in all_rows if r.failure_stage is None]
     evaluator_failures = len([r for r in all_rows if r.failure_stage == "evaluator"])
-    summary = {
+    summary: dict[str, Any] = {
         "repetitions": 1,
         "all_case_count": len(all_rows),
         "completed_count": len(completed),
         "evaluator_failures": evaluator_failures,  # F6: null, not 0 (基准文档 §14.2)
-        "mean_f1_a1": sum(a1_valid) / max(1, len(a1_valid)),
-        "mean_f1_a2": sum(a2_valid) / max(1, len(a2_valid)),
         "paired_delta_mean": sum(deltas_valid) / max(1, len(deltas_valid)),
         "operations": _aggregate_operations(operations_rows),
     }
+    if is_drb2:
+        a1_valid = [r.total for r in a1_rows if r.total is not None]
+        a2_valid = [r.total for r in a2_rows if r.total is not None]
+        summary["mean_total_a1"] = sum(a1_valid) / max(1, len(a1_valid))
+        summary["mean_total_a2"] = sum(a2_valid) / max(1, len(a2_valid))
+        for dim in ("info_recall", "analysis", "presentation"):
+            summary[f"mean_{dim}_a2"] = sum(
+                getattr(r, dim, 0.0) or 0.0 for r in a2_rows if r.failure_stage is None
+            ) / max(1, len([r for r in a2_rows if r.failure_stage is None]))
+    else:
+        a1_valid = [r.f1_by_item for r in a1_rows if r.f1_by_item is not None]
+        a2_valid = [r.f1_by_item for r in a2_rows if r.f1_by_item is not None]
+        summary["mean_f1_a1"] = sum(a1_valid) / max(1, len(a1_valid))
+        summary["mean_f1_a2"] = sum(a2_valid) / max(1, len(a2_valid))
     (run_dir / "summary" / "metrics.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -452,10 +526,10 @@ async def run_smoke(
     # manifest (基准文档 §12.7)
     manifest = build_run_manifest(
         stage="smoke",
-        benchmark="widesearch",
+        benchmark=benchmark,
         repo_commit=repo_sha,
         repo_dirty=bool(subprocess.check_output(["git", "status", "--porcelain"]).decode().strip()),  # noqa: ASYNC221
-        benchmark_revision=_read_ws_sha(),
+        benchmark_revision=_read_drb2_revision() if is_drb2 else _read_ws_sha(),
         manifest_revision=manifest_rev,
         model="deepseek-v3.2",
         provider="openai",
@@ -481,32 +555,35 @@ async def run_smoke(
     import csv
     from io import StringIO
 
+    score_col = "total" if is_drb2 else "f1_by_item"
     si = StringIO()
     writer = csv.writer(si)
-    writer.writerow(["instance_id", "variant", "f1_by_item", "score", "failure_stage"])
+    writer.writerow(["instance_id", "variant", score_col, "failure_stage"])
     for r in sorted(all_rows, key=lambda x: (x.instance_id, x.variant)):
-        writer.writerow([r.instance_id, r.variant, r.f1_by_item, r.score, r.failure_stage or ""])
+        val = getattr(r, score_col, None)
+        writer.writerow([r.instance_id, r.variant, val if val is not None else "", r.failure_stage or ""])
     (run_dir / "summary" / "metrics.csv").write_text(si.getvalue(), encoding="utf-8")
     # summary/report.md — 人读
+    mean_key_a1 = "mean_total_a1" if is_drb2 else "mean_f1_a1"
+    mean_key_a2 = "mean_total_a2" if is_drb2 else "mean_f1_a2"
     report_md = (
         f"# Eval Smoke Run {run_id}\n\n"
+        f"- benchmark: {benchmark}\n"
         f"- all_case_count: {summary['all_case_count']}\n"
         f"- completed_count: {summary['completed_count']}\n"
         f"- evaluator_failures (F6): {summary['evaluator_failures']}\n"
-        f"- mean_f1_a1: {summary['mean_f1_a1']:.4f}\n"
-        f"- mean_f1_a2: {summary['mean_f1_a2']:.4f}\n"
+        f"- mean_{score_col}_a1: {summary.get(mean_key_a1, 0.0):.4f}\n"
+        f"- mean_{score_col}_a2: {summary.get(mean_key_a2, 0.0):.4f}\n"
         f"- paired_delta_mean: {summary['paired_delta_mean']:.4f}\n\n"
         f"## Per-case scores\n\n"
     )
-    report_md += "| instance_id | variant | f1_by_item | failure_stage |\n"
+    report_md += f"| instance_id | variant | {score_col} | failure_stage |\n"
     report_md += "|---|---|---|---|\n"
     for r in sorted(all_rows, key=lambda x: (x.instance_id, x.variant)):
-        f1 = f"{r.f1_by_item:.4f}" if r.f1_by_item is not None else "null"
-        report_md += f"| {r.instance_id} | {r.variant} | {f1} | {r.failure_stage or ''} |\n"
+        val = getattr(r, score_col, None)
+        v = f"{val:.4f}" if val is not None else "null"
+        report_md += f"| {r.instance_id} | {r.variant} | {v} | {r.failure_stage or ''} |\n"
     (run_dir / "summary" / "report.md").write_text(report_md, encoding="utf-8")
-    # D11 DRB II 占位 (D1 C2-wide)
-    (run_dir / "normalized" / "drb2_reports").mkdir(parents=True, exist_ok=True)
-    (run_dir / "scores" / "drb2.jsonl").write_text("", encoding="utf-8")
 
     return run_id
 
@@ -527,6 +604,16 @@ def _read_ws_sha() -> str:
         except FileNotFoundError:
             continue
     return ""
+
+
+def _read_drb2_revision() -> str:
+    """Read DRB II dataset revision from REVISION.txt (tracked)."""
+    try:
+        return Path("data/benchmarks/drb2/REVISION.txt").read_text(
+            encoding="utf-8"
+        ).strip()
+    except FileNotFoundError:
+        return "imlrz/DeepResearch-Bench-II@main"
 
 
 __all__ = [

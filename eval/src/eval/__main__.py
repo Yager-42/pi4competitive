@@ -14,22 +14,23 @@ def main() -> int:
     p.add_argument("--stage", default="smoke", choices=["smoke", "pilot"])
     p.add_argument("--benchmark", default="widesearch", choices=["widesearch", "drb2"])
     p.add_argument("--variants", default="a1,a2")
-    p.add_argument("--manifest", default="eval/manifests/widesearch_smoke.jsonl")
+    p.add_argument(
+        "--manifest",
+        default=None,  # resolved per-benchmark below
+    )
     p.add_argument("--app-url", default="http://127.0.0.1:8000")
     p.add_argument("--a1-url", default="http://127.0.0.1:8001")
     args = p.parse_args()
 
-    if args.benchmark == "drb2":
-        print("DRB II not wired (D1 C2-wide)", file=sys.stderr)
-        return 2
-
+    manifest_path = args.manifest or f"eval/manifests/{args.benchmark}_smoke.jsonl"
     variants = args.variants.split(",")
     run_id = asyncio.run(
         run_smoke(
-            manifest_path=args.manifest,
+            manifest_path=manifest_path,
             variants=variants,
             app_url=args.app_url,
             a1_url=args.a1_url,
+            benchmark=args.benchmark,
         )
     )
     print(f"run complete: {run_id}")

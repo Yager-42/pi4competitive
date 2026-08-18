@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from eval.orchestrator import (
+    _widesearch_row_factory,
     build_run_manifest,
     compute_paired_deltas,
     run_id_for_stage,
@@ -99,6 +100,7 @@ def test_synthesize_missing_rows_zero_for_system_failure():
         existing_rows=existing,
         projection_by_key=projection_by_key,
         evaluator_failed_keys=evaluator_failed_keys,
+        row_factory=_widesearch_row_factory,
     )
     assert len(synthesized) == 2
     for r in synthesized:
@@ -127,6 +129,7 @@ def test_synthesize_missing_rows_null_for_evaluator_crash():
         existing_rows=existing,
         projection_by_key=projection_by_key,
         evaluator_failed_keys=evaluator_failed_keys,
+        row_factory=_widesearch_row_factory,
     )
     assert len(synthesized) == 1
     assert synthesized[0].score is None
@@ -159,6 +162,7 @@ def test_synthesize_missing_rows_skips_existing():
         existing_rows=existing,
         projection_by_key=projection_by_key,
         evaluator_failed_keys=set(),
+        row_factory=_widesearch_row_factory,
     )
     assert len(synthesized) == 1  # only ws_en_002 missing
     assert synthesized[0].instance_id == "ws_en_002"
