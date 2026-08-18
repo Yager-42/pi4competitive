@@ -275,7 +275,10 @@ class ResearchRunner:
             )
         except Exception:  # noqa: BLE001 — best-effort recall; never fail write
             memory_blob = None
-        sections_to_write = self._section_list()
+        # v0.2.10: 写阶段按任务 prompt 指定的结构组织章节 (report_structure),
+        # 否则退回通用 overview/dims/conclusion。
+        plan_output = (prior.get("plan") or {}) if isinstance(prior, dict) else {}
+        sections_to_write = self._section_list(plan_output)
         t0 = time.monotonic()
         section_results: list[dict[str, Any]] = []
         for _sid, title, focus in sections_to_write:
@@ -316,10 +319,31 @@ class ResearchRunner:
             await append_stage_output(self.session, "write", output)
         return result
 
-    def _section_list(self) -> list[tuple[str, str, str]]:
-        """Sections to write (v0.2.6): overview + per-dimension + conclusion."""
+    def _section_list(self, plan_output: dict[str, Any] | None = None) -> list[tuple[str, str, str]]:
+        """Sections to write.
+
+        v0.2.10: 按任务要求的结构组织章节。优先级:
+        1. plan 的 ``report_structure``（LLM 从 prompt 提取, 可能缺失）;
+        2. 从 research brief 程序化提取 (编号的 ``**粗体标题**`` 章节/表格);
+        3. 退回 v0.2.6 通用 overview + per-dimension + conclusion。
+        DRB II 报告轨按 brief 明确指定的章节/表格判分, 因此 1/2 都要精确保留标题。
+        """
+        structure = (plan_output or {}).get("report_structure") if plan_output else None
+        if isinstance(structure, list) and structure:
+            sections: list[tuple[str, str, str]] = []
+            for i, item in enumerate(structure):
+                if not isinstance(item, dict):
+                    continue
+                title = str(item.get("section") or item.get("title") or f"Section {i + 1}")
+                focus = str(item.get("focus") or "")
+                sections.append((f"struct:{i}", title, focus))
+            if sections:
+                return sections
+        brief_structure = _extract_report_structure_from_brief(self.research_brief.goal or "")
+        if brief_structure:
+            return brief_structure
         dims = list(self.research_brief.dimensions or [])
-        sections: list[tuple[str, str, str]] = [
+        sections = [
             (
                 "overview",
                 "概述",
@@ -555,6 +579,28 @@ class ResearchRunner:
 
     async def _set_status(self, status: str) -> None:
         await self.store.update_task_status(self.task_id, status)
+
+
+def _extract_report_structure_from_brief(
+    goal: str,
+) -> list[tuple[str, str, str]] | None:
+    """从 brief 显式结构提取章节 (编号的 ``**粗体标题**`` 列表)。
+
+    v0.2.10 兜底：plan LLM 可能漏报 ``report_structure``，但 DRB II 任务通常
+    在 prompt 里明确编号章节/表格（``1. **Cost Data Compilation...**: ...``）。
+    此模式最可靠；无命中 -> None（退回通用结构）。
+    """
+    import re
+
+    sections: list[tuple[str, str, str]] = []
+    for m in re.finditer(
+        r"(?m)^\s*(\d+)[.)]\s*\*\*(.+?)\*\*\s*[:：]?\s*(.*)$", goal
+    ):
+        title = m.group(2).strip()
+        focus = m.group(3).strip()
+        if title:
+            sections.append((f"struct:{len(sections)}", title, focus))
+    return sections if sections else None
 
 
 def _message_text(message: dict[str, Any]) -> str:

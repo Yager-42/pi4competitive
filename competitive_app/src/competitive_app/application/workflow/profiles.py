@@ -54,6 +54,9 @@ Output ONLY valid JSON:
   },
   "queries": [
     {"entity_id": "e_<slug>", "queries": ["<typed query 1>", "<typed query 2>", "..."], "source_hints": ["<domain or site>", "..."]}
+  ],
+  "report_structure": [
+    {"section": "<exact section or table title the brief asks for>", "focus": "<what this section must contain / its table columns and rows>"}
   ]
 }
 
@@ -61,6 +64,14 @@ The target must be one entity; every competitor must be an entity. At least one 
 attribute per dimension. Attribute ids must be unique. The `queries` array must \
 have one entry per entity. Typed queries and source_hints are critical — they \
 guide the search sub-agents to authoritative sources.
+
+REPORT STRUCTURE (v0.2.10) — critical for report-track (DRB II) scoring. The \
+brief often dictates an EXACT report layout (named sections, named tables with \
+specific columns/rows, ordered parts). Copy those verbatim into \
+`report_structure` as one entry per section/table — the write stage produces \
+sections from this list, so a table the brief names MUST appear with its exact \
+title and structure. If the brief specifies no explicit layout, give a \
+reasonable 3-6 section outline. Do NOT invent sections the brief forbids.
 
 ENTITY GRANULARITY (v0.2.10) — do NOT emit an aggregate/umbrella row. Each \
 entity is ONE table row, and each of its attributes must hold a single value. \
