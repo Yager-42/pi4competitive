@@ -2,11 +2,11 @@
 
 | 字段 | 值 |
 |------|-----|
-| **updated** | 2026-08-18 |
+| **updated** | 2026-08-19 |
 | **branch** | `p4/eval-harness-widesearch-smoke` |
-| **commits** | `dfd00f7`/`ebf6637`/`d6fa1df`（指标端到端）→ `fbb7cd4`（9 指标/coverage 修复）→ `6ef385e`/`3e3c8a3`（DRB II pipeline + smoke fixes）→ `5ad7afd`（write 结构跟随）→ `7d2c833`（judge 超时 + 文档）→ `32e5a05`/`9023eeb`（plan 聚合 schema 护栏 v0.2.11）|
+| **commits** | `dfd00f7`/`ebf6637`/`d6fa1df`（指标端到端）→ `fbb7cd4`（9 指标/coverage 修复）→ `6ef385e`/`3e3c8a3`（DRB II pipeline + smoke fixes）→ `5ad7afd`（write 结构跟随）→ `7d2c833`（judge 超时 + 文档）→ `32e5a05`/`9023eeb`（plan 聚合 schema 护栏 v0.2.11）→ `685a209`/`6ad4494`（info_recall 修复 + 定性）→ `5f591bc`（A2 超时 900→1620s）|
 | **范围** | 基准文档 §7 运行指标 + A1/A2 双 variant + coverage 填充质量 + DRB II 报告轨 |
-| **状态** | **双轨全通 + plan 护栏 live 验证**：A2 total **0.168→0.542**（guardrail），analysis 0.077→0.769，presentation 0.429→0.857，**反超 A1（0.330）**。tokens 转为可测（5.47M/run）|
+| **状态** | **5-case 全量 run 完成**（全 judge，~2.7h）：A2 mean total **0.361 > A1 0.245**，实现增益 **+0.117**，A2 胜 4/5 case、三维度全面领先。recall 4/5 非零（A2 0.141 vs A1 0.088）。A2 报告 5/5 有效（drb2_4 A1 空报告 flaky）。A2 超时修复（900→1620s）是跑通关键 |
 
 ---
 
@@ -196,6 +196,36 @@ full judge 实测：单条 judge 调用无超时，网关偶发挂起会阻塞�
 
 **规律**：连最强模型也过不了 50% rubric；Info Recall 最难（~40% 最佳）；Presentation 最容易（~90%）但和内容浅脱钩。我们分数不可直接比（单题 + gpt-5.6-luna judge），但形态一致：**recall 是最大短板，analysis 靠模型知识可到中上**。
 
+### 4.3 5-case 全量 run（全 judge，`smoke-drb2-1962711-f896509`）
+
+**前置修复**（`5f591bc`）：A2 per-task 超时守卫 **900s→`max_wall+900`（720→1620s）**——原 900s 硬编码下，A2 大 schema 的 search（720s wall）+ plan + write 超时被 harness POST `/abort` → 空报告（drb2_4 A2 曾因此死）。此修复是 5-case 跑通的关键。
+
+**完整结果**（gpt-5.6-luna judge，132→各 case 全量 rubric）：
+
+| case | A1 total | A2 total | delta | 主题 |
+|---|---|---|---|---|
+| drb2_6 | 0.225 | 0.433 | **+0.208** | |
+| drb2_22 | 0.359 | 0.542 | **+0.183** | EV LCC |
+| drb2_4 | 0.000（空报告）| 0.140 | +0.140 | |
+| drb2_30 | 0.192 | 0.258 | +0.066 | |
+| drb2_18 | 0.447 | 0.434 | −0.013 | 植物 HGT |
+
+**维度均值**：
+
+| 维度 | A1 | A2 | A2 增益 |
+|---|---|---|---|
+| info_recall | 0.088 | **0.141** | +0.053 |
+| analysis | 0.283 | **0.396** | +0.113 |
+| presentation | 0.364 | **0.548** | +0.184 |
+| **total** | **0.245** | **0.361** | **+0.117** |
+
+**结论**：
+- **A2 胜 4/5 case，实现增益 +0.117**——完整链路（plan 护栏 + 结构跟随 + 研究索引 + 超时修复）确实优于裸 agent 基线，三维度全面领先
+- **recall 4/5 非零**（仅 drb2_22=0）——搜索采到部分具体条目，但精确数值（EV 300=$1,994,243）仍采不到（见 §6）
+- **analysis 分化**：泛化题 drb2_22=0.77、科研题 drb2_18/4=0.18——具体文献依赖型分析 = recall 同款检索短板
+- **A1 flaky**：drb2_4 A1 空报告（"(no output)"，研究型 brief 时模型工具调用落地失败）；需"空输出重试"
+- 期间 2 次网关额度故障（报告生成 + judge 全 0）→ 用户充值后重跑；此 run 无故障
+
 ## 5. 如何运行
 
 ```bash
@@ -242,10 +272,12 @@ DRB2_MAX_ITEMS=3 uv run python -m eval --stage smoke --benchmark drb2 --variants
 |---|---|---|
 | WideSearch 全量 F1 重跑 | 5 case smoke 出真实 F1 + delta（scorer judge 已修） | 基准 §8 合成指数需要 |
 | coverage 填充率验证 | **护栏后大幅提升**（drb2_22 policy 格 0→真实 12 国）；WideSearch 侧待重跑 | 对比基线（0-20%）是否提升 |
-| **DRB II 5-case 全量 + 同 run A1/A2 delta** | 单 case 全量 judge ~7 分钟；5 case 报告生成 ~35 分钟 | 稳健分数 + 干净配对（A1 需同 run 重跑，旧 A1 报告已存在）|
+| ~~DRB II 5-case 全量 + 配对 delta~~ | **✅ 完成**（`4.3`，A2 mean 0.361 > A1 0.245，+0.117）| 基线结果已入库 |
+| **A1 空输出 flaky** | drb2_4 A1 产 "(no output)"（研究型 brief 时模型工具调用落地失败）；加"空输出自动重试"或换可靠 provider | A1 基线质量；空报告拉低均值 |
+| **drb2_30 A2 presentation 0.200** | 结构未跟随（该 case 报告结构有 4 节但可能标题/表不匹配）| 特定 case 的 write 结构问题，需单独看 |
 | tavily 网络不可达 | WSL→api.tavily.com 连接失败（非 key）| A2 搜索仅靠 anysearch 兜底 |
 | cost | provider usage.cost 返回 0 价 | 成本指标恒 0（供应商限制）；**tokens 已可测** |
 | A2 journal 污染根因 | `journal_bridge` 闭包捕获 journal | 仅影响 duration（已规避）；可后续修 |
 | DRB II rubric 判定质量 | judge 模型是 gpt-5.6-luna（官方用 Gemini）| A1 analysis 0.77 偏高可疑，需抽样复核或换官方 judge |
-| **info_recall（唯一短板，search-capability 天花板）** | `685a209` 后结构已修（研究索引表 + 车型展开 + 逐研究提取）；**但搜索仍检索不到 rubric 的精确语料**（Hao et al. EV 300=$1,994,243、SOR bus、Edison project…），judge 探测证明判分公平 | recall 0.0 是真实测量；GPT-o3 也仅 ~40%。提升需搜索基建：学术来源（Scholar/Semantic Scholar）、逐国/逐研究更深检索 |
+| **info_recall（search-capability 天花板）** | `685a209` 结构已修（研究索引 + 车型展开 + 逐研究提取）；**搜索仍采不到 rubric 精确语料**（EV 300=$1,994,243、SOR bus、Edison project…）；5-case 中 4/5 recall 非零（A2 0.141），仅 drb2_22=0 | GPT-o3 也仅 ~40%。提升需学术搜索源（Scholar/Semantic Scholar）+ 逐国/逐研究更深检索 |
 | WSL 全量离线 10 个失败 | 6 个 P3.3 sandbox 单测 + 4 个环境依赖 | CI 门不绿（真实环境） |
