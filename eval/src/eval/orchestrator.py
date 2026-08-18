@@ -429,12 +429,16 @@ async def run_smoke(
             # DRB II: rubric judge (in-process; rubric gold 只在此读取)
             from eval.evaluator.drb2 import run_drb2_evaluation
 
+            # DRB2_MAX_ITEMS env: smoke 限速 (每维度最多 judge 条数; 0/缺省 = 全部)
+            max_items = int(os.environ.get("DRB2_MAX_ITEMS", "0") or 0) or None
+            # reports 以 trial 0 落盘 (normalize trial_idx=0); evaluator 按 0 读回
             rows = await run_drb2_evaluation(
                 response_root=run_dir / "normalized" / norm_dir_name,
                 result_save_root=run_dir / "scores" / scores_raw_name,
                 dataset_path=drb2_dataset,
                 model_config_name=variant_name,
-                trial_num=1,
+                trial_num=0,
+                max_items=max_items,
             )
             rc = 0
             scored_ids = {r.instance_id for r in rows}

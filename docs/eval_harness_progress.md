@@ -4,9 +4,9 @@
 |------|-----|
 | **updated** | 2026-08-18 |
 | **branch** | `p4/eval-harness-widesearch-smoke` |
-| **commits** | `dfd00f7`、`ebf6637`、`d6fa1df`（已提交）+ 9 个修复（待 commit） |
-| **范围** | 基准文档 §7 的运行指标 + A1/A2 双 variant 跑通 + coverage 填充质量 |
-| **状态** | 9 个修复全部实现+单测通过；修复后全量 smoke 重跑中（验证 delta） |
+| **commits** | `dfd00f7`/`ebf6637`/`d6fa1df`（指标端到端）+ `fbb7cd4`（9 个指标/coverage 修复）+ `6ef385e`（DRB II pipeline） |
+| **范围** | 基准文档 §7 运行指标 + A1/A2 双 variant + coverage 填充质量 + DRB II 报告轨 |
+| **状态** | 9 个修复 + DRB II pipeline 全部实现+单测通过；Live 小规模 DRB II 验证进行中 |
 
 ---
 
@@ -46,6 +46,24 @@
 
 A2 观测层存在 journal 交叉写入：每个 case 的 `data/runs/<task_id>/events.jsonl` 结尾会多出 ~100 条 `agent.started/llm.request/llm.response/agent.finished`（带 `run_id`、**无 usage**、**无 tool 事件**）。影响仅 `duration_seconds`（已被 ⑧ 修复规避）；tokens/search/fetch/coverage 均不受污染。疑似 `journal_bridge.py` 的 extension factory **闭包捕获 journal**（`make_journal_extension_factory(journal)`）而非事件时解析 ContextVar。
 
+### 2.3 DRB II 报告轨 pipeline（`6ef385e`）
+
+DeepResearch Bench II（`imlrz/DeepResearch-Bench-II`，arXiv:2601.08536）：132 题由 LLM judge 对二元打分项逐条判分，三维度（信息召回 / 分析 / 表达）得分 = 通过比例，总分 = 三维度均值。实现：
+
+| 组件 | 说明 |
+|---|---|
+| 数据集 | `data/benchmarks/drb2/tasks_and_rubrics.jsonl`（132 题，gitignored）+ `REVISION.txt`（tracked）。许可证：129×CC BY、idx 26/110×CC BY-NC（商业 manifest 排除）、idx 119×CC0 |
+| manifest | `eval/manifests/drb2_smoke.jsonl`（5 英文题：drb2_4/6/18/22/30）；ResearchBrief 只取 prompt，打分内容绝不进运行进程 |
+| adapter | `adapter/drb2.py` — 数据集行 → CaseManifest（dev 助手；gold 隔离契约通过）|
+| normalizer | `normalizer/drb2.py` — 报告 → UTF-8 `.md`（只做编码/文件名规范化，§10.2.5）|
+| evaluator | `evaluator/drb2.py` — **rubric LLM-judge**：逐条 {1,0,-1}+reason+evidence → 三维度比例 → 均值总分。judge 走 pi_ai（env 配置模型），`judge_fn` 可注入（离线单测）|
+| orchestrator | `run_smoke` 加 `benchmark` 参数 + drb2 分支（目录/评分/汇总/synthesize 泛化为 row_factory）；`__main__.py` 解除 `--benchmark drb2` 闸门 |
+| smoke 限速 | `DRB2_MAX_ITEMS` env：每维度最多 judge 条数（0/缺省 = 全部）|
+
+**运行**：`uv run python -m eval --stage smoke --benchmark drb2 --variants a1,a2`（服务 :8000/:8001 需先起；`DRB2_MAX_ITEMS=3` 可小规模冒烟）。产物 `scores/drb2.jsonl`（每 case 三维度 + total）、`scores/paired_deltas.json`（total 的 A2-A1 delta）、`summary/metrics.json`（mean_total_a1/a2 + 三维度均值）。
+
+**验证**：18 个新单测 + gold 隔离契约绿（Windows 75 / WSL 70 passed）；离线端到端 mock judge 5 case 全出分；Live 小规模验证见 §4。
+
 ## 3. 指标可测性现状
 
 ### ✅ 能测（修复后有真实值）
@@ -63,6 +81,7 @@ A2 观测层存在 journal 交叉写入：每个 case 的 `data/runs/<task_id>/e
 | A2 tool 调用/evidence | gpt-5.6-luna 下 33-85 次 tool.called、21-44 条 evidence/case |
 | A2 coverage / SOCM | 四态分布（filled/unknown/conflict/empty）|
 | A2-A1 配对 delta | 修复后全量 smoke 重跑中（预计 delta 非 0）|
+| DRB II 三维度 + total | **pipeline 已实现**（rubric judge）；live 小规模验证中 |
 
 ### ⚠️ 能测但当前 0 / 受限
 
@@ -146,5 +165,6 @@ asyncio.run(run_smoke(manifest_path='eval/manifests/widesearch_smoke.jsonl', var
 | A2 journal 污染根因 | `journal_bridge` 闭包捕获 journal | 仅影响 duration（已规避）；可后续修 |
 | tokens/cost | 网关不回报 usage | 指标恒 0（供应商限制） |
 | write 阶段对慢模型 | deepseek 写报告 400s+ 不完成 | gpt-5.6-luna 已解决；或加 write 超时 |
-| DRB II 轨道 | 空壳 stub | 需单独实现（暂缓） |
+| **DRB II live 全量** | 搜索/模型 provider 配额未重置（anysearch 日配额 + tavily 计划上限）| 配额重置后跑 5 case DRB II smoke（含真实 judge 打分）|
+| DRB II rubric 判定质量 | judge 模型是 gpt-5.6-luna（官方用 Gemini）| 需抽样核对分数合理性 |
 | WSL 全量离线 10 个失败 | 6 个 P3.3 sandbox 单测 + 4 个环境依赖 | CI 门不绿（真实环境） |
