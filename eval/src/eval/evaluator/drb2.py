@@ -24,6 +24,8 @@ from typing import Any, Awaitable, Callable
 
 _DIMENSIONS = ("info_recall", "analysis", "presentation")
 _JUDGE_OUTPUT_TOKEN_CAP = 1024
+# 单条 judge 调用的超时: 网关偶发挂起, 不设超时会阻塞整个打分 (live 实测 7min 卡死)
+_JUDGE_CALL_TIMEOUT_S = 60.0
 
 JudgeFn = Callable[[str], Awaitable[str]]
 
@@ -190,9 +192,11 @@ def _parse_judge_json(text: str) -> int | None:
 async def _judge_item(
     task: dict[str, Any], item: str, report: str, judge_fn: JudgeFn
 ) -> int:
-    """judge 单条 rubric -> score (默认 0 未提及)."""
+    """judge 单条 rubric -> score (默认 0 未提及). 超时/失败按未提及计, 不中断."""
     try:
-        text = await judge_fn(_judge_prompt(task, item, report))
+        text = await asyncio.wait_for(
+            judge_fn(_judge_prompt(task, item, report)), timeout=_JUDGE_CALL_TIMEOUT_S
+        )
     except Exception:  # noqa: BLE001 — judge 失败按未提及计, 不中断整个 case
         return 0
     score = _parse_judge_json(text)

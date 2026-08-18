@@ -4,9 +4,9 @@
 |------|-----|
 | **updated** | 2026-08-18 |
 | **branch** | `p4/eval-harness-widesearch-smoke` |
-| **commits** | `dfd00f7`/`ebf6637`/`d6fa1df`（指标端到端）+ `fbb7cd4`（9 个指标/coverage 修复）+ `6ef385e`（DRB II pipeline） |
+| **commits** | `dfd00f7`/`ebf6637`/`d6fa1df`（指标端到端）→ `fbb7cd4`（9 指标/coverage 修复）→ `6ef385e`/`3e3c8a3`（DRB II pipeline + smoke fixes）→ `5ad7afd`（write 结构跟随）|
 | **范围** | 基准文档 §7 运行指标 + A1/A2 双 variant + coverage 填充质量 + DRB II 报告轨 |
-| **状态** | 9 个修复 + DRB II pipeline 全部实现+单测通过；Live 小规模 DRB II 验证进行中 |
+| **状态** | **双轨全通**：WideSearch（scorer judge 修复）+ DRB II（pipeline + write 结构跟随）。Live 验证完成：A1 全量 judge total 0.26（analysis 0.77）；A2 结构跟随生效（presentation 0→0.67）|
 
 ---
 
@@ -22,7 +22,7 @@
 - **`ebf6637`** — A2 search wall-clock 截止（`Budget.consume_wall` 是死代码 → 引擎记 deadline，搜索 120s 自终止）
 - **`d6fa1df`** — A2 stream sanitize + 有界 sub-agent 取消
 
-### 2.2 本轮新增 9 个修复（待 commit）
+### 2.2 本轮新增 9 个修复（`fbb7cd4` 已提交）
 
 #### ① coverage 填充质量（4 个，前面会话定位后实现）
 
@@ -64,6 +64,21 @@ DeepResearch Bench II（`imlrz/DeepResearch-Bench-II`，arXiv:2601.08536）：13
 
 **验证**：18 个新单测 + gold 隔离契约绿（Windows 75 / WSL 70 passed）；离线端到端 mock judge 5 case 全出分；Live 小规模验证见 §4。
 
+### 2.4 write 阶段结构跟随（`5ad7afd`，DRB II 报告轨关键）
+
+**根因**（live DRB II smoke 发现）：A2 报告用通用 overview/dims/conclusion 结构，但 DRB II rubric 检查 brief **精确指定的章节/表格**（如 "Cost Data Compilation for Different Vehicle Models" 表）→ 结构依赖的 rubric 全 0。
+
+**修复**（v0.2.10）— 章节选择按优先级：
+1. plan 的 `report_structure`（plan prompt 新增字段，planner 从 brief 逐字提取要求章节；live 验证 gpt-5.6-luna 能产出）
+2. **程序化兜底** `_extract_report_structure_from_brief`：从 brief 提取编号的 `**粗体标题**` 章节（确定性——plan LLM 有时漏报）
+3. 通用 overview/dims/conclusion（保留）
+
+**Live 验证**（drb2_22）：A2 报告现含 `## Cost Data Compilation for Different Vehicle Models`（真实表格）+ `## Summary of Incentive Policies by Country` + `## Comprehensive Analysis`；presentation 采样 0.0 → **0.667**。
+
+### 2.5 DRB II judge 单条调用超时（未 commit）
+
+full judge 实测：单条 judge 调用无超时，网关偶发挂起会阻塞整个打分（7 分钟卡死）。`evaluator/drb2.py` 加 `_JUDGE_CALL_TIMEOUT_S = 60.0`（`asyncio.wait_for`，失败按未提及计）。**待 commit**。
+
 ## 3. 指标可测性现状
 
 ### ✅ 能测（修复后有真实值）
@@ -81,7 +96,7 @@ DeepResearch Bench II（`imlrz/DeepResearch-Bench-II`，arXiv:2601.08536）：13
 | A2 tool 调用/evidence | gpt-5.6-luna 下 33-85 次 tool.called、21-44 条 evidence/case |
 | A2 coverage / SOCM | 四态分布（filled/unknown/conflict/empty）|
 | A2-A1 配对 delta | 修复后全量 smoke 重跑中（预计 delta 非 0）|
-| DRB II 三维度 + total | **pipeline 已实现**（rubric judge）；live 小规模验证中 |
+| DRB II 三维度 + total | **live 验证完成**（rubric judge 全量/采样均出分；A1 全量 0.26）|
 
 ### ⚠️ 能测但当前 0 / 受限
 
@@ -96,7 +111,6 @@ DeepResearch Bench II（`imlrz/DeepResearch-Bench-II`，arXiv:2601.08536）：13
 | 指标 | 缺什么 |
 |---|---|
 | 首包失败 / resume/abort | 无 fallback 链 → 首包探测不生效 |
-| DRB II 全指标 | 空壳 stub（D1 预留，暂缓）|
 | Windows 全量离线 | P3.3 sandbox 是 Linux/macOS-only（平台性）|
 
 ## 4. 基线 smoke（修复前，gpt-5.6-luna）关键发现
@@ -122,6 +136,33 @@ DeepResearch Bench II（`imlrz/DeepResearch-Bench-II`，arXiv:2601.08536）：13
 - 120s wall 内只搜了聚合行（cell-count 排序优先），两个 series 实体 28 格从未 dispatch
 - 44 条 evidence 全部通过提取闸门（对 gpt-5.6-luna 提取不严格）——瓶颈在实体建模 + 调度
 
+### 4.1 DRB II live 验证（drb2_22，换 anysearch key 后）
+
+| 项 | 结果 |
+|---|---|
+| 模型网关 `pro3.o0n0o.cc` | 恢复（换 key 后通）|
+| anysearch 新 key | ✅ 出 evidence（A2 单 case 9-31 条 evidence，103 tool calls）|
+| tavily | ⚠️ WSL 网络不可达（HTTP 000，非 key 问题；anysearch 兜底）|
+| **A2 write 结构跟随** | ✅ 修复后报告含 `## Cost Data Compilation...` 真实表格 + `## Summary of Incentive Policies...` + `## Comprehensive Analysis`；presentation 采样 0→0.667 |
+| **A1 全量 judge**（45+13+7=65 条）| info_recall 0.0 / analysis **0.77** / presentation 0.0 / **total 0.256** |
+
+**A1 画像**：能分析（模型知识，analysis 0.77 高）+ 不能召回（不搜索 → 具体事实全缺）+ 不按规范呈现（结构条目全挂）。
+
+### 4.2 DRB II 官方参考分（arXiv:2601.08536，Gemini judge，132 题全量）
+
+| 系统 | Info Recall | Analysis | Presentation | Total |
+|---|---|---|---|---|
+| GPT-o3 Deep Research | 39.98 | 49.85 | 89.16 | **45.40** |
+| Gemini-3-Pro DR | 39.09 | 48.94 | **91.85** | 44.60 |
+| Gemini-2.5-Pro DR | 34.91 | **51.91** | 90.24 | 41.98 |
+| Doubao DR | 34.83 | 49.43 | 83.51 | 40.99 |
+| Qwen3-Max DR | 34.18 | 48.04 | 74.59 | 39.25 |
+| Grok Deep Search | 33.52 | 42.50 | 91.42 | 39.23 |
+| Perplexity Research | 33.05 | 44.47 | 79.34 | 38.58 |
+| Tongyi DR | 22.95 | 35.89 | 86.13 | 29.89 |
+
+**规律**：连最强模型也过不了 50% rubric；Info Recall 最难（~40% 最佳）；Presentation 最容易（~90%）但和内容浅脱钩。我们分数不可直接比（单题 + gpt-5.6-luna judge），但形态一致：**recall 是最大短板，analysis 靠模型知识可到中上**。
+
 ## 5. 如何运行
 
 ```bash
@@ -143,11 +184,17 @@ asyncio.run(run_smoke(manifest_path='eval/manifests/widesearch_smoke.jsonl', var
     budget={'max_queries': 20, 'max_fetches': 40, 'max_wall_seconds': 120}))
 "
 
+# DRB II smoke（报告轨；DRB2_MAX_ITEMS=3 采样限速, 0/缺省 = 全量 judge）
+DRB2_MAX_ITEMS=3 uv run python -m eval --stage smoke --benchmark drb2 --variants a1,a2 \
+  --manifest eval/manifests/drb2_smoke_1.jsonl
+
 # 产物
 #   data/evaluations/<run_id>/scores/operations.jsonl  运行指标（每 case）
 #   data/evaluations/<run_id>/scores/paired_deltas.json  A2-A1 delta
 #   data/evaluations/<run_id>/summary/metrics.json     汇总
 #   data/evaluations/<run_id>/scores/widesearch_raw/    scorer 每 case eval_result.json
+#   data/evaluations/<run_id>/scores/drb2.jsonl         DRB II 三维度 + total（报告轨）
+#   data/evaluations/<run_id>/normalized/drb2_reports/  DRB II 归一化报告 .md
 ```
 
 **注意**：
@@ -160,11 +207,12 @@ asyncio.run(run_smoke(manifest_path='eval/manifests/widesearch_smoke.jsonl', var
 
 | 项 | 阻碍 | 影响 |
 |---|---|---|
-| 修复后全量 smoke 验证 | 正在跑（~35 分钟） | 出真实 A2-A1 delta + coverage + F1 |
+| WideSearch 全量 F1 重跑 | 5 case smoke 出真实 F1 + delta（scorer judge 已修） | 基准 §8 合成指数需要 |
 | coverage 填充率提升验证 | 4 个修复（①）已实现 | 重跑对比基线（0-20%）是否提升 |
-| A2 journal 污染根因 | `journal_bridge` 闭包捕获 journal | 仅影响 duration（已规避）；可后续修 |
+| DRB II 5-case 全量 + 全 judge | 单 case 全量 judge ~7 分钟；5 case 报告生成 ~35 分钟 | 稳健的 DRB II 分数 + A1/A2 delta |
+| tavily 网络不可达 | WSL→api.tavily.com 连接失败（非 key）| A2 搜索仅靠 anysearch 兜底 |
 | tokens/cost | 网关不回报 usage | 指标恒 0（供应商限制） |
-| write 阶段对慢模型 | deepseek 写报告 400s+ 不完成 | gpt-5.6-luna 已解决；或加 write 超时 |
-| **DRB II live 全量** | 搜索/模型 provider 配额未重置（anysearch 日配额 + tavily 计划上限）| 配额重置后跑 5 case DRB II smoke（含真实 judge 打分）|
-| DRB II rubric 判定质量 | judge 模型是 gpt-5.6-luna（官方用 Gemini）| 需抽样核对分数合理性 |
+| A2 journal 污染根因 | `journal_bridge` 闭包捕获 journal | 仅影响 duration（已规避）；可后续修 |
+| DRB II rubric 判定质量 | judge 模型是 gpt-5.6-luna（官方用 Gemini）| A1 analysis 0.77 偏高可疑，需抽样复核或换官方 judge |
+| info_recall 召回深度 | A2 搜索对 rubric 要求的具体数据源（如 EV 100/200/300 + Hao et al.）覆盖不足 | 报告轨 recall 维度低 |
 | WSL 全量离线 10 个失败 | 6 个 P3.3 sandbox 单测 + 4 个环境依赖 | CI 门不绿（真实环境） |
