@@ -4,9 +4,9 @@
 |------|-----|
 | **updated** | 2026-08-18 |
 | **branch** | `p4/eval-harness-widesearch-smoke` |
-| **commits** | `dfd00f7`/`ebf6637`/`d6fa1df`（指标端到端）→ `fbb7cd4`（9 指标/coverage 修复）→ `6ef385e`/`3e3c8a3`（DRB II pipeline + smoke fixes）→ `5ad7afd`（write 结构跟随）|
+| **commits** | `dfd00f7`/`ebf6637`/`d6fa1df`（指标端到端）→ `fbb7cd4`（9 指标/coverage 修复）→ `6ef385e`/`3e3c8a3`（DRB II pipeline + smoke fixes）→ `5ad7afd`（write 结构跟随）→ `7d2c833`（judge 超时 + 文档）→ `32e5a05`/`9023eeb`（plan 聚合 schema 护栏 v0.2.11）|
 | **范围** | 基准文档 §7 运行指标 + A1/A2 双 variant + coverage 填充质量 + DRB II 报告轨 |
-| **状态** | **双轨全通**：WideSearch（scorer judge 修复）+ DRB II（pipeline + write 结构跟随）。Live 验证完成：A1 全量 judge total 0.26（analysis 0.77）；A2 结构跟随生效（presentation 0→0.67）|
+| **状态** | **双轨全通 + plan 护栏 live 验证**：A2 total **0.168→0.542**（guardrail），analysis 0.077→0.769，presentation 0.429→0.857，**反超 A1（0.330）**。tokens 转为可测（5.47M/run）|
 
 ---
 
@@ -75,9 +75,35 @@ DeepResearch Bench II（`imlrz/DeepResearch-Bench-II`，arXiv:2601.08536）：13
 
 **Live 验证**（drb2_22）：A2 报告现含 `## Cost Data Compilation for Different Vehicle Models`（真实表格）+ `## Summary of Incentive Policies by Country` + `## Comprehensive Analysis`；presentation 采样 0.0 → **0.667**。
 
-### 2.5 DRB II judge 单条调用超时（未 commit）
+### 2.5 DRB II judge 单条调用超时（`7d2c833`）
 
-full judge 实测：单条 judge 调用无超时，网关偶发挂起会阻塞整个打分（7 分钟卡死）。`evaluator/drb2.py` 加 `_JUDGE_CALL_TIMEOUT_S = 60.0`（`asyncio.wait_for`，失败按未提及计）。**待 commit**。
+full judge 实测：单条 judge 调用无超时，网关偶发挂起会阻塞整个打分（7 分钟卡死）。`evaluator/drb2.py` 加 `_JUDGE_CALL_TIMEOUT_S = 60.0`（`asyncio.wait_for`，失败按未提及计）。已 commit。
+
+### 2.6 plan 聚合 schema 护栏（`32e5a05` + `9023eeb`，v0.2.11）
+
+**根因**（A2 全量 judge 定位）：plan LLM 无视"实体粒度"引导，把整课题+品类当 entity（**聚合行**），brief 枚举的 12 国政策塞进一个 `Country` 格 → 搜不到 → write 无米下锅，**每节重复同一张成本表**（A2 analysis 0.077 vs A1 0.846）。
+
+**修复**（确定性护栏，不依赖 LLM 自觉）：
+
+| 组件 | 说明 |
+|---|---|
+| `domain/socm/coverage.py` | `CoverageMap.from_schema` 新增可选 `entity_attributes` 每实体属性作用域（缺省 = 原笛卡尔积，向后兼容）|
+| `plan_normalize.py`（新）| 提取 brief 枚举项（"cover at least / such as / including / the following ..."）→ 逐项建 entity → **政策属性作用域给 item 实体、成本属性留给原实体** → 补定向查询 |
+| `research_runner.py` | plan 阶段 apply 护栏 |
+| 测试 | 10 个新单测（含真实 brief 回归）|
+
+**提取误报修正**（`9023eeb`，用真实 drb2_22 brief 全量验证）：`columns including:` 列名规格 / `the following sections` 章节名 / DRB II blocked-reference JSON 块（`{`/`[` 截断）/ `"Canada and Spain"` 的 and 连接——全部不作行实体。最终精确提取 12 国。
+
+**Live 验证**（drb2_22，全量 65 条 judge）：
+
+| 维度 | 旧 A2（聚合行） | **新 A2（护栏）** | A1 |
+|---|---|---|---|
+| info_recall | 0.000 | 0.000 | 0.000 |
+| analysis | 0.077 | **0.769** | 0.846 |
+| presentation | 0.429 | **0.857** | 0.143 |
+| **total** | **0.168** | **0.542** | 0.330 |
+
+**A2 反超 A1（0.542 > 0.330），实现增益 +0.21**。新报告政策节是**真实 12 国表**（Policy Name/Year/Brief + 真实来源引用 tc.canada.ca / afdc.energy.gov / IEA / EU observatory… + Switzerland 诚实标"未找到可靠来源"），对比旧报告的重复成本表。A2 operations 真实：105 search / 161 fetch / 266 tool calls / 549 evidence / 831s。
 
 ## 3. 指标可测性现状
 
@@ -102,7 +128,8 @@ full judge 实测：单条 judge 调用无超时，网关偶发挂起会阻塞�
 
 | 指标 | 原因 |
 |---|---|
-| tokens / cost | 网关不回报 usage（deepseek 与 gpt-5.6-luna 均验证为 0） |
+| tokens | **已可测**（v0.2.11 重跑：gpt-5.6-luna 回报 usage，A2 run 5.47M tokens）|
+| cost | 恒 0（provider usage.cost 返回 0 价）|
 | fallback_count | 真实 0（无 fallback 链配置） |
 | A2 coverage 填充率 | 基线 0-20%（实体建模 + 调度顺序问题，① 修复后待验证） |
 
@@ -144,9 +171,12 @@ full judge 实测：单条 judge 调用无超时，网关偶发挂起会阻塞�
 | anysearch 新 key | ✅ 出 evidence（A2 单 case 9-31 条 evidence，103 tool calls）|
 | tavily | ⚠️ WSL 网络不可达（HTTP 000，非 key 问题；anysearch 兜底）|
 | **A2 write 结构跟随** | ✅ 修复后报告含 `## Cost Data Compilation...` 真实表格 + `## Summary of Incentive Policies...` + `## Comprehensive Analysis`；presentation 采样 0→0.667 |
-| **A1 全量 judge**（45+13+7=65 条）| info_recall 0.0 / analysis **0.77** / presentation 0.0 / **total 0.256** |
+| **A1 全量 judge**（45+13+7=65 条）| info_recall 0.0 / analysis **0.77** / presentation 0.0 / **total 0.256**（重跑 0.33，judge 抖动 ±0.07）|
+| **A2 全量 judge + plan 护栏**（`32e5a05`）| info_recall 0.0 / analysis **0.769** / presentation **0.857** / **total 0.542**；政策节真实 12 国表；A2 反超 A1（+0.21）|
+| **tokens** | gpt-5.6-luna 回报 usage → 可测（A2 run 5.47M）；cost 仍 0 |
 
 **A1 画像**：能分析（模型知识，analysis 0.77 高）+ 不能召回（不搜索 → 具体事实全缺）+ 不按规范呈现（结构条目全挂）。
+**A2 画像（护栏后）**：能分析（0.77，含政策综合）+ 能呈现（0.857，结构+表格精确）+ 仍不能召回（0.0，成本节只有单来源、缺 rubric 指定的具体研究数据）。
 
 ### 4.2 DRB II 官方参考分（arXiv:2601.08536，Gemini judge，132 题全量）
 
@@ -208,11 +238,11 @@ DRB2_MAX_ITEMS=3 uv run python -m eval --stage smoke --benchmark drb2 --variants
 | 项 | 阻碍 | 影响 |
 |---|---|---|
 | WideSearch 全量 F1 重跑 | 5 case smoke 出真实 F1 + delta（scorer judge 已修） | 基准 §8 合成指数需要 |
-| coverage 填充率提升验证 | 4 个修复（①）已实现 | 重跑对比基线（0-20%）是否提升 |
-| DRB II 5-case 全量 + 全 judge | 单 case 全量 judge ~7 分钟；5 case 报告生成 ~35 分钟 | 稳健的 DRB II 分数 + A1/A2 delta |
+| coverage 填充率验证 | **护栏后大幅提升**（drb2_22 policy 格 0→真实 12 国）；WideSearch 侧待重跑 | 对比基线（0-20%）是否提升 |
+| **DRB II 5-case 全量 + 同 run A1/A2 delta** | 单 case 全量 judge ~7 分钟；5 case 报告生成 ~35 分钟 | 稳健分数 + 干净配对（A1 需同 run 重跑，旧 A1 报告已存在）|
 | tavily 网络不可达 | WSL→api.tavily.com 连接失败（非 key）| A2 搜索仅靠 anysearch 兜底 |
-| tokens/cost | 网关不回报 usage | 指标恒 0（供应商限制） |
+| cost | provider usage.cost 返回 0 价 | 成本指标恒 0（供应商限制）；**tokens 已可测** |
 | A2 journal 污染根因 | `journal_bridge` 闭包捕获 journal | 仅影响 duration（已规避）；可后续修 |
 | DRB II rubric 判定质量 | judge 模型是 gpt-5.6-luna（官方用 Gemini）| A1 analysis 0.77 偏高可疑，需抽样复核或换官方 judge |
-| info_recall 召回深度 | A2 搜索对 rubric 要求的具体数据源（如 EV 100/200/300 + Hao et al.）覆盖不足 | 报告轨 recall 维度低 |
+| **info_recall 召回深度（现唯一短板）** | 护栏修复了政策维度；**成本节仍缺 rubric 指定的具体研究数据**（EV 100/200/300、Hao et al.，单来源 Florida） | recall 0.0；需 plan 对"按研究/车型枚举"同样展开 + 搜索多源 |
 | WSL 全量离线 10 个失败 | 6 个 P3.3 sandbox 单测 + 4 个环境依赖 | CI 门不绿（真实环境） |
