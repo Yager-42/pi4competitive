@@ -297,13 +297,18 @@ async def run_smoke(
         for variant in variants:
             for rep in range(1):  # Smoke 1 repetition
                 if variant == "a2":
+                    # A2 per-task wall-clock guard must exceed the search wall
+                    # budget + plan/write, else the harness aborts tasks mid-write
+                    # (live: 720s search + ~40s plan + ~3min write > 900s guard
+                    # → aborted empty reports). Derive from the search wall.
+                    a2_timeout = int(budget.get("max_wall_seconds", 720)) + 900
                     result = await app_client.run_task(
                         research_brief=case.research_brief.model_dump(),
                         search_overrides={
                             "max_queries": budget["max_queries"],
                             "max_wall_seconds": budget["max_wall_seconds"],
                         },
-                        timeout=900,
+                        timeout=a2_timeout,
                     )
                     markdown = result.report_markdown
                     socm = result.projection.get("coverage", {}) if result.projection else {}
