@@ -178,33 +178,7 @@ async def _wired_run(
     models = create_models()
     models.setProvider(openai_provider())
     model_id = os.environ.get("OPENAI_MODEL", "")
-    if model_id:
-        # resolve via the static catalog if present
-        candidates = [m for m in models.getModels() if m.get("id") == model_id]
-        model: dict[str, Any] = (
-            candidates[0]
-            if candidates
-            else {
-                "id": model_id,
-                "name": model_id,
-                "api": "openai-completions",
-                "provider": "openai",
-                "baseUrl": os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1",
-                "reasoning": False,
-                "input": ["text", "image"],
-                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-                "contextWindow": int(os.environ.get("MODEL_CONTEXT_WINDOW_TOKENS") or "128000"),
-                "maxTokens": 8192,
-            }
-        )
-    else:
-        # fall back to the first catalog model (Task 13 will pin a real id)
-        catalog = models.getModels()
-        if not catalog:
-            raise RuntimeError(
-                "no OPENAI_MODEL configured and catalog is empty — set OPENAI_MODEL for Task 13 live"
-            )
-        model = catalog[0]
+    model = _resolve_openai_model(models, model_id)
 
     repo = InMemorySessionRepo()
     session = await repo.create({"cwd": "ephemeral"})
@@ -293,6 +267,43 @@ def _wrap_tools_with_journal(tools: list[Any], journal: RunJournal) -> list[Any]
         tw.execute = _execute  # type: ignore[attr-defined]
         wrapped.append(tw)
     return wrapped
+
+
+def _resolve_openai_model(models: Any, model_id: str) -> dict[str, Any]:
+    """Resolve the A1 model dict, overriding the catalog's baseUrl with the gateway.
+
+    Catalog models bake in the official endpoint (``https://api.openai.com/v1``);
+    with a gateway key that 401s. Mirror router.py: when ``OPENAI_BASE_URL`` is
+    set, pin the model's baseUrl to it (the value already includes ``/v1``). When
+    ``OPENAI_MODEL`` is unset, fall back to the first catalog model.
+    """
+    if model_id:
+        candidates = [m for m in models.getModels() if m.get("id") == model_id]
+        base_url = os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        if candidates:
+            model = dict(candidates[0])
+            if os.environ.get("OPENAI_BASE_URL"):
+                model["baseUrl"] = os.environ["OPENAI_BASE_URL"]
+            return model
+        return {
+            "id": model_id,
+            "name": model_id,
+            "api": "openai-completions",
+            "provider": "openai",
+            "baseUrl": base_url,
+            "reasoning": False,
+            "input": ["text", "image"],
+            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+            "contextWindow": int(os.environ.get("MODEL_CONTEXT_WINDOW_TOKENS") or "128000"),
+            "maxTokens": 8192,
+        }
+    # fall back to the first catalog model (Task 13 will pin a real id)
+    catalog = models.getModels()
+    if not catalog:
+        raise RuntimeError(
+            "no OPENAI_MODEL configured and catalog is empty — set OPENAI_MODEL for Task 13 live"
+        )
+    return catalog[0]
 
 
 def _build_system_prompt(brief: _Brief, max_search: int, max_fetch: int, max_wall: int) -> str:

@@ -36,7 +36,10 @@ model_config = {
     },
     "deepseek-v3.2": {
         "model_name": os.environ.get("OPENAI_MODEL", "deepseek-v3.2"),
-        "base_url": os.environ.get("OPENAI_BASE_URL", "https://api.chatanywhere.tech") + "/v1",
+        # Eval-harness fix (P4): OPENAI_BASE_URL already includes the versioned
+        # prefix (e.g. https://pro3.o0n0o.cc/v1) — appending "/v1" produced a
+        # double path (…/v1/v1/chat/completions → 404). Use the env value as-is.
+        "base_url": os.environ.get("OPENAI_BASE_URL", "https://api.chatanywhere.tech/v1"),
         "api_key": os.environ.get("OPENAI_API_KEY", ""),
         "generate_kwargs": {"max_tokens": 65535},
     },

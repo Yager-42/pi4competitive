@@ -186,3 +186,33 @@ def test_extract_urls_from_details():
     assert extract_urls_from_details({"url": "https://b.com/z"}) == ["https://b.com/z"]
     assert extract_urls_from_details({"hits": "not-a-list"}) == []
     assert extract_urls_from_details(None) == []
+
+
+def test_collect_duration_prefers_stage_window_over_contaminated_tail():
+    """A2 journals accumulate late harness events (agent.*/llm.*) from later
+    tasks; duration must come from the task stage window, not the raw min/max."""
+    events = [
+        {"event_type": "task.stage_start", "payload": {"stage": "plan"}, "created_at": "2026-08-17T10:00:00+00:00"},
+        {"event_type": "tool.called", "payload": {"name": "tavily_search"}, "created_at": "2026-08-17T10:01:00+00:00"},
+        {"event_type": "task.stage_end", "payload": {"stage": "search"}, "created_at": "2026-08-17T10:02:00+00:00"},
+        {"event_type": "task.stage_end", "payload": {"stage": "write"}, "created_at": "2026-08-17T10:04:00+00:00"},
+        # contaminated tail: late agent events from a later task (raw min/max would span these)
+        {"event_type": "agent.started", "created_at": "2026-08-17T12:00:00+00:00"},
+        {"event_type": "agent.finished", "created_at": "2026-08-17T12:30:00+00:00"},
+    ]
+    result = _collect(events)
+    assert result.duration_seconds == 240.0  # 10:04 - 10:00, not the 2.5h raw span
+    assert result.run_started_at.startswith("2026-08-17T10:00:00")
+    assert result.run_finished_at.startswith("2026-08-17T10:04:00")
+
+
+def test_collect_duration_agent_lifecycle_when_no_stage():
+    """A1 has no stage events; agent.started/finished define the window."""
+    events = [
+        {"event_type": "agent.started", "created_at": "2026-08-17T10:00:00+00:00"},
+        {"event_type": "llm.request", "created_at": "2026-08-17T10:00:30+00:00"},
+        {"event_type": "agent.finished", "created_at": "2026-08-17T10:01:30.250+00:00"},
+    ]
+    result = _collect(events)
+    assert result.duration_seconds == 90.25
+    assert result.run_finished_at == "2026-08-17T10:01:30.250+00:00"

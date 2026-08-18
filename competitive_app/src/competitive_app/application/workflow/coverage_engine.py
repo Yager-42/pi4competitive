@@ -695,22 +695,32 @@ def _build_subtasks(
     single entity with many cells produces multiple subtasks and the parallel pool
     can fill ``max_parallel`` even with few entities (the old one-subtask-per-entity
     design capped parallelism at the entity count — e.g. 2 entities → 2 sub-agents).
-    Returns at most ``max_parallel`` subtasks, highest-leverage first; remaining
-    chunks are deferred to the next iteration (the loop re-evaluates each round).
+
+    Fairness fix (v0.2.10): entities are visited ROUND-ROBIN, not by pure
+    cell-count sort. The old sort let the largest entity's chunks fill every
+    parallel slot — a Samsung "US models" aggregate ate all 4 slots while the
+    per-series entities' 28 cells were never dispatched within a 120s wall budget.
+    Entities with more actionable cells still go FIRST in the cycle (priority),
+    but each entity contributes at most ONE chunk per round before the next
+    entity gets a turn, so every entity with actionable cells is searched even
+    under a tight wall-clock budget. Remaining chunks defer to the next iteration.
+
+    Returns at most ``max_parallel`` subtasks; the loop re-evaluates each round.
     """
     by_entity: dict[str, list[str]] = {}
     for cell in cells:
         by_entity.setdefault(cell.entity_id, []).append(f"{cell.entity_id}.{cell.attribute_id}")
-    # Sort entities by cell count desc (highest leverage first).
-    ranked = sorted(by_entity.items(), key=lambda kv: len(kv[1]), reverse=True)
     chunk = max(1, chunk)
+    # Priority: entities with more actionable cells dispatch first in the cycle.
+    ranked = sorted(by_entity.items(), key=lambda kv: len(kv[1]), reverse=True)
     subtasks: list[dict[str, Any]] = []
-    for entity_id, entity_cells in ranked:
-        # Split this entity's cells into chunks; each chunk is one subtask.
-        for i in range(0, len(entity_cells), chunk):
-            if len(subtasks) >= max_parallel:
-                return subtasks
-            cell_group = entity_cells[i : i + chunk]
+    max_rounds = max((len(v) for v in by_entity.values()), default=0)
+    for _round in range(max_rounds):
+        for entity_id, entity_cells in ranked:
+            start = _round * chunk
+            cell_group = entity_cells[start : start + chunk]
+            if not cell_group:
+                continue
             subtasks.append(
                 {
                     "entity_id": entity_id,
@@ -718,6 +728,8 @@ def _build_subtasks(
                     "question": f"Fill coverage cells for {entity_id}: {', '.join(cell_group)}",
                 }
             )
+            if len(subtasks) >= max_parallel:
+                return subtasks
     return subtasks
 
 

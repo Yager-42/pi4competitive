@@ -139,6 +139,18 @@ def collect_operations(
     finished_at_raw = ""
 
     p = Path(events_path)
+    # v0.2.10 duration fix: A2 journals can accumulate late harness events
+    # (agent.started/llm.* from later tasks), inflating the raw min/max span.
+    # Prefer the task stage window (task.stage_start plan → last task.stage_end);
+    # fall back to agent.started/agent.finished (A1 has no stage events).
+    stage_start_ts: datetime | None = None
+    stage_start_raw = ""
+    stage_end_ts: datetime | None = None
+    stage_end_raw = ""
+    agent_start_ts: datetime | None = None
+    agent_start_raw = ""
+    agent_end_ts: datetime | None = None
+    agent_end_raw = ""
     if p.is_file():
         for line in p.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -159,6 +171,25 @@ def collect_operations(
                 if finished_at is None or ts > finished_at:
                     finished_at = ts
                     finished_at_raw = str(created)
+                if (
+                    et == "task.stage_start"
+                    and payload.get("stage") == "plan"
+                    and stage_start_ts is None
+                ):
+                    stage_start_ts = ts
+                    stage_start_raw = str(created)
+                elif et == "task.stage_end":
+                    if stage_end_ts is None or ts > stage_end_ts:
+                        stage_end_ts = ts
+                        stage_end_raw = str(created)
+                elif et == "agent.started":
+                    if agent_start_ts is None:
+                        agent_start_ts = ts
+                        agent_start_raw = str(created)
+                elif et == "agent.finished":
+                    if agent_end_ts is None or ts > agent_end_ts:
+                        agent_end_ts = ts
+                        agent_end_raw = str(created)
             if et == "tool.called":
                 name = _tool_name(payload)
                 if name in _SEARCH_TOOL_NAMES:
@@ -200,8 +231,18 @@ def collect_operations(
     result.distinct_domains = len(domains)
     if result.tool_calls_total > 0:
         result.tool_success_rate = result.tool_calls_ok / result.tool_calls_total
-    if started_at is not None and finished_at is not None:
-        # 保留 journal 原始 created_at 字符串（不重新 isoformat，避免微秒补零）
+    if stage_start_ts is not None and stage_end_ts is not None:
+        # A2: stage window (plan → write end) — immune to late-task contamination.
+        result.run_started_at = stage_start_raw
+        result.run_finished_at = stage_end_raw
+        result.duration_seconds = round((stage_end_ts - stage_start_ts).total_seconds(), 3)
+    elif agent_start_ts is not None and agent_end_ts is not None:
+        # A1: no stage events; agent lifecycle window.
+        result.run_started_at = agent_start_raw
+        result.run_finished_at = agent_end_raw
+        result.duration_seconds = round((agent_end_ts - agent_start_ts).total_seconds(), 3)
+    elif started_at is not None and finished_at is not None:
+        # Fallback: raw min/max span.
         result.run_started_at = started_at_raw
         result.run_finished_at = finished_at_raw
         result.duration_seconds = round((finished_at - started_at).total_seconds(), 3)

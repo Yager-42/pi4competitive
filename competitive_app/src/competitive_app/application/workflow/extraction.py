@@ -147,24 +147,32 @@ class EvidenceIntake:
         return added
 
     async def _extract_entity(self, entity_id: str, observations: list[tuple[str, str]]) -> int:
-        """Run the judge for one entity's empty cells against buffered pages."""
-        # Load current SOCM to find this entity's empty cells.
+        """Run the judge for one entity's fillable cells against buffered pages.
+
+        v0.2.10: target cells are EMPTY **or** retryable-UNKNOWN. The engine's
+        ``actionable_cells`` re-dispatches UNKNOWN cells (attempts < max) but the
+        judge only considered EMPTY ones — a re-searched UNKNOWN cell could never
+        be filled, wasting the re-search investment. Including UNKNOWN lets
+        ``fill()``'s unknown→filled path (coverage.py) settle a re-found value.
+        """
+        # Load current SOCM to find this entity's fillable cells.
         state = await self._socm_store.load(self._session_id)
-        empty_attrs = [
+        target_attrs = [
             attr.id
             for cell in state.coverage_map.cells.values()
-            if cell.entity_id == entity_id and cell.status == CellStatus.EMPTY
+            if cell.entity_id == entity_id
+            and cell.status in {CellStatus.EMPTY, CellStatus.UNKNOWN}
             for attr in state.coverage_map.attributes
             if attr.id == cell.attribute_id
         ]
-        if not empty_attrs or not observations:
-            # No empty cells left (already filled by a sibling) or no pages.
+        if not target_attrs or not observations:
+            # No fillable cells left (already filled by a sibling) or no pages.
             return 0
 
         pages_blob = "\n\n---\n\n".join(f"[{i}] {src}\n{txt}" for i, (txt, src) in enumerate(observations))
         if len(pages_blob) > self._max_input_chars:
             pages_blob = pages_blob[: self._max_input_chars]
-        findings = await self._call_judge(entity_id, empty_attrs, pages_blob)
+        findings = await self._call_judge(entity_id, target_attrs, pages_blob)
         if not findings:
             return 0
         source_pages: dict[str, list[str]] = {}
@@ -181,7 +189,7 @@ class EvidenceIntake:
             for item in findings:
                 attr = str(item.get("attribute") or "")
                 value = str(item.get("value") or "").strip()
-                if not value or attr not in empty_attrs:
+                if not value or attr not in target_attrs:
                     continue
                 # A2: reject junk placeholder values — they mean "not found", not a real value.
                 # Route these to UNKNOWN (mark_unknown) instead of FILLED so the cell stays
@@ -192,9 +200,9 @@ class EvidenceIntake:
                 source = str(item.get("source") or "").strip()
                 excerpt = str(item.get("source_excerpt") or "").strip()[:200]
                 page_texts = source_pages.get(source, [])
-                if not page_texts or not excerpt or not any(excerpt in page for page in page_texts):
+                if not page_texts or not excerpt or not _excerpt_supported(page_texts, excerpt):
                     # The judge may only cite pages actually fetched for this
-                    # entity, and the quote must be verbatim evidence.
+                    # entity, and the quote must be supported by the page text.
                     s.coverage_map.mark_unknown(entity_id, attr)
                     continue
                 try:
@@ -467,6 +475,35 @@ def _is_junk_value(value: str) -> bool:
     if norm in {"-", "—", "–", "_", ".", "/", ":"}:
         return True
     return norm in _JUNK_PATTERNS
+
+
+def _normalize_text(text: str) -> str:
+    """Whitespace-agnostic + lowercase — for tolerant excerpt matching (v0.2.10).
+
+    Removes ALL whitespace (not just collapses) so a judge-rendered "8GB" matches
+    the page's "8 GB", a common re-spacing difference from the fetched text.
+    """
+    import re
+
+    return re.sub(r"\s+", "", text.lower())
+
+
+def _excerpt_supported(page_texts: list[str], excerpt: str) -> bool:
+    """True if the (LLM-rendered) excerpt is found in any fetched page.
+
+    v0.2.10: verbatim substring equality is fragile — judge LLMs may re-space,
+    hyphenate, or case a quote slightly differently from the fetched page, which
+    silently downgraded good findings to UNKNOWN (deepseek runs: 13/15 cells
+    unknown, 0 evidence). Normalize whitespace + case on both sides before the
+    containment check, so a quote that survives re-rendering still counts.
+    """
+    norm_excerpt = _normalize_text(excerpt)
+    if not norm_excerpt:
+        return False
+    for page in page_texts:
+        if norm_excerpt in _normalize_text(page):
+            return True
+    return False
 
 
 def _min_confidence() -> float:

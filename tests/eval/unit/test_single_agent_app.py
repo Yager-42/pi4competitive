@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from eval.runner.single_agent_app import create_single_agent_app
+from eval.runner.single_agent_app import create_single_agent_app, _resolve_openai_model
 from fastapi.testclient import TestClient
 
 
@@ -57,3 +57,48 @@ def test_app_run_poll_completes_with_synthetic_runner(monkeypatch):
         assert r.json()["status"] == "completed"
         r = client.get(f"/eval/run/{task_id}/report")
         assert "table" in r.json()["markdown"]
+
+
+def test_resolve_openai_model_overrides_catalog_base_url(monkeypatch):
+    """A1 must use OPENAI_BASE_URL (gateway), not the catalog's api.openai.com."""
+    import os
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://pro3.o0n0o.cc/v1")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.6-luna")
+
+    class _Models:
+        def getModels(self):
+            return [
+                {
+                    "id": "gpt-5.6-luna",
+                    "api": "openai-responses",
+                    "provider": "openai",
+                    "baseUrl": "https://api.openai.com/v1",  # catalog hardcode
+                }
+            ]
+
+    model = _resolve_openai_model(_Models(), "gpt-5.6-luna")
+    assert model["baseUrl"] == "https://pro3.o0n0o.cc/v1"
+
+
+def test_resolve_openai_model_fallback_dict_uses_gateway(monkeypatch):
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://pro3.o0n0o.cc/v1")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.6-luna")
+
+    class _Models:
+        def getModels(self):
+            return []  # not in catalog → synthesize
+
+    model = _resolve_openai_model(_Models(), "gpt-5.6-luna")
+    assert model["id"] == "gpt-5.6-luna"
+    assert model["baseUrl"] == "https://pro3.o0n0o.cc/v1"
+
+
+def test_resolve_openai_model_falls_back_to_catalog_first(monkeypatch):
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+
+    class _Models:
+        def getModels(self):
+            return [{"id": "catalog-0"}, {"id": "catalog-1"}]
+
+    assert _resolve_openai_model(_Models(), "")["id"] == "catalog-0"

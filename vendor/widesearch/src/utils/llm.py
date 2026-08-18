@@ -60,9 +60,13 @@ def openai_complete(
     """Complete a prompt with OpenAI APIs."""
 
     def create_openai_client(base_url, api_key):
-        return AzureOpenAI(
-            api_version="2023-03-15-preview",
-            azure_endpoint=base_url,
+        # Eval-harness fix (P4): AzureOpenAI builds the Azure path
+        # ``/openai/deployments/{model}/chat/completions`` which an OpenAI-
+        # compatible gateway (OPENAI_BASE_URL from .env, e.g. chatanywhere) does
+        # not serve (404/HTML). Use the standard client against ``/v1`` so the
+        # llm_judge reaches the configured gateway. Evaluation logic unchanged.
+        return OpenAI(
+            base_url=base_url,
             api_key=api_key,
             timeout=300,
         )

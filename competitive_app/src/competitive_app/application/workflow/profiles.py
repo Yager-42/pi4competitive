@@ -61,6 +61,18 @@ The target must be one entity; every competitor must be an entity. At least one 
 attribute per dimension. Attribute ids must be unique. The `queries` array must \
 have one entry per entity. Typed queries and source_hints are critical — they \
 guide the search sub-agents to authoritative sources.
+
+ENTITY GRANULARITY (v0.2.10) — do NOT emit an aggregate/umbrella row. Each \
+entity is ONE table row, and each of its attributes must hold a single value. \
+When the brief asks to ENUMERATE all items (e.g. "all Galaxy models", "every \
+spirits brand's product line", "every NASA mission"), decompose to ONE ENTITY \
+PER CONCRETE ITEM (per model / per product / per mission), even when those \
+items are not named in the brief's competitors. A category/portfolio target \
+(e.g. "Samsung Galaxy US models") is the table's subject, not a row — if the \
+target name is a category that CONTAINS the items, do not emit it as a \
+separate entity. An aggregate row makes its cells conflict (many items' values \
+collide in one cell) and leaves the real items' cells empty (they are never \
+searched). Prefer more, concrete entities over fewer, aggregated ones.
 """
 
 _SEARCH_PROMPT = """\
