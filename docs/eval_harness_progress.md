@@ -173,10 +173,13 @@ full judge 实测：单条 judge 调用无超时，网关偶发挂起会阻塞�
 | **A2 write 结构跟随** | ✅ 修复后报告含 `## Cost Data Compilation...` 真实表格 + `## Summary of Incentive Policies...` + `## Comprehensive Analysis`；presentation 采样 0→0.667 |
 | **A1 全量 judge**（45+13+7=65 条）| info_recall 0.0 / analysis **0.77** / presentation 0.0 / **total 0.256**（重跑 0.33，judge 抖动 ±0.07）|
 | **A2 全量 judge + plan 护栏**（`32e5a05`）| info_recall 0.0 / analysis **0.769** / presentation **0.857** / **total 0.542**；政策节真实 12 国表；A2 反超 A1（+0.21）|
+| **A2 + info_recall 修复**（`685a209`）| info_recall **0.0**（仍 0）/ analysis 0.769 / presentation **1.0** / **total 0.590**；成本表研究索引化（FSEC + Sheth 两来源分行、诚实省略无数值研究）|
 | **tokens** | gpt-5.6-luna 回报 usage → 可测（A2 run 5.47M）；cost 仍 0 |
 
 **A1 画像**：能分析（模型知识，analysis 0.77 高）+ 不能召回（不搜索 → 具体事实全缺）+ 不按规范呈现（结构条目全挂）。
-**A2 画像（护栏后）**：能分析（0.77，含政策综合）+ 能呈现（0.857，结构+表格精确）+ 仍不能召回（0.0，成本节只有单来源、缺 rubric 指定的具体研究数据）。
+**A2 画像（护栏后）**：能分析（0.77，含政策综合）+ 能呈现（1.0，结构+表格精确）+ 仍不能召回（0.0，成本节只有单来源、缺 rubric 指定的具体研究数据）。
+
+**info_recall 0.0 定性（`685a209` 后，judge 探测坐实）**：judge 公平——报告确实有 "Nissan Leaf + FSEC" 时判 1，报告只有 "Sheth bus" 而 rubric 要 "SOR-NS-12" 时判 0（reason 明确"未识别具体型号/来源"）。**0.0 是真实测量：报告 0/45 条精确条目未满足**。根因是搜索检索不到 DRB II 参考语料（Hao et al. EV 300=$1,994,243、SOR、Edison project 等具体研究/政策），不是 judge 过严。换 Gemini judge 不会改变结论。structural 修复（研究索引表）已让 presentation 满分、total 0.590。
 
 ### 4.2 DRB II 官方参考分（arXiv:2601.08536，Gemini judge，132 题全量）
 
@@ -244,5 +247,5 @@ DRB2_MAX_ITEMS=3 uv run python -m eval --stage smoke --benchmark drb2 --variants
 | cost | provider usage.cost 返回 0 价 | 成本指标恒 0（供应商限制）；**tokens 已可测** |
 | A2 journal 污染根因 | `journal_bridge` 闭包捕获 journal | 仅影响 duration（已规避）；可后续修 |
 | DRB II rubric 判定质量 | judge 模型是 gpt-5.6-luna（官方用 Gemini）| A1 analysis 0.77 偏高可疑，需抽样复核或换官方 judge |
-| **info_recall 召回深度（现唯一短板）** | 护栏修复了政策维度；**成本节仍缺 rubric 指定的具体研究数据**（EV 100/200/300、Hao et al.，单来源 Florida） | recall 0.0；需 plan 对"按研究/车型枚举"同样展开 + 搜索多源 |
+| **info_recall（唯一短板，search-capability 天花板）** | `685a209` 后结构已修（研究索引表 + 车型展开 + 逐研究提取）；**但搜索仍检索不到 rubric 的精确语料**（Hao et al. EV 300=$1,994,243、SOR bus、Edison project…），judge 探测证明判分公平 | recall 0.0 是真实测量；GPT-o3 也仅 ~40%。提升需搜索基建：学术来源（Scholar/Semantic Scholar）、逐国/逐研究更深检索 |
 | WSL 全量离线 10 个失败 | 6 个 P3.3 sandbox 单测 + 4 个环境依赖 | CI 门不绿（真实环境） |
