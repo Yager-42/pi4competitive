@@ -14,6 +14,21 @@
 
 `docs/competitorlens_benchmark_evaluation.md`（v0.1.0）定义了 WideSearch + DRB II 双轨评测。本轮目标：**把文档 §7 中"字段在但采集不到 / A1 显示 0"的运行指标全部补上**，并**让 A2（competitive_app 完整链路）+ A1 真正跑通**，使 coverage、A2-A1 配对 delta、WideSearch F1 等核心指标可测且**数值真实**。
 
+### 1.1 A1 / A2 实验组是什么（基准文档 §2）
+
+每个 benchmark case 在相同条件下跑 A0/A1/A2/A3 分组，本文档所有 A1/A2 对照都指这两个组：
+
+| 组 | 名称 | 是什么 | 怎么跑 |
+|---|---|---|---|
+| A0 | `model_only` | 主模型裸答，**无搜索工具** | 建立模型参数知识基线（诊断用）|
+| **A1** | `single_agent` | **普通 agentic search 基线** | 裸 AgentHarness + 单个搜索工具（search_tavily），一条 prompt 自己搜+写，**无编排** |
+| **A2** | `competitorlens` | **当前项目完整链路** | competitive_app 的 **plan → CoverageEngine search → write** 三阶段编排 + coverage schema/SOCM/逐节提取 |
+| A3 | `serial_ablation` | 与 A2 相同但 `SEARCH_MAX_PARALLEL=1` | 分离并行 sub-agent 的影响（诊断用）|
+
+**唯一差别**：A1/A2 用同一模型、同一批搜索工具、同一预算，A2 外面多了竞争情报编排层（plan 规划 coverage schema、按实体×属性迭代搜索、SOCM 覆盖图、分节 write）。
+
+**为什么比**：`Implementation Gain(metric, case) = metric(A2, case) − metric(A1, case)`——配对差值衡量编排层到底值不值。本文档所有"实现增益 / delta"都指 A2 相对 A1 的差值。
+
 ## 2. 已完成的工作
 
 ### 2.1 已提交的 3 个 commit（指标端到端 + A2 跑通）
