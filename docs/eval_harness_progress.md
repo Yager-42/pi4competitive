@@ -211,6 +211,22 @@ full judge 实测：单条 judge 调用无超时，网关偶发挂起会阻塞�
 
 **规律**：连最强模型也过不了 50% rubric；Info Recall 最难（~40% 最佳）；Presentation 最容易（~90%）但和内容浅脱钩。我们分数不可直接比（单题 + gpt-5.6-luna judge），但形态一致：**recall 是最大短板，analysis 靠模型知识可到中上**。
 
+### 4.4 WideSearch 轨 5-case 全量 F1（`9b4d4f0` 后）
+
+**前置修复**（`9b4d4f0`）：scorer judge 的 `default_eval_config` 也带 `+ "/v1"`（`.../v1/v1` → 404 NotFoundError → 全 case evaluator error）——之前只修了 `deepseek-v3.2` 配置。修后 judge 通。
+
+**结果**（scorer judge 已工作，5 case × a1/a2）：
+
+| case | a1 item-F1 | a2 item-F1 |
+|---|---|---|
+| ws_en_002 | 0.000 | 0.000 |
+| ws_en_004 | 0.000 | 0.000 |
+| ws_en_007 | 0.000 | 0.000 |
+| ws_en_008 | 0.000 | 0.000 |
+| ws_en_011 | **0.464** | 0.000 |
+
+**结论**：F1 ≈ 0 **不是 judge 失败，是报告格式不匹配**。WideSearch 是**结构化提取**基准——scorer 要求报告的表格含 **gold 的精确 required 列**（如 ws_en_002 要 `brand/product/category/sub-category/packsize(bottle)/abv%` 6 列），我们的研究报告表只有 `Brand|Product|Category` 3 列 → `response_df is None` → F1 0。唯一非零的 ws_en_011 a1 恰好产出了匹配 gold 列的表。**这是"结构化提取 vs 研究报告叙述"的根本差异**：pipeline 不做 WideSearch 格式的表。要提升需 write 阶段按 gold schema 出表（需知道 gold，训练/引导向，非当前设计）。
+
 ### 4.3 5-case 全量 run（全 judge，`smoke-drb2-1962711-f896509`）
 
 **前置修复**（`5f591bc`）：A2 per-task 超时守卫 **900s→`max_wall+900`（720→1620s）**——原 900s 硬编码下，A2 大 schema 的 search（720s wall）+ plan + write 超时被 harness POST `/abort` → 空报告（drb2_4 A2 曾因此死）。此修复是 5-case 跑通的关键。
@@ -285,7 +301,7 @@ DRB2_MAX_ITEMS=3 uv run python -m eval --stage smoke --benchmark drb2 --variants
 
 | 项 | 阻碍 | 影响 |
 |---|---|---|
-| WideSearch 全量 F1 重跑 | 5 case smoke 出真实 F1 + delta（scorer judge 已修） | 基准 §8 合成指数需要 |
+| ~~WideSearch 全量 F1~~ | **✅ 完成**（`4.4`）：judge 修好（`9b4d4f0`）；F1 ≈ 0 = **报告列与 gold required 列不匹配**（结构化提取 vs 研究报告），ws_en_011 a1=0.464 例外 | 需 write 按 gold schema 出表才可提升（非当前设计）|
 | coverage 填充率验证 | **护栏后大幅提升**（drb2_22 policy 格 0→真实 12 国）；WideSearch 侧待重跑 | 对比基线（0-20%）是否提升 |
 | ~~DRB II 5-case 全量 + 配对 delta~~ | **✅ 完成**（`4.3`，A2 mean 0.361 > A1 0.245，+0.117）| 基线结果已入库 |
 | **A1 空输出 flaky** | drb2_4 A1 产 "(no output)"（研究型 brief 时模型工具调用落地失败）；加"空输出自动重试"或换可靠 provider | A1 基线质量；空报告拉低均值 |
