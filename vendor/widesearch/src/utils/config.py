@@ -94,7 +94,10 @@ model_config = {
     },
     "default_eval_config": {
         "model_name": os.environ.get("OPENAI_MODEL", "deepseek-v3.2"),
-        "base_url": os.environ.get("OPENAI_BASE_URL", "https://api.chatanywhere.tech") + "/v1",
+        # Eval-harness fix (P4, follow-up): default_eval_config is the config the
+        # WideSearch scorer's llm_judge uses — it ALSO appended "/v1" (…/v1/v1 →
+        # 404 → every case "evaluator error"). Match deepseek-v3.2: env as-is.
+        "base_url": os.environ.get("OPENAI_BASE_URL", "https://api.chatanywhere.tech/v1"),
         "api_key": os.environ.get("OPENAI_API_KEY", ""),
         "generate_kwargs": {
             "max_tokens": 10240,
