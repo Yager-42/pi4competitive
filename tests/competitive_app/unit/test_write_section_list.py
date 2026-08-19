@@ -18,6 +18,7 @@ from competitive_app.domain.research_brief import ResearchBrief
 
 def _runner() -> ResearchRunner:
     r = object.__new__(ResearchRunner)
+    r._write_format = ""  # type: ignore[attr-defined]  # default narrative write
     r.research_brief = ResearchBrief(
         target={"name": "EV LCC", "category": "benchmark"},
         goal="Research the life cycle cost of EVs.",
@@ -129,3 +130,47 @@ def test_cost_section_prompt_includes_study_rule():
         None,
     )
     assert _COST_TABLE_STUDY_RULE not in prompt2
+
+
+# ------------------------------------------ WideSearch write format (v0.2.13)
+
+
+def _ws_runner() -> ResearchRunner:
+    r = _runner()
+    r._write_format = "widesearch"  # type: ignore[attr-defined]
+    r.research_brief = ResearchBrief(
+        target={"name": "Johnnie Walker", "category": "whisky"},
+        goal="Compare whisky brands.",
+        competitors=["Jack Daniel's", "Jameson"],
+        dimensions=["brand", "product", "category", "sub-category", "packsize(bottle)", "abv%"],
+    )
+    return r
+
+
+def test_widesearch_section_list_single_table():
+    runner = _ws_runner()
+    sections = runner._section_list({})  # type: ignore[attr-defined]
+    assert len(sections) == 1
+    assert sections[0][0] == "widesearch_table"
+    assert sections[0][1] == "Comparison Table"
+    # the exact required columns (brief.dimensions) appear in the focus
+    assert "brand" in sections[0][2]
+    assert "packsize(bottle)" in sections[0][2]
+    assert "abv%" in sections[0][2]
+
+
+def test_widesearch_write_uses_dedicated_prompt():
+    from competitive_app.application.workflow.profiles import _WRITE_PROMPT_WIDESEARCH
+    assert "STRUCTURED COMPARISON" in _WRITE_PROMPT_WIDESEARCH
+    assert "inline [n]" in _WRITE_PROMPT_WIDESEARCH
+    # default main-flow write prompt does NOT carry the WideSearch table rule
+    from competitive_app.application.workflow.profiles import _WRITE_PROMPT
+    assert "STRUCTURED COMPARISON" not in _WRITE_PROMPT
+
+
+def test_default_write_format_unchanged():
+    # no write_format → default per-section narrative (existing behavior)
+    runner = _runner()
+    sections = runner._section_list({})  # type: ignore[attr-defined]
+    assert sections[0][0] == "overview"
+    assert sections[-1][0] == "conclusion"

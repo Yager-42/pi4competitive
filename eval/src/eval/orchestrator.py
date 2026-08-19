@@ -302,12 +302,23 @@ async def run_smoke(
                     # (live: 720s search + ~40s plan + ~3min write > 900s guard
                     # → aborted empty reports). Derive from the search wall.
                     a2_timeout = int(budget.get("max_wall_seconds", 720)) + 900
-                    result = await app_client.run_task(
-                        research_brief=case.research_brief.model_dump(),
-                        search_overrides={
+                    # v0.2.13: WideSearch opts into the structured single-table
+                    # write format (columns = brief.dimensions = gold required
+                    # cols); DRB II keeps the default narrative write.
+                    if is_drb2:
+                        a2_search_overrides = {
                             "max_queries": budget["max_queries"],
                             "max_wall_seconds": budget["max_wall_seconds"],
-                        },
+                        }
+                    else:
+                        a2_search_overrides = {
+                            "max_queries": budget["max_queries"],
+                            "max_wall_seconds": budget["max_wall_seconds"],
+                            "write_format": "widesearch",
+                        }
+                    result = await app_client.run_task(
+                        research_brief=case.research_brief.model_dump(),
+                        search_overrides=a2_search_overrides,
                         timeout=a2_timeout,
                     )
                     markdown = result.report_markdown

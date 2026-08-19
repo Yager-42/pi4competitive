@@ -32,7 +32,7 @@ from ...domain.stage import (
 from .coverage_engine import CoverageEngine
 from .memory_inject import recall_prior_findings
 from .plan_normalize import normalize_plan_output
-from .profiles import StageProfile, build_profiles, is_search_tool
+from .profiles import StageProfile, _WRITE_PROMPT_WIDESEARCH, build_profiles, is_search_tool
 from .stage_outputs import append_stage_output, collect_prior_outputs, last_usage, model_name
 
 
@@ -65,6 +65,11 @@ class ResearchRunner:
         search_overrides: dict[str, Any] | None = None,
     ) -> None:
         self._search_overrides = search_overrides or {}
+        # v0.2.13: per-task write format. "widesearch" = one structured comparison
+        # table (columns = brief.dimensions); anything else = the default
+        # narrative per-section write (DRB II + normal research) — main flow
+        # unchanged unless the harness opts in.
+        self._write_format = self._search_overrides.get("write_format", "")
         self.task_id = task_id
         self.harness = harness
         self.agent = harness.agent
@@ -268,7 +273,9 @@ class ResearchRunner:
         """
         self.agent.state.tools = self._select_tools(profile)  # write: no tools
         skills = self._stage_skills.get("write", [])
-        base = profile.system_prompt
+        # v0.2.13: WideSearch opts into a structured single-table write; the
+        # default narrative per-section write is untouched.
+        base = _WRITE_PROMPT_WIDESEARCH if self._write_format == "widesearch" else profile.system_prompt
         if self._skill_composer is not None:
             self.agent.state.systemPrompt = self._skill_composer.compose(base, skills, "write")
         else:
@@ -334,7 +341,18 @@ class ResearchRunner:
         2. 从 research brief 程序化提取 (编号的 ``**粗体标题**`` 章节/表格);
         3. 退回 v0.2.6 通用 overview + per-dimension + conclusion。
         DRB II 报告轨按 brief 明确指定的章节/表格判分, 因此 1/2 都要精确保留标题。
+        v0.2.13: write_format == "widesearch" → 单张结构化 comparison 表
+        (列 = brief.dimensions 原文), 不走以下任一分支。
         """
+        if self._write_format == "widesearch":
+            dims = list(self.research_brief.dimensions or [])
+            return [(
+                "widesearch_table",
+                "Comparison Table",
+                f"ONE markdown comparison table; column headers = EXACTLY "
+                f"{json.dumps(dims, ensure_ascii=False)}; rows = target + "
+                f"competitors; cells = clean values only (no inline [n]).",
+            )]
         structure = (plan_output or {}).get("report_structure") if plan_output else None
         if isinstance(structure, list) and structure:
             sections: list[tuple[str, str, str]] = []

@@ -117,6 +117,29 @@ the runner assembles sections + the global Sources block.
 Output ONLY valid JSON: {"body": "<markdown section body>", "sources": [{"n": 1, "url": "<url>", "label": "<short label>"}]}.
 """
 
+_WRITE_PROMPT_WIDESEARCH = """\
+You are a research report writer for a STRUCTURED COMPARISON task. Produce \
+EXACTLY ONE markdown comparison table — no narrative sections.
+
+The research brief's `dimensions` list gives the EXACT column headers you must \
+use, in order, verbatim (do NOT rename or reorder them; the grader matches the \
+header strings literally).
+
+Rows: one row per entity (the target and each competitor from the brief).
+
+Cells: the researched value for that entity and column, drawn from the search \
+evidence. Put ONLY the value in the cell — NO inline [n] citation markers inside \
+the table (that breaks value matching). For a column the evidence does not \
+provide, write "N/A" — never invent a value. Keep values short and factual.
+
+The table must be the first output. After it you may add one short line noting \
+data caveats.
+
+Output ONLY valid JSON: {"body": "<markdown table + optional short note>", \
+"sources": [{"n":1,"url":"<url>","label":"<short label>"}]}.
+"""
+
+
 _PROMPTS: dict[str, str] = {
     "plan": _PLAN_PROMPT,
     "search": _SEARCH_PROMPT,
