@@ -44,6 +44,11 @@ class SearchOverrides(BaseModel):
     coverage_threshold: float | None = None
     max_queries: int | None = None
     max_wall_seconds: int | None = None
+    # v0.2.13: per-task WRITE format selector (not a search hyperparameter but
+    # rides the same per-task override channel). "widesearch" = one structured
+    # comparison table (columns = brief.dimensions); absent/other = default
+    # narrative write. Used by the eval harness WideSearch track.
+    write_format: str | None = None
 
 
 class WorkflowTaskRequest(BaseModel):
