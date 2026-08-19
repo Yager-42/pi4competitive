@@ -1355,6 +1355,11 @@ def _clamp_search_overrides(raw: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     if not isinstance(raw, dict):
         return out
+    # v0.2.13: write_format is a per-task WRITE-behavior selector (e.g.
+    # "widesearch" → one structured comparison table), not a numeric search
+    # hyperparameter — pass through verbatim (no range clamp).
+    if isinstance(raw.get("write_format"), str) and raw["write_format"]:
+        out["write_format"] = raw["write_format"]
     for key, (lo, hi, typ) in _SEARCH_OVERRIDES_RANGES.items():
         val = raw.get(key)
         if val is None:

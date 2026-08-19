@@ -38,3 +38,18 @@ def test_empty_and_non_dict() -> None:
 def test_string_number_coerces() -> None:
     out = _clamp_search_overrides({"max_parallel": "4", "coverage_threshold": "0.5"})
     assert out == {"max_parallel": 4, "coverage_threshold": 0.5}
+
+
+def test_write_format_passthrough() -> None:
+    """v0.2.13: write_format is a behavior selector, not a numeric hyperparameter
+    — kept verbatim (no clamp/drop)."""
+    from competitive_app.application.workflow.task_service import _clamp_search_overrides
+
+    out = _clamp_search_overrides(
+        {"max_queries": 5, "write_format": "widesearch", "write_format2": 3}
+    )
+    assert out["write_format"] == "widesearch"
+    assert out["max_queries"] == 5
+    # non-string / empty write_format dropped
+    assert _clamp_search_overrides({"write_format": ""}) == {}
+    assert _clamp_search_overrides({"write_format": 42}) == {}
