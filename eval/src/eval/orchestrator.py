@@ -472,10 +472,13 @@ async def run_smoke(
                 trial_num=1,
             )
             rc = run_scorer(cmd)
+            # The scorer's --trial_num=1 evaluates range(1)=[trial 0] and writes
+            # *_0_eval_result.json; parse_scores must read trial 0 (matching 1
+            # read *_1_ → 0 rows → mean_f1 always 0).
             rows = parse_scores(
                 raw_dir=run_dir / "scores" / scores_raw_name,
                 model_config_name=variant_name,
-                trial_num=1,
+                trial_num=0,
             )
             # F6: scorer crashed (rc != 0) AND a case has no output file → evaluator failure
             if rc != 0:
