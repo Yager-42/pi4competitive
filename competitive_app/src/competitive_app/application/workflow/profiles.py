@@ -65,6 +65,11 @@ attribute per dimension. Attribute ids must be unique. The `queries` array must 
 have one entry per entity. Typed queries and source_hints are critical — they \
 guide the search sub-agents to authoritative sources.
 
+ENTITY BOUNDARY — the research brief is authoritative. Unless the brief's goal \
+explicitly asks to enumerate an entire named collection, the entity rows MUST be \
+exactly its target plus its listed competitors. Do not add inferred, suggested, \
+or merely relevant rivals from your own knowledge.
+
 REPORT STRUCTURE (v0.2.10) — critical for report-track (DRB II) scoring. The \
 brief often dictates an EXACT report layout (named sections, named tables with \
 specific columns/rows, ordered parts). Copy those verbatim into \

@@ -1,6 +1,6 @@
 """Integration — clarify flow (v0.3.3).
 
-POST /tasks {query} → awaiting_clarify + 3 questions (LLM discovers competitors).
+POST /tasks {query} → awaiting_clarify + 2–3 questions (LLM discovers competitors).
 POST /tasks/{id}/clarify {answers} → derive brief → start research → completed.
 Backward compat: {research_brief} path unchanged. Degradation + error cases.
 """
@@ -20,12 +20,18 @@ from tests.competitive_app.integration.test_workflow import (
 )
 
 
-def _discover_resp(subject: str = "ACME", domain: str = "SaaS", comps=None) -> str:
+def _discover_resp(
+    subject: str = "ACME",
+    domain: str = "SaaS",
+    comps=None,
+    specified_entities: list[str] | None = None,
+) -> str:
     if comps is None:
         comps = ["Beta", "Gamma"]
-    return json.dumps(
-        {"subject": subject, "domain": domain, "competitors": comps}
-    )
+    payload = {"subject": subject, "domain": domain, "competitors": comps}
+    if specified_entities is not None:
+        payload["specified_entities"] = specified_entities
+    return json.dumps(payload)
 
 
 def _derive_resp() -> str:
@@ -45,7 +51,7 @@ async def test_query_returns_awaiting_clarify_with_questions(app_state, faux):
     (+competitors when discovery found candidates)."""
     faux["setResponses"]([faux_assistant_message(_discover_resp())])
     async with await _client(app_state) as client:
-        resp = await client.post("/api/v2/tasks", json={"query": "ACME vs Beta 定价"})
+        resp = await client.post("/api/v2/tasks", json={"query": "ACME 的竞品定价分析"})
         assert resp.status_code == 202, resp.text
         body = resp.json()
         assert body["status"] == "awaiting_clarify"
@@ -70,6 +76,70 @@ async def test_query_no_competitors_omits_competitors_question(app_state, faux):
 
 
 @pytest.mark.asyncio
+async def test_closed_comparison_omits_competitor_picker_and_persists_fixed_entities(
+    app_state, faux
+):
+    """A user-specified comparison set is fixed before the questionnaire."""
+    query = "分析特斯拉、比亚迪、理想在新能源车市场的产品力与定价竞争格局"
+    fixed = ["特斯拉", "比亚迪", "理想"]
+    faux["setResponses"](
+        [
+            faux_assistant_message(
+                _discover_resp(
+                    subject="新能源汽车",
+                    domain="新能源汽车",
+                    comps=[*fixed, "蔚来", "小鹏"],
+                    specified_entities=fixed,
+                )
+            )
+        ]
+    )
+    async with await _client(app_state) as client:
+        create = await client.post("/api/v2/tasks", json={"query": query})
+        assert create.status_code == 202, create.text
+        body = create.json()
+        assert {q["id"] for q in body["questions"]} == {"focus", "market"}
+        task = await app_state.store.get_task(body["task_id"])
+        discovered = task["metadata"]["clarify"]["discovered"]
+        assert discovered["specified_entities"] == fixed
+
+
+@pytest.mark.asyncio
+async def test_closed_comparison_hard_limits_final_brief_to_user_entities(app_state, faux):
+    """The second LLM cannot add a discovered, selected, or invented rival."""
+    query = "分析特斯拉、比亚迪、理想在新能源车市场的产品力与定价竞争格局"
+    fixed = ["特斯拉", "比亚迪", "理想"]
+    # Deliberately return an extra rival and a wrong target: post-processing must
+    # still turn the closed query into exactly the three user-named entities.
+    faux["setResponses"](
+        [
+            faux_assistant_message(
+                json.dumps(
+                    {
+                        "target": {"name": "蔚来", "category": "新能源汽车"},
+                        "goal": "比较新能源车品牌",
+                        "competitors": ["蔚来", "特斯拉", "比亚迪", "理想"],
+                        "dimensions": ["产品力", "定价策略"],
+                    }
+                )
+            )
+        ]
+    )
+    brief = await app_state.task_service._derive_brief(
+        query,
+        [],
+        {
+            "subject": "新能源汽车",
+            "domain": "新能源汽车",
+            "competitors": [*fixed, "蔚来"],
+            "specified_entities": fixed,
+        },
+        [{"id": "competitors", "value": ["蔚来"]}],
+    )
+    assert [brief.target.name, *brief.competitors] == fixed
+
+
+@pytest.mark.asyncio
 async def test_submit_clarify_derives_brief_and_runs(app_state, faux, mock_fetch_tool):
     """Full flow: query → clarify → submit → research → completed."""
     faux["setResponses"](
@@ -77,7 +147,7 @@ async def test_submit_clarify_derives_brief_and_runs(app_state, faux, mock_fetch
         + _full_three_stage_responses()
     )
     async with await _client(app_state) as client:
-        create = await client.post("/api/v2/tasks", json={"query": "ACME vs Beta 定价"})
+        create = await client.post("/api/v2/tasks", json={"query": "ACME 的竞品定价"})
         task_id = create.json()["task_id"]
         assert create.json()["status"] == "awaiting_clarify"
 

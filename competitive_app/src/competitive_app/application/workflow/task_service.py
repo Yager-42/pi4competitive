@@ -183,6 +183,7 @@ class TaskService:
                 "subject": result["subject"],
                 "domain": result["domain"],
                 "competitors": result["competitors"],
+                "specified_entities": result.get("specified_entities") or [],
             },
             "questions": result["questions"],
         }
@@ -733,7 +734,7 @@ class TaskService:
     # ----------------------------------------------------- v0.3.3 clarify (LLM)
 
     async def _safe_discover(self, query: str) -> dict[str, Any]:
-        """Discover scope (subject/domain/competitors) only; tolerate failure."""
+        """Discover scope and any user-fixed comparison entities; tolerate failure."""
         result = await self._safe_discover_with_questions(query)
         if result is None:
             return {"subject": query, "domain": "", "competitors": []}
@@ -741,14 +742,17 @@ class TaskService:
             "subject": result["subject"],
             "domain": result["domain"],
             "competitors": result["competitors"],
+            "specified_entities": result.get("specified_entities") or [],
         }
 
     async def _safe_discover_with_questions(self, query: str) -> dict[str, Any] | None:
-        """One LLM call: discover scope, then assemble 3 hardcoded questions.
+        """One LLM call: discover scope, then assemble clarify questions.
 
         Returns None on total failure (LLM unavailable) → caller degrades to
         skip-clarify (Q3-A). On success returns {subject, domain, competitors,
-        questions}. competitors-empty still yields focus+market questions (Q7).
+        specified_entities, questions}. ``specified_entities`` is a closed
+        comparison set only when the user already named every entity to study;
+        competitors-empty still yields focus+market questions (Q7).
         """
         if self._models is None or self._judge_model is None:
             return None
@@ -760,15 +764,21 @@ class TaskService:
             "discovery. Given a one-line user research request, identify: (1) the true research "
             "subject (product/company/category full name); (2) its sub-domain/sector; (3) as many "
             "real direct competitors as possible (8-12, must be real searchable products/companies, "
-            "ordered by popularity descending, do NOT include the subject itself).\n\n"
+            "ordered by popularity descending, do NOT include the subject itself); and (4) whether "
+            "the user has already provided a CLOSED, complete list of comparison entities.\n\n"
             "IMPORTANT: If the user's request explicitly lists multiple products/companies to "
             "compare (e.g. 'X、Y、Z 对比' / 'X vs Y vs Z' / 'X and Y' / '为 X、Y、Z 做 SWOT'), "
             "those listed products MUST be included in competitors — they are the comparison "
             "targets the user wants researched. subject = the shared category/sector they belong "
-            "to (e.g. '企业协作平台'), NOT the product list itself.\n\n"
+            "to (e.g. '企业协作平台'), NOT the product list itself. For that closed-comparison "
+            "case, also put ONLY the exact user-named products/companies, in their query order, "
+            "in specified_entities. Never put discovered or recommended rivals in "
+            "specified_entities. For open requests such as 'X 的竞品' or a market landscape, "
+            "specified_entities MUST be [].\n\n"
             f"User request: {query}\n\n"
             'Return ONLY a JSON object: {"subject": "<subject>", "domain": "<domain>", '
-            '"competitors": ["<comp1>", "<comp2>", ...]}. '
+            '"competitors": ["<comp1>", "<comp2>", ...], '
+            '"specified_entities": ["<user-named entity 1>", "..."]}. '
             "Output ONLY the JSON object, no explanation, no markdown."
         )
         context = {"messages": [{"role": "user", "content": prompt}]}
@@ -795,8 +805,22 @@ class TaskService:
         ]
         seen: set[str] = set()
         comps = [c for c in comps if not (c.lower() in seen or seen.add(c.lower()))][:12]
-        questions = _build_clarify_questions(subject, comps)
-        return {"subject": subject, "domain": domain, "competitors": comps, "questions": questions}
+        specified_entities = _coerce_specified_entities(parsed.get("specified_entities"), query)
+        if not specified_entities:
+            # Backward-compatible guardrail for providers that omit the newly
+            # requested JSON field: recognise an unambiguous comparison from
+            # entities the discovery response already identified.
+            specified_entities = _infer_specified_entities(query, subject, comps)
+        questions = _build_clarify_questions(
+            subject, comps, fixed_entities=specified_entities
+        )
+        return {
+            "subject": subject,
+            "domain": domain,
+            "competitors": comps,
+            "specified_entities": specified_entities,
+            "questions": questions,
+        }
 
     async def _derive_brief(
         self,
@@ -813,6 +837,9 @@ class TaskService:
         subject = discovered.get("subject") or query
         domain = discovered.get("domain") or ""
         discovered_comps = discovered.get("competitors") or []
+        specified_entities = _coerce_specified_entities(
+            discovered.get("specified_entities"), query
+        )
         answers_blob = _format_clarify_answers(questions, answers)
         # v0.2.8: user-selected competitors (from clarify "competitors" question).
         user_brands: list[str] = []
@@ -822,26 +849,39 @@ class TaskService:
             user_brands = [str(b).strip() for b in cval if str(b).strip()]
         elif isinstance(cval, str) and cval.strip():
             user_brands = [cval.strip()]
-        # fallback_brands: user-selected, else regex-extracted from query (VerdaAI port).
-        fallback_brands = user_brands or _regex_brands(query)
+        # Open scope: user-selected brands win, then the legacy regex fallback.
+        # Closed scope is enforced below from ``specified_entities`` and never
+        # admits discovered/LLM-suggested competitors.
+        fallback_brands = [] if specified_entities else (user_brands or _regex_brands(query))
+        if specified_entities:
+            competitor_rule = (
+                "This is a CLOSED comparison scope. The only entities that may be researched are "
+                f"{json.dumps(specified_entities, ensure_ascii=False)}. Set target.name to the first "
+                "entity and competitors to every remaining entity, in order. Do not add, remove, "
+                "rename, or recommend any entity."
+            )
+        else:
+            competitor_rule = (
+                "competitors MUST have at least 1 (use the user's selected ones if any, else pick "
+                "1-3 from the candidates by popularity, else recommend mainstream rivals for the domain)"
+            )
         if self._models is not None and self._judge_model is not None:
             prompt = (
                 "You are a competitive-intelligence research director. Derive a structured "
                 "ResearchBrief from the user's original request, the auto-discovered research "
                 "subject/domain/candidate competitors, and the user's answers to a clarify "
                 "questionnaire.\n"
-                "Rules: target.name = the discovered subject; competitors MUST have at least 1 "
-                "(use the user's selected ones if any, else pick 1-3 from the candidates by "
-                "popularity, else recommend mainstream rivals for the domain); dimensions = the "
+                f"Rules: {competitor_rule}; dimensions = the "
                 'user\'s selected dimensions, else default to ["功能对比", "定价策略"]; goal = expand '
                 "into one clear research objective sentence.\n"
                 "IMPORTANT: If the user's request explicitly lists multiple products/companies to "
                 "compare (e.g. 'X、Y、Z 对比' / 'X vs Y' / '为 X、Y、Z 做 SWOT'), those listed "
-                "products are the comparison targets and MUST be in competitors.\n\n"
+                "products are the comparison targets.\n\n"
                 f"Original request: {query}\n"
                 f"Subject: {subject}\n"
                 f"Domain: {domain}\n"
                 f"Candidate competitors: {', '.join(discovered_comps) or '(none)'}\n"
+                f"Closed-scope entities: {', '.join(specified_entities) or '(none)'}\n"
                 f"Must-include competitors (user-selected or query-listed): "
                 f"{', '.join(fallback_brands) or '(none)'}\n"
                 f"User answers:\n{answers_blob or '(none)'}\n\n"
@@ -859,20 +899,27 @@ class TaskService:
                 text = _extract_assistant_text_for_refine(message)
                 parsed = _try_parse_json(text)
                 if isinstance(parsed, dict):
+                    if specified_entities:
+                        return _build_fixed_scope_brief(
+                            parsed,
+                            entities=specified_entities,
+                            domain=domain,
+                            query=query,
+                        )
+                    target_name = str((parsed.get("target") or {}).get("name") or subject)[:120]
+                    competitors = _coerce_competitors(
+                        parsed.get("competitors"), discovered_comps, fallback_brands
+                    )
                     brief = ResearchBrief.model_validate(
                         {
                             "target": {
-                                "name": str((parsed.get("target") or {}).get("name") or subject)[
-                                    :120
-                                ],
+                                "name": target_name,
                                 "category": str(
                                     (parsed.get("target") or {}).get("category") or domain
                                 ),
                             },
                             "goal": str(parsed.get("goal") or query),
-                            "competitors": _coerce_competitors(
-                                parsed.get("competitors"), discovered_comps, fallback_brands
-                            ),
+                            "competitors": competitors,
                             "dimensions": _coerce_dimensions(parsed.get("dimensions")),
                         }
                     )
@@ -880,6 +927,10 @@ class TaskService:
             except Exception:  # noqa: BLE001
                 pass  # fall through to minimal brief
         # Fallback minimal brief (Q3-A / Q4): never stall the task.
+        if specified_entities:
+            return _build_fixed_scope_brief(
+                {}, entities=specified_entities, domain=domain, query=query
+            )
         return ResearchBrief(
             target={"name": subject[:120], "category": domain},
             goal=query,
@@ -1429,6 +1480,72 @@ def _regex_brands(query: str) -> list[str]:
     return out[:_REGEX_BRAND_LIMIT]
 
 
+def _coerce_specified_entities(raw: Any, query: str) -> list[str]:
+    """Validate an LLM-extracted closed comparison set against the user query.
+
+    A closed set requires at least two explicitly named entities.  Each returned
+    name must occur in the original query after case/whitespace/punctuation
+    folding; this prevents a discovery-model suggestion from silently becoming
+    part of a user-fixed scope.  Unlike open-scope candidates, this list is not
+    capped: a user-supplied comparison set must never be silently truncated.
+    """
+    if not isinstance(raw, list):
+        return []
+    folded_query = _fold_entity_text(query)
+    if not folded_query:
+        return []
+    entities: list[str] = []
+    seen: set[str] = set()
+    for value in raw:
+        entity = str(value).strip()
+        folded_entity = _fold_entity_text(entity)
+        if not folded_entity or folded_entity not in folded_query:
+            continue
+        if folded_entity in seen:
+            continue
+        seen.add(folded_entity)
+        entities.append(entity)
+    return entities if len(entities) >= 2 else []
+
+
+_CLOSED_COMPARISON_CUE = re.compile(
+    r"(?:\b(?:vs\.?|versus|swot)\b|对比|比较|横向|、|,|，|/)", re.IGNORECASE
+)
+
+
+def _infer_specified_entities(
+    query: str, subject: str, competitors: list[str]
+) -> list[str]:
+    """Recover an obvious fixed comparison set when discovery omits its field.
+
+    This is deliberately conservative: it needs an explicit comparison/list
+    cue and at least two discovered entities that literally occur in the user
+    query. The subject participates because a ``X vs Y`` request normally has
+    X as the discovery subject and Y as a competitor candidate.
+    """
+    if not _CLOSED_COMPARISON_CUE.search(query):
+        return []
+    folded_query = _fold_entity_text(query)
+    matched: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for value in [subject, *competitors]:
+        entity = str(value).strip()
+        folded_entity = _fold_entity_text(entity)
+        position = folded_query.find(folded_entity) if folded_entity else -1
+        if position < 0 or folded_entity in seen:
+            continue
+        seen.add(folded_entity)
+        matched.append((position, entity))
+    matched.sort(key=lambda item: item[0])
+    entities = [entity for _position, entity in matched]
+    return entities if len(entities) >= 2 else []
+
+
+def _fold_entity_text(value: str) -> str:
+    """Normalize an entity name for a literal, language-agnostic query check."""
+    return re.sub(r"[\W_]+", "", value, flags=re.UNICODE).casefold()
+
+
 def _replace_section_body(
     report: str, sections: list[dict[str, Any]], section_id: str, new_body: str
 ) -> str:
@@ -1507,13 +1624,20 @@ _FOCUS_OPTIONS = [
 _MARKET_OPTIONS = ["中国大陆", "全球", "北美", "东南亚", "欧洲", "不限"]
 
 
-def _build_clarify_questions(subject: str, competitors: list[str]) -> list[dict[str, Any]]:
+def _build_clarify_questions(
+    subject: str,
+    competitors: list[str],
+    *,
+    fixed_entities: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """Hardcoded 3-question template (Q7), VerdaAI-style {id,question,type,options,hint?}.
 
-    `competitors` is conditional: emitted only when discovery found candidates.
+    ``competitors`` is conditional: emitted only when discovery found candidates
+    for an open scope. A user-provided fixed comparison set is already the
+    complete entity boundary, so no competitor-picker is shown.
     """
     questions: list[dict[str, Any]] = []
-    if competitors:
+    if competitors and not fixed_entities:
         questions.append(
             {
                 "id": "competitors",
@@ -1577,6 +1701,36 @@ def _coerce_competitors(raw: Any, discovered: list[str], must_include: list[str]
     if merged:
         return merged[:6]
     return []
+
+
+def _build_fixed_scope_brief(
+    parsed: dict[str, Any],
+    *,
+    entities: list[str],
+    domain: str,
+    query: str,
+) -> ResearchBrief:
+    """Build a brief whose research rows are exactly a fixed user entity set.
+
+    The domain model represents comparison rows as ``target + competitors``.
+    Therefore the first user-specified entity becomes the target and every
+    remaining entity becomes a competitor. LLM-returned target/competitor names
+    are deliberately ignored here: they cannot widen or alter a closed scope.
+    """
+    if len(entities) < 2:
+        raise ValueError("fixed comparison scope requires at least two entities")
+    model_target = parsed.get("target") or {}
+    return ResearchBrief.model_validate(
+        {
+            "target": {
+                "name": entities[0],
+                "category": str(model_target.get("category") or domain),
+            },
+            "goal": str(parsed.get("goal") or query),
+            "competitors": entities[1:],
+            "dimensions": _coerce_dimensions(parsed.get("dimensions")),
+        }
+    )
 
 
 def _coerce_dimensions(raw: Any) -> list[str]:
