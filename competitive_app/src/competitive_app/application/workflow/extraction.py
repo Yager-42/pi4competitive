@@ -150,13 +150,16 @@ class EvidenceIntake:
         """Run the judge for one entity's empty cells against buffered pages."""
         # Load current SOCM to find this entity's empty cells.
         state = await self._socm_store.load(self._session_id)
-        empty_attrs = [
-            attr.id
+        # P2: carry the whole Attribute, not just its id — the judge needs the
+        # declared type and enum members to answer in the column's own terms.
+        empty_attributes = [
+            attr
             for cell in state.coverage_map.cells.values()
             if cell.entity_id == entity_id and cell.status == CellStatus.EMPTY
             for attr in state.coverage_map.attributes
             if attr.id == cell.attribute_id
         ]
+        empty_attrs = [attr.id for attr in empty_attributes]
         if not empty_attrs or not observations:
             # No empty cells left (already filled by a sibling) or no pages.
             return 0
@@ -164,7 +167,7 @@ class EvidenceIntake:
         pages_blob = "\n\n---\n\n".join(f"[{i}] {src}\n{txt}" for i, (txt, src) in enumerate(observations))
         if len(pages_blob) > self._max_input_chars:
             pages_blob = pages_blob[: self._max_input_chars]
-        findings = await self._call_judge(entity_id, empty_attrs, pages_blob)
+        findings = await self._call_judge(entity_id, empty_attributes, pages_blob)
         if not findings:
             return 0
         source_pages: dict[str, list[str]] = {}
@@ -241,9 +244,13 @@ class EvidenceIntake:
         return added
 
     async def _call_judge(
-        self, entity_id: str, empty_attrs: list[str], pages_blob: str
+        self, entity_id: str, empty_attrs: list[Any], pages_blob: str
     ) -> list[dict[str, Any]]:
-        """One-shot judge call via completeSimple; returns parsed findings."""
+        """One-shot judge call via completeSimple; returns parsed findings.
+
+        ``empty_attrs`` holds ``Attribute`` objects so the prompt can state each
+        column's value shape; bare id strings are still accepted.
+        """
         prompt = _build_judge_prompt(entity_id, empty_attrs, pages_blob)
         if self._extraction_skills:
             from ..evolution.injector import compose_system_prompt
@@ -306,13 +313,45 @@ def _extract_assistant_text(response: Any) -> str:
     return ""
 
 
-def _build_judge_prompt(entity_id: str, empty_attrs: list[str], pages_blob: str) -> str:
-    attrs = ", ".join(empty_attrs)
+def _attribute_spec(attr: Any) -> str:
+    """One prompt line telling the judge the shape a column expects (P2).
+
+    The plan stage already declares a type (and, for enums, the exact members),
+    but the judge was only ever handed attribute IDs — so it wrote prose into
+    typed columns and six sources phrased one fact six ways
+    ("per member / month", "per seat per month", "per user/month"), which the
+    coverage map then had to record as six-way disagreement.
+    """
+    attr_id = getattr(attr, "id", None)
+    if attr_id is None:  # plain id, no schema available
+        return f"- {attr}"
+    attr_type = getattr(getattr(attr, "type", None), "value", "text")
+    label = f"- {attr_id}"
+    name = getattr(attr, "name", "")
+    if name:
+        label += f" ({name})"
+    members = list(getattr(attr, "enum_values", None) or [])
+    if members:
+        return (
+            f"{label}: answer with EXACTLY ONE of these values, verbatim, "
+            f"nothing else: {', '.join(members)}"
+        )
+    if attr_type == "money_usd":
+        return f"{label}: a price with its currency and billing period, e.g. \"$10/user/month\""
+    if attr_type == "bool":
+        return f"{label}: start the value with \"Yes\" or \"No\", then any qualifier"
+    if attr_type == "number":
+        return f"{label}: a number with its unit, e.g. \"5 GB\""
+    return f"{label}: a short factual phrase"
+
+
+def _build_judge_prompt(entity_id: str, empty_attrs: list[Any], pages_blob: str) -> str:
+    specs = "\n".join(_attribute_spec(a) for a in empty_attrs)
     return (
         f"You are an evidence extraction judge. Given pages of fetched web content and a target "
         f"entity, extract structured findings for the entity's empty attribute cells.\n\n"
         f"Entity: {entity_id}\n"
-        f"Attributes to fill: {attrs}\n\n"
+        f"Attributes to fill, each with the value shape it expects:\n{specs}\n\n"
         f"Pages:\n{pages_blob}\n\n"
         f"Return a JSON array of objects, one PER (attribute, source) pair — i.e. if the same "
         f"attribute is supported by multiple pages/sources, return one object for EACH source:\n"
@@ -327,6 +366,9 @@ def _build_judge_prompt(entity_id: str, empty_attrs: list[str], pages_blob: str)
         f"- confidence reflects how directly + authoritatively the page supports the value "
         f"(official spec page = 0.9; reputable review = 0.7; forum/aggregator = 0.4).\n"
         f"- source_excerpt MUST be a verbatim substring of the page text supporting the value.\n"
+        f"- Follow each attribute's stated value shape above. Where a fixed list of values is "
+        f"given, return one of those values verbatim — do NOT paraphrase it. Put the wording "
+        f"from the page in source_excerpt, which is where prose belongs.\n"
         f"If no attribute can be filled from the pages, return []. Output ONLY the JSON array."
     )
 
