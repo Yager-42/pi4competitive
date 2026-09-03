@@ -184,6 +184,50 @@ def _resolve_target(request: RpcRequest, manifest: BakedToolManifest) -> Callabl
     return target
 
 
+#: Exception type names that mean "the network was uncooperative", not "this
+#: request is wrong". Matched by name so the worker keeps importing nothing
+#: beyond the approved tool module — httpx/aiohttp live inside the sandbox and
+#: must not become worker imports.
+_TRANSIENT_EXCEPTION_NAMES = frozenset(
+    {
+        "ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout",
+        "PoolTimeout", "ReadError", "WriteError", "RemoteProtocolError",
+        "ProxyError", "NetworkError", "ClientConnectorError",
+        "ServerDisconnectedError", "ServerTimeoutError", "ClientOSError",
+    }
+)
+
+#: HTTP statuses worth a second attempt: rate limiting and server-side faults.
+_TRANSIENT_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504, 509, 522, 524})
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """Whether a failed tool call could plausibly succeed on a retry.
+
+    The protocol has always carried ``error.retryable``, but every worker error
+    hard-coded False, so a search that lost a connection consumed the cell's
+    attempt budget exactly like a malformed request did. Classification stays
+    here because this is the only place the original exception exists — the
+    frame deliberately carries no detail beyond a safe message.
+    """
+    for error in (exc, exc.__cause__, exc.__context__):
+        if error is None:
+            continue
+        if isinstance(error, (TimeoutError, ConnectionError, OSError)) and not isinstance(
+            error, (PermissionError, FileNotFoundError, IsADirectoryError, NotADirectoryError)
+        ):
+            return True
+        if type(error).__name__ in _TRANSIENT_EXCEPTION_NAMES:
+            return True
+        status = getattr(getattr(error, "response", None), "status_code", None)
+        if isinstance(status, int) and status in _TRANSIENT_STATUS_CODES:
+            return True
+        status = getattr(error, "status", None)  # aiohttp names it `status`
+        if isinstance(status, int) and status in _TRANSIENT_STATUS_CODES:
+            return True
+    return False
+
+
 async def execute_request(
     request: RpcRequest,
     manifest: BakedToolManifest,
@@ -265,6 +309,7 @@ async def execute_request(
             )
         raise worker_error from error
     except Exception as exc:  # noqa: BLE001
+        retryable = _is_transient(exc)
         if not sequence.final_seen:
             emit_frame(
                 RpcFrame(
@@ -276,11 +321,13 @@ async def execute_request(
                     error={
                         "code": "tool_execution_error",
                         "safeMessage": "tool execution failed",
-                        "retryable": False,
+                        "retryable": retryable,
                     },
                 )
             )
-        raise WorkerError("tool_execution_error", "tool execution failed") from exc
+        raise WorkerError(
+            "tool_execution_error", "tool execution failed", retryable=retryable
+        ) from exc
 
 
 def run_worker(

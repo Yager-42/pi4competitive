@@ -34,6 +34,15 @@ from .profiles import StageProfile, build_profiles, is_search_tool
 from .stage_outputs import append_stage_output, collect_prior_outputs, last_usage, model_name
 
 
+#: Attempts per stage, including the first. A stalled stream or a schema miss
+#: is transient and independent per attempt; 3 covers the observed ~14% plan
+#: failure rate without unbounded cost on a genuinely broken stage.
+STAGE_MAX_ATTEMPTS = 3
+
+#: First backoff pause; doubles per retry (5s, 10s).
+STAGE_RETRY_BASE_DELAY_SECONDS = 5.0
+
+
 def _noop_journal_append(_event_type: str, _payload: dict[str, Any] | None = None) -> None:
     """Default journal sink (no-op when observability isn't wired)."""
     return
@@ -125,7 +134,7 @@ class ResearchRunner:
             await self._save_projection(projection)
             await self._emit_event("stage_start", {"stage": name, "task_id": self.task_id})
             try:
-                result = await self._run_stage(name, projection)
+                result = await self._run_stage_with_retry(name, projection)
             except asyncio.CancelledError:
                 self.agent.abort()
                 projection["stages"][name] = "failed"
@@ -141,10 +150,6 @@ class ResearchRunner:
                     },
                 )
                 raise
-            except Exception as exc:  # noqa: BLE001
-                result = StageResult(
-                    stage=name, ok=False, output={}, error=f"{type(exc).__name__}: {exc}"
-                )
             if not result.ok:
                 projection["stages"][name] = "failed"
                 await self._save_projection(projection)
@@ -198,6 +203,58 @@ class ResearchRunner:
         await self._set_status("completed")
         await self._emit_event("done", {"task_id": self.task_id, "status": "completed"})
         return "completed"
+
+    async def _run_stage_with_retry(
+        self, name: str, projection: dict[str, Any]
+    ) -> StageResult:
+        """Run a stage, retrying a bounded number of times on failure.
+
+        A single stalled stream used to kill the whole run: the model returned
+        HTTP 200, stopped emitting, and the read timeout eventually fired with
+        no retry behind it. Schema misses have the same shape — when the LLM
+        call yields nothing usable, ``_extract_output`` falls back to wrapping
+        raw text, which then fails required-field validation.
+
+        Both are transient and independent per attempt, so a retry is worth the
+        cost. Stages are safe to re-enter: plan re-derives, search resumes from
+        the persisted SOCM, and write regenerates. Cancellation is never
+        retried — it propagates so aborts stay immediate.
+        """
+        last: StageResult | None = None
+        for attempt in range(1, STAGE_MAX_ATTEMPTS + 1):
+            try:
+                result = await self._run_stage(name, projection)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                result = StageResult(
+                    stage=name, ok=False, output={}, error=f"{type(exc).__name__}: {exc}"
+                )
+            if result.ok:
+                return result
+            last = result
+            # An aborted stage is a decision, not a fault — never retry it.
+            if self.abort_signal.is_set() or attempt >= STAGE_MAX_ATTEMPTS:
+                return result
+            await self._emit_event(
+                "stage_retry",
+                {
+                    "stage": name,
+                    "task_id": self.task_id,
+                    "attempt": attempt,
+                    "max_attempts": STAGE_MAX_ATTEMPTS,
+                    "error": result.error or "",
+                },
+            )
+            delay = STAGE_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+            try:
+                await asyncio.wait_for(self.abort_signal.wait(), timeout=delay)
+            except TimeoutError:
+                pass  # backoff elapsed without an abort; go again
+            if self.abort_signal.is_set():
+                return result
+        assert last is not None
+        return last
 
     async def _run_stage(self, name: str, projection: dict[str, Any]) -> StageResult:
         profile = self.profiles[name]
