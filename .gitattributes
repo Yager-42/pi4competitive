@@ -1,0 +1,13 @@
+# Line endings — pin LF everywhere.
+#
+# The working tree drifted to CRLF once (no .gitattributes, core.autocrlf
+# unset), which made ~660 byte-identical files look modified. That is not just
+# noise: two contract tests read `git diff` and failed on it — test_deps.py
+# reported ~190 unchanged packages/ files as "changed without ADR sanction",
+# and the native-sandbox license-hash test saw altered .txt bytes.
+#
+# `eol=lf` (not just `text=auto`) is deliberate: it pins the checkout too, so a
+# Windows working tree stays byte-identical to CI and the drift cannot recur.
+# `text=auto` still auto-detects and leaves real binaries alone, and the repo
+# currently tracks no binary files at all.
+* text=auto eol=lf
