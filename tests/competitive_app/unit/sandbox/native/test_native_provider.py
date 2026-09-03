@@ -28,6 +28,8 @@ from competitive_app.adapter.out.sandbox.native.native_runtime import (
 from competitive_app.adapter.out.sandbox.native.native_sandbox_provider import (
     NATIVE_WORKER_ENVIRONMENT,
     NativeSandboxProvider,
+    _deny_target_directories,
+    _deny_target_files,
     _worker_environment,
 )
 from competitive_app.adapter.out.sandbox.protocol import (
@@ -90,6 +92,26 @@ async def test_provider_acquire_creates_workspace_and_returns_singleton(tmp_path
     workspace = tmp_path / "sandboxes" / SCOPE
     assert workspace.is_dir()
     assert await provider.acquire(SCOPE) is sandbox
+    await provider.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_provider_acquire_materializes_nested_deny_targets(tmp_path: Path) -> None:
+    """Nested deny targets must exist, not just the top-level ones.
+
+    ``.claude/commands`` is unreachable if ``.claude`` is created read-only,
+    and the chain builder swallows that OSError — so the target silently never
+    existed and bwrap fell back to the unstable create-then-bind branch.
+    """
+    provider = NativeSandboxProvider(sandbox_root=tmp_path / "sandboxes")
+    await provider.acquire(SCOPE)
+    workspace = tmp_path / "sandboxes" / SCOPE
+    for relative in _deny_target_directories():
+        target = workspace / relative
+        assert target.is_dir(), f"deny target not materialized: {relative}"
+        assert target.stat().st_mode & 0o777 == 0o500
+    for relative in _deny_target_files(workspace):
+        assert (workspace / relative).is_file(), f"deny target not materialized: {relative}"
     await provider.shutdown()
 
 
@@ -183,13 +205,15 @@ def test_worker_environment_allowlists_provider_vars_only() -> None:
             "DATABASE_URL": "postgres://leak",
         }
     )
-    assert env == {
-        "TAVILY_API_KEY": "secret",
-        "GROK_MODEL": "grok-x",
-        "HOME": "/Users/test",
-        "PATH": "/usr/bin",
-        "PYTHONPATH": "/repo/src",
-    }
+    assert env["TAVILY_API_KEY"] == "secret"
+    assert env["GROK_MODEL"] == "grok-x"
+    assert env["HOME"] == "/Users/test"
+    assert env["PATH"] == "/usr/bin"
+    pythonpath = env["PYTHONPATH"].split(os.pathsep)
+    assert pythonpath[0] == "/repo/src"
+    assert all(entry in pythonpath for entry in sys.path if entry)
+    assert "AWS_SECRET_ACCESS_KEY" not in env
+    assert "DATABASE_URL" not in env
     assert all(name in NATIVE_WORKER_ENVIRONMENT for name in env)
 
 

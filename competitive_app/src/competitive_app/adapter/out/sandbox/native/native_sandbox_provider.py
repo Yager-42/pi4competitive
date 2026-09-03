@@ -16,7 +16,7 @@ import asyncio
 import os
 import shutil
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,12 @@ from ..sandbox import Sandbox
 from ..types import require_scope_id
 from .native_runtime import NativeRuntime
 from .paths import NativePathTranslator, NativeSecurityGuard
+from .policy import (
+    WORKSPACE_SECRET_DENY_WRITE_BASENAMES,
+    WORKSPACE_SECRET_DENY_WRITE_DIRECTORIES,
+    create_default_policy,
+)
+from .srt.policy import DANGEROUS_FILES, get_dangerous_directories
 from .workspace import open_workspace_descriptor
 
 #: The only host environment that crosses into the sandboxed worker: the
@@ -70,11 +76,108 @@ def _worker_environment(
             if name in NATIVE_WORKER_ENVIRONMENT
         }
     env = {name: value for name, value in source.items() if value is not None}
-    if "PYTHONPATH" not in env:
-        env["PYTHONPATH"] = os.pathsep.join(
-            entry for entry in sys.path if entry
-        )
+    pythonpath_entries: list[str] = []
+    configured_pythonpath = env.get("PYTHONPATH", "")
+    for entry in [*configured_pythonpath.split(os.pathsep), *sys.path]:
+        if entry and entry not in pythonpath_entries:
+            pythonpath_entries.append(entry)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
     return env
+
+def _materialize_deny_targets(workspace: Path, directory_fd: int) -> None:
+    """Pre-create every workspace-relative deny target so its existence is
+    stable for the scope's lifetime.
+
+    The Linux backend picks how to express each deny target by testing
+    ``os.path.exists`` while building bwrap args, then bwrap acts on that
+    decision later. Brokers are spawned per call but share the scope
+    workspace, so concurrent calls raced: one worker saw ``.env`` absent and
+    had bwrap create it as a ``/dev/null`` mount point, the next saw it
+    present and asked bwrap to self-bind it, and whichever lost the
+    interleaving died with "Can't create file" or "Can't find source path".
+
+    Creating the targets up front collapses that to the single stable branch
+    (existing path -> ``--ro-bind path path``). bwrap then never creates a
+    mount point here, so nothing is registered for cleanup and there is
+    nothing to race on. Targets are empty and the workspace starts empty, so
+    they shadow no real content and the deny still fails closed.
+
+    Directory-shaped targets are materialized as directories and everything
+    else as empty files, matching the node kind bwrap would have created.
+    ``.git`` is deliberately left absent: the backend only adds
+    ``.git/hooks``/``.git/config`` when ``.git`` is a *directory*, so creating
+    it would widen the target set instead of stabilizing it.
+    """
+    for relative in _deny_target_directories():
+        _make_directory_chain(relative, directory_fd, leaf_mode=0o500)
+    for relative in _deny_target_files(workspace):
+        parent = os.path.dirname(relative)
+        if parent:
+            _make_directory_chain(parent, directory_fd)
+        try:
+            file_fd = os.open(
+                relative,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o400,
+                dir_fd=directory_fd,
+            )
+        except FileExistsError:
+            continue  # already materialized by an earlier acquire
+        except OSError:
+            continue  # best-effort: the deny path still fails closed in bwrap
+        os.close(file_fd)
+
+
+def _make_directory_chain(relative: str, directory_fd: int, *, leaf_mode: int = 0o700) -> None:
+    """mkdir -p for a workspace-relative path, opened against the scope fd.
+
+    Intermediate levels are always writable. A nested deny target
+    (``.claude/commands``) is unreachable if its parent is created without the
+    write bit, and the chain then aborts silently in the ``OSError`` branch, so
+    the target never gets materialized at all. ``leaf_mode`` is read-only only
+    for a deny target that is itself a directory; a parent that merely holds a
+    deny-target file (``.pi/settings.json``) must stay writable so the file
+    below it can be created. Every level a deny target does not name is
+    write-allowed by the policy anyway, and keeping them writable is also what
+    lets ``remove_workspace`` unlink the tree on release.
+    """
+    parts = [part for part in relative.split("/") if part]
+    for depth in range(1, len(parts) + 1):
+        mode = leaf_mode if depth == len(parts) else 0o700
+        try:
+            os.mkdir("/".join(parts[:depth]), mode, dir_fd=directory_fd)
+        except FileExistsError:
+            continue
+        except OSError:
+            return  # parent unusable; bwrap still fails closed on this path
+
+
+def _deny_target_directories() -> list[str]:
+    """Deny targets that must exist as directories."""
+    return [*WORKSPACE_SECRET_DENY_WRITE_DIRECTORIES, *get_dangerous_directories()]
+
+
+def _deny_target_files(workspace: Path) -> list[str]:
+    """Deny targets that must exist as files, workspace-relative.
+
+    Derived from the policy's own ``denyWrite`` rather than a second copy of
+    the list, so a new workspace deny target cannot silently reintroduce the
+    race. Only paths inside the workspace matter here; host paths are outside
+    this scope's control.
+    """
+    relatives: list[str] = [*WORKSPACE_SECRET_DENY_WRITE_BASENAMES, *DANGEROUS_FILES]
+    root = Path(os.path.realpath(workspace))
+    directories = set(_deny_target_directories())
+    for entry in create_default_policy(str(workspace))["filesystem"]["denyWrite"]:
+        try:
+            relative = Path(entry).relative_to(root).as_posix()
+        except ValueError:
+            continue  # host path, not ours to materialize
+        if relative in directories or not relative or relative.startswith(".."):
+            continue
+        relatives.append(relative)
+    return list(dict.fromkeys(relatives))
+
 
 def _stage_manifest_descriptor(
     source: Path,
@@ -174,12 +277,15 @@ class NativeSandboxProvider(SandboxProvider):
         manifest_path: str | Path | None = None,
         runtime_factory: RuntimeFactory = NativeRuntime,
         additional_allow_read: list[str] | None = None,
+        review_domain: Callable[[dict[str, Any]], Awaitable[str]] | None = None,
     ) -> None:
         self._sandbox_root = Path(sandbox_root)
         self._environment = _worker_environment(environment)
         self._manifest_path = Path(manifest_path) if manifest_path else None
         self._runtime_factory = runtime_factory
         self._additional_allow_read = list(additional_allow_read or [])
+        # Host-side network approval gate forwarded into each NativeRuntime.
+        self._review_domain = review_domain
         self._active: dict[str, Sandbox] = {}
         self._signals: dict[str, asyncio.Future] = {}
         self._scope_locks: dict[str, asyncio.Lock] = {}
@@ -208,6 +314,9 @@ class NativeSandboxProvider(SandboxProvider):
                 workspace, workspace_fd = open_workspace_descriptor(
                     self._sandbox_root, scope_id
                 )
+                # Stabilize deny-target existence before any broker starts, so
+                # per-call bwrap arg building cannot race on this workspace.
+                _materialize_deny_targets(workspace, workspace_fd)
                 staged_manifest = None
                 if self._manifest_path is not None:
                     staged_manifest, manifest_fd = _stage_manifest_descriptor(
@@ -227,6 +336,7 @@ class NativeSandboxProvider(SandboxProvider):
                         manifest_fd=manifest_fd,
                         scope_signal=signal,
                         additional_allow_read=self._additional_allow_read,
+                        review_domain=self._review_domain,
                     )
                     sandbox = Sandbox(
                         scope_id,

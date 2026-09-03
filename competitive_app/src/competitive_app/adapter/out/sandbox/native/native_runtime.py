@@ -41,6 +41,26 @@ MANIFEST_ENV = "PI4COMPETITIVE_MANIFEST_PATH"
 MANIFEST_FD_ENV = "PI4COMPETITIVE_MANIFEST_FD"
 
 
+#: Cap on the stderr excerpt attached to a worker failure. The full diagnostic
+#: may reach MAX_DIAGNOSTIC_BYTES; an error message only needs the cause.
+MAX_DIAGNOSTIC_SUMMARY_CHARS = 600
+
+
+def _diagnostic_summary(diagnostic: str) -> str:
+    """Condense worker stderr into a single bounded line for the raised error.
+
+    Keeps the LAST lines: tracebacks and bwrap mount failures put the cause at
+    the end, and a truncated head would drop it.
+    """
+    lines = [line.strip() for line in diagnostic.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    summary = " | ".join(reversed(lines[-3:]))
+    if len(summary) > MAX_DIAGNOSTIC_SUMMARY_CHARS:
+        summary = summary[:MAX_DIAGNOSTIC_SUMMARY_CHARS] + "..."
+    return summary
+
+
 def _validate_directory_descriptor(path: Path, descriptor: int) -> None:
     """Require the path and retained descriptor to name the same directory."""
     try:
@@ -120,6 +140,7 @@ class NativeRuntime:
         no_change_timeout: float = NO_CHANGE_TIMEOUT_SECONDS,
         worker_invocation: dict | None = None,
         additional_allow_read: list[str] | None = None,
+        review_domain: Callable[[dict[str, Any]], Awaitable[str]] | None = None,
     ) -> None:
         self._workspace = Path(workspace)
         if workspace_fd is None:
@@ -140,6 +161,10 @@ class NativeRuntime:
             raise
         self._env = dict(env or {})
         self._additional_allow_read = list(additional_allow_read or [])
+        # Host-side network approval gate: called by the runner for every
+        # sandboxed outbound connection (``answer_network_request``). When
+        # None, the runner denies all network requests (fail closed).
+        self._review_domain = review_domain
         self._manifest_path = Path(manifest_path) if manifest_path else None
         self._manifest_fd: int | None = None
         try:
@@ -270,6 +295,7 @@ class NativeRuntime:
                     on_stderr=consume_stderr,
                     broker=self._broker,
                     policy=policy,
+                    review_domain=self._review_domain,
                     pass_fds=tuple(
                         fd for fd in (self._workspace_fd, self._manifest_fd)
                         if fd is not None
@@ -277,20 +303,29 @@ class NativeRuntime:
                 )
             )
         except TimeoutError as error:
+            summary = _diagnostic_summary(diagnostic)
             raise SandboxRuntimeError(
                 "sandbox worker produced no output before timeout"
+                + (f": {summary}" if summary else "")
             ) from error
         except RuntimeError as error:
             if str(error) == "aborted":
                 raise asyncio.CancelledError("sandbox run aborted") from error
+            summary = _diagnostic_summary(diagnostic)
             raise SandboxRuntimeError(
                 f"sandbox worker runtime request failed: {error}"
+                + (f": {summary}" if summary else "")
             ) from error
 
         if terminal is None:
             if result["exit_code"] not in (None, 0):
+                # The worker's own stderr is the only record of *why* it died
+                # (bwrap mount failures, import errors). Without it the caller
+                # sees a bare exit code and the cause is unrecoverable.
+                summary = _diagnostic_summary(diagnostic)
                 raise SandboxCommandError(
-                    "sandbox worker exited without a terminal frame",
+                    "sandbox worker exited without a terminal frame"
+                    + (f": {summary}" if summary else ""),
                     command=command,
                     exit_code=result["exit_code"],
                 )

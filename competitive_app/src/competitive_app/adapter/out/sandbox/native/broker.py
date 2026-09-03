@@ -217,20 +217,31 @@ async def _main() -> int:
         init_message["runtimeConfig"], _ask_callback, False
     )
     command = " ".join(_shell_quote(arg) for arg in init_message["invocation"])
-    preserved_fds = tuple(
-        fd for fd in (workspace_fd, manifest_fd) if fd is not None
-    )
+    manifest_path = os.environ.get("PI4COMPETITIVE_MANIFEST_PATH")
+    linux_fd_bindings: list[tuple[int, str, bool]] = []
+    if sys.platform.startswith("linux") and manifest_fd is not None:
+        if not manifest_path:
+            raise RuntimeError("manifest descriptor path is missing")
+        linux_fd_bindings.append((manifest_fd, manifest_path, True))
     wrapped = await SandboxManager.wrap_with_sandbox(
         command,
         "/bin/bash",
         None,
         None,
         os.getcwd(),
-        preserve_fds=list(preserved_fds),
+        linux_fd_bindings=linux_fd_bindings,
     )
 
     target_env = dict(os.environ)
     target_env.pop("PI_SANDBOX_IPC_FD", None)
+    target_env.pop("PI_SANDBOX_WORKSPACE_FD", None)
+    target_env.pop("PI_SANDBOX_WORKSPACE_PATH", None)
+    if sys.platform.startswith("linux"):
+        # bwrap exposes the pinned manifest descriptor at manifest_path.  The
+        # command itself must use that read-only path because bwrap closes the
+        # setup descriptor before exec.
+        target_env.pop("PI4COMPETITIVE_MANIFEST_FD", None)
+    target_pass_fds = (manifest_fd,) if manifest_fd is not None else ()
     target = await asyncio.create_subprocess_exec(
         *wrapped,
         cwd=None if workspace_fd is not None else os.getcwd(),
@@ -238,7 +249,7 @@ async def _main() -> int:
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        pass_fds=preserved_fds,
+        pass_fds=target_pass_fds,
     )
 
     ipc_task = asyncio.create_task(_ipc_loop())
