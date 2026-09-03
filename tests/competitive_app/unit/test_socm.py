@@ -164,7 +164,14 @@ def test_coverage_to_projection():
     cm = _map()
     cm.fill("e_a", "a_p", value="x", source="s", confidence=0.9)
     proj = cm.to_projection()
-    assert proj == {"filled": 1, "total": 1, "pending_cells": 0, "ratio": 1.0}
+    assert proj == {
+        "filled": 1,
+        "total": 1,
+        "unknown": 0,
+        "conflict": 0,
+        "pending_cells": 0,
+        "ratio": 1.0,
+    }
 
 
 # ---------------------------------------------------------------- evidence graph

@@ -52,6 +52,8 @@ export interface Coverage {
   total: number
   unknown?: number
   conflict?: number
+  /* 仅 empty(从未检索)。unknown/conflict 是终态,不算待办 */
+  pending_cells?: number
   ratio?: number
 }
 

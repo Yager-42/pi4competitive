@@ -567,7 +567,8 @@ class ResearchRunner:
           the brief display title. None when write didn't run (stop_after=search).
         - brands: [brief.target.name] + brief.competitors, de-duped preserving order.
         - evidence_count: SOCM evidence_graph node count (judge-extracted findings).
-        - claim_count: SOCM coverage_map filled cell count (settled claims).
+        - claim_count: SOCM coverage_map cells holding a value — filled plus
+          conflict, which the report renders with their dissent (settled claims).
 
         Tolerant: any step may fail (no write output, no SOCM) — fields stay at
         their empty_projection defaults rather than raising.
@@ -582,7 +583,10 @@ class ResearchRunner:
         try:
             socm = await self.socm_store.load(self._session_id)
             projection["evidence_count"] = socm.evidence_graph.node_count()
-            projection["claim_count"] = socm.coverage_map.filled_count()
+            # P2: conflict cells hold a value and are rendered with their
+            # dissent, so they are claims the report makes. filled_count()
+            # excluded them and under-reported corroborated runs.
+            projection["claim_count"] = socm.coverage_map.settled_claim_count()
             # v0.3.3: flatten ACTIVE evidence into the global evidences table
             # (projection; SOCM JSON stays the search SoT, D-S4). Reuses the same
             # socm load — no extra IO. Fails soft: indexing must never break completion.

@@ -92,7 +92,16 @@ def empty_projection() -> dict[str, Any]:
     return {
         "current_stage": None,
         "stages": {name: "pending" for name in STAGES},
-        "coverage": {"filled": 0, "total": 0, "pending_cells": 0},
+        # Same keys CoverageMap.to_projection emits, so a task that has not
+        # reached search yet reports the four states as 0 rather than absent.
+        "coverage": {
+            "filled": 0,
+            "total": 0,
+            "unknown": 0,
+            "conflict": 0,
+            "pending_cells": 0,
+            "ratio": 0.0,
+        },
         # v0.3.1 report card fields (populated on task completion).
         "report_title": None,
         "brands": [],
