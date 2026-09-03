@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -74,13 +75,15 @@ from .application.workflow.task_service import TaskService
 class SandboxAppConfig:
     """Native sandbox config: canonical workspace root + manifest path.
 
-    P3.3 E: exactly two fields — no image/provider/tuning switches exist;
-    the trusted worker manifest lives beside the workspace root.
+    P3.3 E: no image/provider/tuning switches exist; the trusted worker
+    manifest lives beside the workspace root. ``allowed_domains`` is an
+    optional host-side network allowlist (see ``_build_native_review_domain``).
     """
 
     root: str = "data/sandboxes"
     manifest: str = ""  # empty => <root>/approved_tools.json
     config: str = ""  # empty => ~/.pi/agent/extensions/pi-sandbox/config.json (if present)
+    allowed_domains: str = ""  # comma-separated; empty => allow all public domains
 
 
 @dataclass
@@ -508,6 +511,7 @@ async def build_application_state(
                 environment=environment,
                 manifest_path=manifest_path,
                 additional_allow_read=_native_sandbox_additional_allow_read(config.sandbox.config),
+                review_domain=_build_native_review_domain(config.sandbox.allowed_domains),
             )
             sandbox_executor = SandboxToolExecutor(registry=sandbox_registry, provider=provider)
             lifecycle = SandboxLifecycle(
@@ -746,6 +750,62 @@ async def build_application_state(
         raise
 
 
+def _domain_in_allowlist(hostname: str, allowed: frozenset[str]) -> bool:
+    """True when *hostname* is an exact match or a subdomain of an allowlisted
+    domain (``api.example.com`` matches ``example.com`` and ``api.example.com``)."""
+    for domain in allowed:
+        if hostname == domain or hostname.endswith("." + domain):
+            return True
+    return False
+
+
+def _build_native_review_domain(
+    allowed_domains: str,
+) -> Callable[[dict[str, Any]], Awaitable[str]]:
+    """Build the host-side network approval callback for the native sandbox.
+
+    ADR 0016. The sandboxed worker's outbound connections are routed through
+    the SRT proxy, which asks the host (``answer_network_request``) whether
+    each connection may proceed. Without this callback ``action`` keeps its
+    ``"deny"`` initial value (fail closed), which silently breaks the
+    search/fetch capability tools (coverage stayed 0 because no provider call
+    ever completed). This callback is the allow gate:
+
+    - ``SANDBOX_ALLOWED_DOMAINS`` non-empty: only matching domains (exact or
+      subdomain) are allowed; everything else is denied without a DNS lookup.
+    - Empty (default): every public-address domain is allowed.
+      Private/loopback/link-local/CGNAT/fake-ip targets, mixed resolutions and
+      DNS failures stay denied (anti-SSRF); the broker independently enforces
+      the same public-address gate before asking and again immediately before
+      dialing (``_ask_network`` / ``validate_public_hostname``), so an approved
+      name that rebinds to a private address still cannot be reached.
+
+    Production should set the allowlist: the sandbox only ever dials the three
+    provider endpoints (``TAVILY_API_URL`` / ``ANYSEARCH_API_URL`` /
+    ``GROK_API_URL``) because ``*_fetch`` passes the target page URL as a
+    payload field for the provider to fetch server-side. Deriving that list
+    automatically is deferred — anysearch/grok follow redirects, so a derived
+    list could deny a cross-domain hop. See ADR 0016 alternative E.
+    """
+    allowed = frozenset(
+        domain.strip().rstrip(".").lower()
+        for domain in allowed_domains.split(",")
+        if domain.strip()
+    )
+
+    async def review_domain(endpoint: dict[str, Any]) -> str:
+        hostname = str(endpoint.get("hostname", "")).rstrip(".").lower()
+        if not hostname:
+            return "deny"
+        if allowed:
+            return "allow" if _domain_in_allowlist(hostname, allowed) else "deny"
+        from .adapter.out.sandbox.native.network_policy import validate_public_hostname
+
+        return "allow" if await validate_public_hostname(hostname) else "deny"
+
+    return review_domain
+
+
 def _native_sandbox_additional_allow_read(path: str) -> list[str]:
     """Load explicitly configured trusted pi-sandbox allow-read paths.
 
@@ -803,6 +863,7 @@ def load_config_from_env() -> AppConfig:
             root=os.environ.get("SANDBOX_ROOT", "data/sandboxes"),
             manifest=os.environ.get("SANDBOX_MANIFEST", ""),
             config=os.environ.get("SANDBOX_CONFIG", ""),
+            allowed_domains=os.environ.get("SANDBOX_ALLOWED_DOMAINS", ""),
         ),
         runs_root=os.environ.get("RUNS_ROOT", "data/runs"),
         llm_fallback_providers=os.environ.get("LLM_FALLBACK_PROVIDERS", ""),
