@@ -2,13 +2,13 @@
 
 | 字段 | 值 |
 |------|-----|
-| **feature_contract_version** | `0.2.3` |
-| **status** | **frozen — G1–G10 resolved；ADR 0013/0014 accepted；implementation plan v0.1.7 complete（P3.3 done）；G0 complete** |
+| **feature_contract_version** | `0.2.4` |
+| **status** | **frozen — G1–G10 resolved；ADR 0013/0014/0016 accepted；implementation plan v0.1.7 complete（P3.3 done）；G0 complete** |
 | **created** | 2026-08-02 |
-| **updated** | 2026-08-03 |
+| **updated** | 2026-09-03 |
 | **feature_id** | `agent-tool-native-sandbox-v1` |
 | **roadmap_stage** | P3.3 native AgentTool sandbox replacement；exit gate 关闭前不得扩大 AgentTool-dependent P4 |
-| **architecture contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) v0.3.11；ADR 0013/0014 |
+| **architecture contract** | [`ARCHITECTURE_CONTRACT.md`](../contracts/ARCHITECTURE_CONTRACT.md) v0.3.13；ADR 0013/0014/0016 |
 | **supersedes** | [`agent-tool-sandbox-v1`](agent_tool_sandbox_v1.md) v0.1.33 historical 的全部 Docker-specific runtime/provider/backend/image/lifecycle/resource 决策；保留其 provider-neutral universal executor、approved target、RPC、scope 与 workspace 契约 |
 | **adapter parent** | [`erichll/pi-packages`](https://github.com/erichll/pi-packages/tree/10c8eeb8269ee478ff7383c7e6139301aa9665f9/packages/pi-sandbox) `@erichll/pi-sandbox@0.4.2` @ `10c8eeb8269ee478ff7383c7e6139301aa9665f9` |
 | **isolation parent** | `@anthropic-ai/sandbox-runtime@0.0.67`（Apache-2.0；实际 OS 隔离父本） |
@@ -21,7 +21,7 @@
 
 ## 0. 效力与变更门禁
 
-1. 本文是 `agent-tool-native-sandbox-v1` 的冻结 feature 边界；实现必须服从 ADR 0013/0014、架构契约 v0.3.11 与 active plan。
+1. 本文是 `agent-tool-native-sandbox-v1` 的冻结 feature 边界；实现必须服从 ADR 0013/0014/0016、架构契约 v0.3.13 与 active plan。
 2. ADR 0013 supersede ADR 0011/0011-A 的 Docker-specific 决策；旧 Docker feature/plan 仅作历史记录。
 3. implementation plan 必须逐文件记录 `COPY / ADAPT / OMIT / NEW-HOST`，并按 Linux/macOS real gate 串行推进。
 4. 本文使用：
@@ -266,13 +266,30 @@ native worker 不从可写 workspace 加载 Python tool code。approved capabili
 
 ## 7. Network 与 approval
 
-1. 默认 deny network；未匹配连接提交精确 `hostname:port` approval。
-2. hostname 在 broker 内完成规范化和 DNS 校验；任一解析结果为非公网地址即拒绝。
+1. broker 默认 deny network；放行必须由 App 组合根注入的 `review_domain` gate 显式返回 `allow`（ADR 0016）。未注入 gate 时 `runner.answer_network_request` 的 `action` 保持初值 `"deny"`。
+2. hostname 在 broker 内完成规范化和 DNS 校验；任一解析结果为非公网地址即拒绝。校验做两次：向 Host 发问**之前**，以及 Host 返回 allow 后、proxy 真正 dial **之前**（反 DNS rebinding）。
 3. approval broker 不可用、异常、超时、grant 不匹配或已消费时拒绝。
 4. filesystem deny 不动态提升为 allow；与 erichll 保持 static fail-closed。
-5. production 无交互 UI 时不得隐式批准。
+5. production 无交互 UI 时不得隐式批准：放行必须来自**确定性 reviewer 的显式判定**（`_build_native_review_domain`），不得由缺省行为、超时或异常路径产生 allow。
 
-G5 已锁定为 Python 等价移植 `pi-auto-review@0.3.2` 的 sandbox 所需核心。production 网络请求必须经过该 broker；不存在 UI 时，只有 deterministic/model reviewer 返回且成功消费 exact one-shot grant 的请求可以放行，defer/异常/超时均 deny。
+G5（**ADR 0016 修订**）：production 网络请求必须经过 broker；不存在 UI 时，只有确定性 host-side gate 返回 `allow` **且**通过 broker 两次 public-address 校验的请求可以放行，defer/异常/超时/DNS 失败/混合解析均 deny。
+
+### 7.0 出网 gate 判定（ADR 0016）
+
+| 条件 | 结果 |
+|------|------|
+| hostname 缺失/空 | `deny` |
+| `sandbox.allowed_domains` 非空且精确匹配或为列表项子域 | `allow` |
+| `sandbox.allowed_domains` 非空且不匹配 | `deny`（不做 DNS） |
+| `sandbox.allowed_domains` 为空（默认）且 `validate_public_hostname` 成立 | `allow` |
+| 其余 | `deny` |
+
+**已记录的偏差（accepted deviation，非措辞调整）**：
+
+- 本路径**不消费 one-shot grant**，与 `pi-auto-review@0.3.2` 父本在这一点上不行为等价。`approve_domain_endpoint` / `BoundaryApprovalBrokerService` 保留为 D14 同构产物与将来交互式审批的接缝，production 不调用。
+- **默认放行面是"全部公网地址"**，宽于 clause 1 原文的"未匹配即提交 approval"。
+
+**production 部署建议**：当前 sandbox 出网目标面只有三个 provider endpoint（`TAVILY_API_URL` / `ANYSEARCH_API_URL` / `GROK_API_URL`；`tavily_fetch`/`anysearch_fetch` 把目标页 URL 作为 payload 字段交由 provider 服务端抓取，sandbox **不直连**搜索结果 URL），因此应显式设置 `SANDBOX_ALLOWED_DOMAINS` 收紧到这三个 host。自动推导未设为默认的原因见 ADR 0016 替代方案 E（anysearch/grok 客户端 `follow_redirects=True`）。
 
 ### 7.1 Environment boundary
 
@@ -313,6 +330,7 @@ sandbox.root
 sandbox.tool_bundle_root
 sandbox.manifest_path
 sandbox.additional_allow_read
+sandbox.allowed_domains          # ADR 0016；env SANDBOX_ALLOWED_DOMAINS，逗号分隔
 sandbox.network_policy / approval broker binding
 ```
 
@@ -325,7 +343,7 @@ sandbox.network_policy / approval broker binding
 - malformed config 使用宽松默认值继续启动。
 - Docker image、daemon、SDK、provider switch 或 Docker fallback 配置。
 
-startup readiness 必须真实验证：helper 可执行、unprivileged namespace/Seatbelt 可用、home read denied、workspace write allowed、network default denied、manifest/registry 一致、broker cleanup 成功。
+startup readiness 必须真实验证：helper 可执行、unprivileged namespace/Seatbelt 可用、home read denied、workspace write allowed、**network 默认 deny 且只由注入的 `review_domain` gate 显式放行**（ADR 0016）、manifest/registry 一致、broker cleanup 成功。
 
 ## 10. 验收门禁
 
@@ -370,6 +388,7 @@ G8 不锁定人为数值 SLA。验收必须提交同机 cold/steady/parallel/idl
 4. Linux filesystem deny 对不存在的深层动态 secret path 受 literal mount/path 能力限制。
 5. bubblewrap/Seatbelt/seccomp 是宿主内核边界，不等同于 VM/microVM kernel isolation。
 6. workspace 在同一 scope 并行调用间共享，恶意调用可以影响该 scope 的其他调用。
+7. **出网 gate 默认放行整个公网（ADR 0016）**，宽于实际需要的三个 provider endpoint；收紧靠部署期 `SANDBOX_ALLOWED_DOMAINS`，依赖运维纪律而非代码约束。且 allow/deny 决策当前不落 journal，事后无法审计某个 task 连过哪些站。
 
 ## 12. Grilling 决策队列
 
@@ -394,6 +413,7 @@ G1–G10、ADR 0013/0014、architecture contract v0.3.11 与 Roadmap/plan 同步
 
 | Version | Date | Change |
 |---------|------|--------|
+| `0.2.4` | 2026-09-03 | **ADR 0016**：出网策略。§7 clause 1/5 + G5 重写 —— broker 默认 deny，放行必须由 App 组合根注入的确定性 `review_domain` gate 显式返回；新增 §7.0 判定表与两条 accepted deviation（不消费 one-shot grant；默认放行面为全部公网）；§9 配置清单补 `sandbox.allowed_domains`，readiness 措辞同步；§11 新增残余风险 7。修复的实际缺陷：`wiring` 从未注入 `review_domain`，production 出网在任何一次提交上都是全 deny，五个 search/fetch AgentTool 结构性失效。记录 sandbox 出网目标面实为三个 provider endpoint（`*_fetch` 不直连结果 URL）。contract v0.3.12→v0.3.13 |
 | `0.2.2` | 2026-08-03 | **ADR 0014**：Linux real-enforcement gate 改为可选项（V2 不阻塞 closeout，Linux production 部署前必过）；macOS real gate 保持正式必过；§3.2/G4/§10.2/§10.3/§11/§13 措辞修订；contract v0.3.11 |
 | `0.2.3` | 2026-08-03 | **合并 main 重编号**：P3.3 ADR 0012/0013 与 response_format ADR 0012 撞号 → native=ADR 0013、Linux 可选=ADR 0014；contract v0.3.10→v0.3.11；plan v0.1.7；行为不变 |
 | `0.2.1` | 2026-08-02 | No behavior change：G0 evidence complete；link frozen source/integrity/license/seccomp/removal/CodeGraph/test map；plan v0.1.1 active |

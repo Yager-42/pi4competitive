@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **contract_version** | `0.3.12` |
-| **status** | **active**（0.3.12 = ADR 0015：pi_ai `AssistantMessage.error` 结构化错误透传；0.3.11 = ADR 0014：Linux real-enforcement gate 可选；macOS gate 必过；0.3.10 = ADR 0013 native-only Linux/macOS AgentTool sandbox（Python port erichll/SRT/auto-review）；0.3.9 = ADR 0012 pi_ai response_format 透传 JSON 强制；0.3.8 = ADR 0011-A：arm64 daemon 验收接受 orbstack 实测；0.3.6 + ADR 0010 research-workflow v0.2.0 SearchOS coverage 引擎复现；变更仍须 ADR + 升版本） |
-| **updated** | 2026-08-03 |
-| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、**P3.3 native AgentTool sandbox（ADR 0013/0014；分支内原编号 0012/0013 与 response_format ADR 0012 撞号，合并时重编号）**、**pi_ai response_format 透传（ADR 0012）**、**pi_ai 结构化错误透传（ADR 0015）**、P4 旧仓参考身份、SearchOS 引擎架构参考身份（ADR 0010） |
+| **contract_version** | `0.3.13` |
+| **status** | **active**（0.3.13 = ADR 0016：native sandbox host-side deterministic 出网 gate；0.3.12 = ADR 0015：pi_ai `AssistantMessage.error` 结构化错误透传；0.3.11 = ADR 0014：Linux real-enforcement gate 可选；macOS gate 必过；0.3.10 = ADR 0013 native-only Linux/macOS AgentTool sandbox（Python port erichll/SRT/auto-review）；0.3.9 = ADR 0012 pi_ai response_format 透传 JSON 强制；0.3.8 = ADR 0011-A：arm64 daemon 验收接受 orbstack 实测；0.3.6 + ADR 0010 research-workflow v0.2.0 SearchOS coverage 引擎复现；变更仍须 ADR + 升版本） |
+| **updated** | 2026-09-03 |
+| **scope** | 运行时边界、分层、依赖方向、技术栈、Pi 移植、本地 package 加载、engine extension 运行时及 P3.2 capability enablement、**P3.3 native AgentTool sandbox（ADR 0013/0014；分支内原编号 0012/0013 与 response_format ADR 0012 撞号，合并时重编号）**、**native sandbox 出网策略（ADR 0016）**、**pi_ai response_format 透传（ADR 0012）**、**pi_ai 结构化错误透传（ADR 0015）**、P4 旧仓参考身份、SearchOS 引擎架构参考身份（ADR 0010） |
 | **roadmap** | 实现顺序与阶段门禁见 [`docs/ROADMAP.md`](../ROADMAP.md) |
 | **out of scope for this doc** | 业务特性 backlog 细则、各业务 JSON Schema 字段表（另文） |
 
@@ -113,7 +113,7 @@
 | 语言 | TypeScript/JavaScript → Python behavior-equivalent port；production 无 Node/npm runtime |
 | 落点 | Agent executor + generic approval service seam 在 `packages/agent`；reviewer policy 在 local capability；native provider/runtime/SRT broker/trap adapter 在 App sandbox；composition 在 wiring/lifespan |
 | 规则 | 当前 Pi/App/DDD 所有权下应抄尽抄；能映射即 COPY-semantics，确有 Python/host interface delta 才 ADAPT |
-| 详细边界 | [`agent_tool_native_sandbox_v1.md`](../features/agent_tool_native_sandbox_v1.md) frozen v0.2.3；[`P3_3_agent_tool_native_sandbox.md`](../plans/P3_3_agent_tool_native_sandbox.md) v0.1.6 complete；G0 map v0.1.0；ADR 0013 |
+| 详细边界 | [`agent_tool_native_sandbox_v1.md`](../features/agent_tool_native_sandbox_v1.md) frozen v0.2.4；[`P3_3_agent_tool_native_sandbox.md`](../plans/P3_3_agent_tool_native_sandbox.md) v0.1.6 complete；G0 map v0.1.0；ADR 0013 + ADR 0016（出网） |
 
 ---
 
@@ -266,7 +266,7 @@ capability_packages/
 | 异步 | **asyncio** |
 | 工程 | uv/pip + pytest + import-linter（推荐） |
 | LLM | 仅 `packages/ai` + `packages/agent` |
-| AgentTool sandbox | Python native provider/broker + Linux bubblewrap/seccomp + macOS Seatbelt + model-backed exact network approval（ADR 0013） |
+| AgentTool sandbox | Python native provider/broker + Linux bubblewrap/seccomp + macOS Seatbelt + **host-side deterministic 出网 gate**（ADR 0016：broker 默认 deny + `validate_public_hostname` 双验；App 组合根按 `sandbox.allowed_domains` / public-address 判定） |
 | 投影 | App **SQLite**（任务列表/进度，非 agent 对话史实） |
 | Agent Session 存储 | **JSONL（D24）** @ **`data/sessions/`（D25）** |
 | Node | 非运行时依赖 |
@@ -353,6 +353,7 @@ P3.3 的 provider-neutral executor 与 generic boundary-approval service seam �
 | G11 | `competitive_app` production 所有 `AgentTool.execute()` 走 native sandbox executor；任何故障均无 host/Direct/Local/Docker fallback |
 | G12 | `packages/agent` 仅 provider-neutral executor/generic approval seam；reviewer policy 在 local capability；native SRT/OS trap implementation 在 App out adapter/wiring；Domain 无 sandbox IO |
 | G13 | P3.3 关闭须通过 feature v0.2.3 / native plan v0.1.7 / G0 map v0.1.1 的 O/S/L/M/P/R gates；arm64 macOS real enforcement、App e2e、offline parity、baseline/removal/license 不可 skip；Linux amd64 real enforcement 为可选项（ADR 0014，Linux production 部署声明前必过，不阻塞关闭） |
+| G14 | sandbox 出网只经 App 组合根的 `review_domain` gate（ADR 0016）：broker 侧 `validate_public_hostname` 双验不得绕过；非公网地址、混合解析、DNS 失败一律 deny；出网判定不得下沉进 `packages/ai\|agent` 或 Domain |
 
 ---
 
@@ -420,3 +421,4 @@ P3.3 的 provider-neutral executor 与 generic boundary-approval service seam �
 | *(0.3.7 patch)* | 2026-07-31 | 建立 P3.3 implementation plan v0.1.0；feature 无语义 patch 至 v0.1.31；同步 plan/exit-gate 指针，**不改 D*/G*、不升 contract_version** |
 | **0.3.9** | 2026-08-01 | **ADR 0012**：pi_ai openai-completions response_format 透传(JSON 强制)——`build_openai_completions_payload` 加最小透传(`options.response_format` → payload,不动 StreamOptions TypedDict/语义);上游 pi@c55ae2f `buildParams` 无此字段,pi4 补为移植偏差(理由:gateway 实测支持 response_format,JSON 强制是 clarify discover/derive 结构化抽取基础);pi_ai 0.81.1→0.81.2;只给返 JSON **object** 的调用加(discover/derive),judge 返 array 不加(JSON mode 只允许 object 顶层),refine 返 markdown 不加;契约测试 `test_deps.py` ADR_SANCTIONED 合并 P3.3(packages/agent 7)+ 本批(packages/ai 3)守"packages/ 冻结,偏差需 ADR+显式列入";feature `research-workflow-v1` v0.2.3→v0.2.4 patch |
 | **0.3.12** | 2026-08-03 | **ADR 0015**：pi_ai `AssistantMessage.error` 结构化错误透传——`types.py` 加 `ErrorInfo` TypedDict（`statusCode?`/`type`∈{timeout,connection,http_error,parse,aborted,other}/`message`），`AssistantMessage.error: NotRequired[ErrorInfo]` 仅 `stopReason=="error"` 时存在；`_http_stream.error_message()` 单一产点分类（HTTP≥400→http_error+statusCode；httpx TimeoutException/ConnectError/ReadError→timeout/connection/other；abort→aborted），`errorMessage` 文本保留；上游 main 无此字段=移植偏差（与 ADR 0012 同模式），理由：App 层 Multi-LLM Fallback 降级判定需类型级输入，文本匹配脆弱；pi_ai 0.81.2→0.81.3；契约测试 ADR_SANCTIONED 补 packages/ai 2 文件；feature `llm-fallback-observability-v1` v0.2.1 |
+| **0.3.13** | 2026-09-03 | **ADR 0016**：native sandbox 出网策略——`runner.answer_network_request` 的 `action` 初值为 `"deny"` 且仅在 `review_domain is not None` 时改写，而 `wiring` 从未传该参数（`git log -S` 证实从未入过任何提交），SRT `allowedDomains: []` 亦无旁路，故 production 出网**在任何一次提交上都是全 deny**，五个 search/fetch AgentTool 结构性失效、coverage 恒 0；feature §7/G5 描述的 "reviewer + one-shot grant 放行" 形态从未接线（`approve_domain_endpoint` 仅测试调用），即契约描述的是从未存在过的状态。决策：在 App 组合根引入 host-side deterministic gate `_build_native_review_domain`（`sandbox.allowed_domains` / env `SANDBOX_ALLOWED_DOMAINS` 非空→精确+子域匹配放行、不匹配 deny 且不做 DNS；为空（默认）→`validate_public_hostname` 公网地址放行，私网/loopback/link-local/CGNAT/fake-ip/混合解析/DNS 失败一律 deny）；broker 侧 pre-ask + pre-dial 双重 `validate_public_hostname`（反 DNS rebinding）原样保留且仍为权威。**实质偏差已显式记录**：不消费 one-shot grant；默认放行面为"全部公网"。查明当前出网目标面实为三个 provider endpoint（`*_fetch` 把目标页 URL 作 payload 交 provider 服务端抓取，sandbox 不直连结果 URL），故 production 应显式收紧 `SANDBOX_ALLOWED_DOMAINS`；自动推导默认暂缓（anysearch/grok `follow_redirects=True`）。代码仅 `competitive_app/wiring.py`，`packages/*` 与 native 适配层零改动；§6 技术栈行改写 + 新增 G14；feature `agent-tool-native-sandbox-v1` v0.2.3→v0.2.4 |

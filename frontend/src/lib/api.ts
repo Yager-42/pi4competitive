@@ -9,6 +9,7 @@ import type {
   Report,
   ReportCard,
   SSEEventType,
+  SearchOverrides,
   Subscription,
   Task,
   TraceSpan,

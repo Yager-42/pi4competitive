@@ -38,7 +38,16 @@ def test_empty_projection_three_stages_and_coverage() -> None:
     for name in STAGES:
         assert proj["stages"][name] == "pending"
     assert "coverage" in proj
-    assert proj["coverage"] == {"filled": 0, "total": 0, "pending_cells": 0}
+    # P2: same key set CoverageMap.to_projection emits, so the shape a client
+    # sees does not change once search starts filling it.
+    assert proj["coverage"] == {
+        "filled": 0,
+        "total": 0,
+        "unknown": 0,
+        "conflict": 0,
+        "pending_cells": 0,
+        "ratio": 0.0,
+    }
 
 
 def test_validate_stage_output_ok() -> None:

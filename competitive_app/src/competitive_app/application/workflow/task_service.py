@@ -290,6 +290,9 @@ class TaskService:
             )
             self._registry.start_task(task_id, self, operation)
         except BaseException:
+            # The caller only sees the re-raised error; without this the reason a
+            # startup transition failed (and got rolled back) left no record.
+            _log.exception("_start_research_task failed for %s", task_id)
             if operation is not None:
                 operation.close()
             if stream_registered:
@@ -824,6 +827,11 @@ class TaskService:
             user_brands = [cval.strip()]
         # fallback_brands: user-selected, else regex-extracted from query (VerdaAI port).
         fallback_brands = user_brands or _regex_brands(query)
+        # An explicit answer to the competitors question is the complete set —
+        # narrowing scope is the entire purpose of asking. Without this the
+        # deselected candidates return via `discovered` and the union caps at 6,
+        # so picking 2 competitors silently researched 6 (3x the cells).
+        exclusive_brands = bool(user_brands)
         if self._models is not None and self._judge_model is not None:
             prompt = (
                 "You are a competitive-intelligence research director. Derive a structured "
@@ -835,16 +843,29 @@ class TaskService:
                 "popularity, else recommend mainstream rivals for the domain); dimensions = the "
                 'user\'s selected dimensions, else default to ["功能对比", "定价策略"]; goal = expand '
                 "into one clear research objective sentence.\n"
-                "IMPORTANT: If the user's request explicitly lists multiple products/companies to "
+                + (
+                    "The user explicitly chose the competitor list below. Return EXACTLY "
+                    "those competitors — do not add, substitute, or expand it, and ignore "
+                    "the candidate list for this field.\n"
+                    if exclusive_brands
+                    else ""
+                )
+                + "IMPORTANT: If the user's request explicitly lists multiple "
+                "products/companies to "
                 "compare (e.g. 'X、Y、Z 对比' / 'X vs Y' / '为 X、Y、Z 做 SWOT'), those listed "
                 "products are the comparison targets and MUST be in competitors.\n\n"
                 f"Original request: {query}\n"
                 f"Subject: {subject}\n"
                 f"Domain: {domain}\n"
                 f"Candidate competitors: {', '.join(discovered_comps) or '(none)'}\n"
-                f"Must-include competitors (user-selected or query-listed): "
-                f"{', '.join(fallback_brands) or '(none)'}\n"
-                f"User answers:\n{answers_blob or '(none)'}\n\n"
+                + (
+                    f"Exact competitor list (user-selected, complete): "
+                    f"{', '.join(fallback_brands)}\n"
+                    if exclusive_brands
+                    else f"Must-include competitors (query-listed): "
+                    f"{', '.join(fallback_brands) or '(none)'}\n"
+                )
+                + f"User answers:\n{answers_blob or '(none)'}\n\n"
                 'Return ONLY a JSON object: {"target": {"name": "", "category": ""}, '
                 '"goal": "", "competitors": [""], "dimensions": [""]}. '
                 "Output ONLY the JSON object, no explanation, no markdown."
@@ -871,7 +892,10 @@ class TaskService:
                             },
                             "goal": str(parsed.get("goal") or query),
                             "competitors": _coerce_competitors(
-                                parsed.get("competitors"), discovered_comps, fallback_brands
+                                parsed.get("competitors"),
+                                discovered_comps,
+                                fallback_brands,
+                                exclusive=exclusive_brands,
                             ),
                             "dimensions": _coerce_dimensions(parsed.get("dimensions")),
                         }
@@ -883,7 +907,10 @@ class TaskService:
         return ResearchBrief(
             target={"name": subject[:120], "category": domain},
             goal=query,
-            competitors=_coerce_competitors(None, discovered_comps, fallback_brands) or ["(待补充)"],
+            competitors=_coerce_competitors(
+                None, discovered_comps, fallback_brands, exclusive=exclusive_brands
+            )
+            or ["(待补充)"],
             dimensions=["功能对比", "定价策略"],
         )
 
@@ -1163,6 +1190,9 @@ class TaskService:
             await self._store.update_task_status(task_id, "aborted")
             raise
         except Exception:  # noqa: BLE001
+            # The task is only marked "failed" below; without this the cause of
+            # the failure had no record anywhere.
+            _log.exception("task %s failed in _run_research", task_id)
             await self._store.update_task_status(task_id, "failed")
         finally:
             current_run_journal.reset(journal_token)
@@ -1553,14 +1583,27 @@ def _format_clarify_answers(questions: list[dict[str, Any]], answers: list[dict[
     return "\n".join(lines)
 
 
-def _coerce_competitors(raw: Any, discovered: list[str], must_include: list[str] | None = None) -> list[str]:
+def _coerce_competitors(
+    raw: Any,
+    discovered: list[str],
+    must_include: list[str] | None = None,
+    *,
+    exclusive: bool = False,
+) -> list[str]:
     """Ensure competitors is a non-empty list of non-empty strings (Q4).
 
     v0.2.8: ``must_include`` (query-listed/user-selected brands) are prepended
     if absent — guarantees the user's explicitly-listed products are searched
     even when the LLM omits them. Dedup preserve-order, cap 6.
+
+    ``exclusive`` (P1): ``must_include`` is the COMPLETE set, not a floor. Set
+    when the user explicitly answered the clarify competitors question — the
+    union below would otherwise re-add the candidates they just deselected,
+    turning a 2-competitor choice back into 6.
     """
     must_include = [str(b).strip() for b in (must_include or []) if str(b).strip()]
+    if exclusive and must_include:
+        return list(dict.fromkeys(must_include))[:6]
     comps: list[str] = []
     if isinstance(raw, list):
         comps = [str(c).strip() for c in raw if str(c).strip()]

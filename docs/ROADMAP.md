@@ -2,10 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| **roadmap_version** | `0.1.52` |
+| **roadmap_version** | `0.1.53` |
 | **status** | active |
-| **updated** | 2026-08-03 |
-| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.12** |
+| **updated** | 2026-09-03 |
+| **架构契约** | [`docs/contracts/ARCHITECTURE_CONTRACT.md`](contracts/ARCHITECTURE_CONTRACT.md) **v0.3.13** |
 | **目的** | 排期与完成门禁；**防止实现顺序/范围漂移** |
 
 ---
@@ -21,12 +21,12 @@
 
 | 话题 | 状态 | 建议 |
 |------|------|------|
-| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 **v0.3.12**） | **不必再聊**；要改走 ADR |
+| **包组织 / 路径 / import / 进程 / 技术栈** | **已冻结**（契约 **v0.3.13**） | **不必再聊**；要改走 ADR |
 | **实现顺序与完成标准** | 见本文阶段 | 按 roadmap 执行；细节可在阶段开工时补 checklist |
 | **业务能力（研究流程、报告等）** | 搜索 capability v1 **frozen** | 边界：[`docs/features/search_capability_packages_v1.md`](features/search_capability_packages_v1.md) **v0.1.12**；其余 workflow/报告另开 |
 | **agent engine extensions** | **done** | feature **v0.3.0**（P3.1 completed baseline + P3.2 delta）；计划 **v0.2.4 completed** |
 | **P3.2 Pi extension capability enablement** | **done** | feature **v0.1.0 frozen**；extension runtime delta **v0.3.0 frozen**；plan [`P3_2_pi_extension_capability_enablement.md`](plans/P3_2_pi_extension_capability_enablement.md) **v0.1.2 completed**；ADR 0009 |
-| **P3.3 AgentTool sandbox** | **done（A–F + V1 + V3 macOS real gate + V4 audits/closeout；V2 Linux 可选 per ADR 0014 未运行，Linux production 部署前必过）** | native feature **v0.2.2 frozen**；plan **v0.1.7 complete** + G0 map v0.1.1；ADR 0013/0013 / contract v0.3.11；Docker plan historical |
+| **P3.3 AgentTool sandbox** | **done（A–F + V1 + V3 macOS real gate + V4 audits/closeout；V2 Linux 可选 per ADR 0014 未运行，Linux production 部署前必过）** | native feature **v0.2.4 frozen**；plan **v0.1.7 complete** + G0 map v0.1.1；ADR 0013/0014/**0016（出网 gate）** / contract v0.3.13；Docker plan historical |
 | **capability 里具体有哪些搜抓包** | **frozen** + 实现计划 | 搜索 feature 契约；计划 [`docs/plans/P4_search_capability_packages.md`](plans/P4_search_capability_packages.md) |
 | **workflow Skill 自进化** | **implemented / verified** | feature **frozen v0.2.1**；plan [`P4_workflow_skill_self_evolution.md`](plans/P4_workflow_skill_self_evolution.md) **v0.1.2 completed**；O1–O16、S1–S4、真实 provider L1–L4 green |
 | **LLM fallback + observability** | **implemented / verified** | feature [`llm_fallback_observability_v1.md`](features/llm_fallback_observability_v1.md) **frozen v0.2.1**；plan [`P4_llm_fallback_observability.md`](plans/P4_llm_fallback_observability.md) **v0.1.4 completed**；ADR 0015；contract v0.3.12 |
@@ -282,3 +282,4 @@ continue P4              保留既有实现；恢复依赖 AgentTool 的业务�
 | 0.1.50 | 2026-08-05 | **research-workflow v0.2.6：write 逐 section 多 call（A 路线）**：write 从 one-shot（1 call 整篇）→ 逐 section sequential（overview + per-dimension[brief.dimensions] + conclusion，N+2 call，主 session `harness.prompt` 串行——保 D24 session JSONL + SSE + v0.2.5 测试；parallel defer 因丢 session/SSE）。每 section call：brief + 整 coverage map + dimension 指令 + memory blob（v0.2.5 每 section 注入）；输出 `{body, sources}`（容错）；best-effort per section。`_assemble_report` 拼 `## title\n{body}` + `## Sources`（按 section 分组，无全局重编号）+ sections[] 顺序 id（refine/ReportPage 不变）。落点：`profiles._WRITE_PROMPT`（per-section，v0.2.6 re-grill locked）+ `research_runner._run_write_stage` + `_section_list`/`_build_section_prompt`/`_extract_section_output`/`_assemble_report`。**边界**：无 audit/rework（B deferred）、仍 markdown（非结构化组件，B deferred）、~N+2 call（3-5）。契约 0.3.12 不动（无 ADR）；http v0.3.4 不动；offline 7 测试 + live 真 run（443s 验 per-section 结构）+ v0.2.5 memory_inject live 回归（405s，blob 仍进 section prompt） |
 | 0.1.51 | 2026-08-06 | **http v0.3.5 / research-workflow v0.2.7：per-task 搜索超参覆盖**：`POST /tasks` body 加可选 `search_overrides`（4 字段 `max_parallel/coverage_threshold/max_queries/max_wall_seconds`）→ 存 `metadata.search_overrides`（resume F-R16 一致）→ 透传 ResearchRunner → CoverageEngine（构造参数已支持覆盖，加 Budget 2 维 max_queries/max_wall_seconds 覆盖 SOCMBudget）。校验:越界 clamp（max_parallel 1-16 / threshold 0.05-1 / max_queries 1-200 / max_wall 30-3600）+ 类型错丢弃 + 不传=env 默认（向后兼容）。落点：`dto.SearchOverrides` + `task_service._clamp_search_overrides` + `_run_research` 读 metadata 传 runner + `CoverageEngine.__init__` 加 max_queries/max_wall_seconds + run 里覆盖 Budget + `ResearchRunner.search_overrides`。前端 HomePage 折叠面板"搜索调参(高级)"4 input。契约 0.3.12 不动（无 ADR）；offline 10 测试（clamp unit 6 + integration 4）+ 51 回归全绿 |
 | 0.1.52 | 2026-08-06 | **research-workflow v0.2.8：query 竞品兜底（VerdaAI 对齐）**：bug——"为飞书、钉钉、企业微信做 SWOT"类 query，discover 把列举产品当 subject（品类）→ 候选竞品是 Slack/Teams（漏了飞书/钉钉/企业微信）→ 跳过时竞品错。修：① discover + derive prompt 加规则"query 显式列的多产品（X、Y、Z / X vs Y）当竞品必进 competitors，subject=共属品类"；② 加 `_regex_brands(query)`（VerdaAI `_regex_brands` 移植：切顿号/vs/与/和 + 停用词过滤 + 2-8 字 + 上限 6）作 **fallback**（`fallback_brands = user_brands or _regex_brands(query)`，VerdaAI 式——只在用户没勾选时兜底，不无条件强塞）；③ `_coerce_competitors` 加 `must_include` 参数（fallback_brands 硬塞保 query 产品必搜，LLM 不听话兜底）。落点：`task_service._regex_brands` + discover/derive prompt 改 + `_derive_brief` 抽 user_brands + `_coerce_competitors` must_include。诚实边界：正则对中文列举（有顿号）准；产品名后接中文描述无分隔切不净（主靠 LLM prompt，正则只兜底）；契约 0.3.12 不动（无 ADR）；http v0.3.5 不动；offline 11 测试（regex unit 10 + integration 1）+ 44 回归全绿 |
+| 0.1.53 | 2026-09-03 | **ADR 0016：native sandbox 出网策略（contract 0.3.12→0.3.13 / native feature v0.2.3→v0.2.4）**：bug——`answer_network_request` 的 `action` 初值 `deny` 只在 `options.review_domain is not None` 时被改写，而 `wiring` 从未传该回调（`git log -S review_domain -- wiring.py` 为空），SRT 侧 `allowedDomains: []` 也无旁路 → production 每一个沙箱出网连接都被拒，五个 search/fetch AgentTool 结构性失效、SOCM coverage 恒 0，且被 `worker.py` 归一化成 `tool execution failed`，故障指向工具而非沙箱。修：组合根新增 host-side deterministic gate `wiring._build_native_review_domain`（hostname 缺失 deny → `SANDBOX_ALLOWED_DOMAINS` 非空则按标签边界精确/子域匹配、不做 DNS → 为空则 `validate_public_hostname`；私网/loopback/link-local/CGNAT/fake-ip/混合解析/DNS 失败一律 deny），broker 侧 pre-ask + pre-dial 双验原样保留（反 DNS rebinding）。**偏差已记录**：不消费 §7/G5 的 one-shot grant；默认放行面是全部公网（production 应显式收紧到三个 provider host——由 ADR FACT 3，五个工具只连 `TAVILY_API_URL`/`ANYSEARCH_API_URL`/`GROK_API_URL`，正文抓取由 provider 服务端代劳）。契约 §6 技术栈行改准确措辞 + §8 新增 G14；`approve_domain_endpoint` 保留为将来交互式审批接缝；策略本体只在 `wiring.py`，native 适配层各多一个 `review_domain` 转发参数、`packages/ai\|agent` 零改动；新增离线单测 `test_sandbox_egress_policy.py`（19 断言，注入 resolver 不打真实 DNS）|

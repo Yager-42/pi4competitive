@@ -1007,7 +1007,7 @@ async def wrap_command_with_sandbox_linux(
     observe_socket_path: str | None = None,
     abort_signal: asyncio.Future | None = None,
     cwd: str | None = None,
-    preserve_fds: list[int] | None = None,
+    fd_bindings: list[tuple[int, str, bool]] | None = None,
 ) -> list[str]:
     """Build the bwrap argv for one sandboxed command.
 
@@ -1033,10 +1033,12 @@ async def wrap_command_with_sandbox_linux(
     has_write_restrictions = write_config is not None
     has_env_restrictions = bool(unset_env_vars) or bool(set_env_vars)
     has_git_config = bool(git_safe_directories)
-    preserved_descriptors = list(preserve_fds or [])
-    for descriptor in preserved_descriptors:
+    descriptor_bindings = list(fd_bindings or [])
+    for descriptor, destination, _read_only in descriptor_bindings:
         if descriptor <= 2:
-            raise ValueError("preserved sandbox descriptor must be greater than stderr")
+            raise ValueError("sandbox bind descriptor must be greater than stderr")
+        if not os.path.isabs(destination):
+            raise ValueError("sandbox fd bind destination must be absolute")
 
     if (
         not needs_network_restriction
@@ -1044,7 +1046,7 @@ async def wrap_command_with_sandbox_linux(
         and not has_write_restrictions
         and not has_env_restrictions
         and not has_git_config
-        and not preserved_descriptors
+        and not descriptor_bindings
     ):
         return ["bash", "-c", command]
 
@@ -1052,8 +1054,6 @@ async def wrap_command_with_sandbox_linux(
     _active_sandbox_count += 1
 
     bwrap_args: list[str] = ["--new-session", "--die-with-parent"]
-    for descriptor in preserved_descriptors:
-        bwrap_args.extend(["--preserve-fds", str(descriptor)])
     apply_seccomp_prefix: str | None = None
 
     try:
@@ -1172,6 +1172,19 @@ async def wrap_command_with_sandbox_linux(
             cwd,
         )
         bwrap_args.extend(fs_args)
+
+        # bubblewrap consumes these descriptors while constructing the mount
+        # namespace, so the sandboxed command never needs to inherit raw host
+        # descriptors.  This works on the bubblewrap 0.9 shipped by Ubuntu
+        # 24.04; ``--preserve-fds`` is not a bubblewrap option there.
+        for descriptor, destination, read_only in descriptor_bindings:
+            bwrap_args.extend(
+                [
+                    "--ro-bind-fd" if read_only else "--bind-fd",
+                    str(descriptor),
+                    destination,
+                ]
+            )
 
         bwrap_args.append("--dev")
         bwrap_args.append("/dev")
